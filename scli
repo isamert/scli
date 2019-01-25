@@ -1,4 +1,6 @@
-#!/bin/python
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 import os
 import re
 import sys
@@ -99,7 +101,7 @@ def attachment_get_name(attachment):
 
 class NiceBox(urwid.AttrMap):
     def __init__(self, w, title=''):
-        box = urwid.AttrMap(urwid.LineBox(urwid.AttrMap(w, 'normal'), title_align='center', tlcorner='┌', tline='─', lline='│', trcorner='┐', blcorner='└', rline='│', bline='─', brcorner='┘'), 'box_normal')
+        box = urwid.AttrMap(urwid.LineBox(urwid.AttrMap(w, 'normal'), title_align='center'), 'box_normal')
         super().__init__(box, None, focus_map={'box_normal':'box_focused'})
 
 
