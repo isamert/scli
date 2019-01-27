@@ -3,7 +3,10 @@
 
 # Installation
 - Firstly, you need to install [signal-cli](https://github.com/AsamK/signal-cli). Follow the guide provided in the README.
-- Install `urwid`. You can install it trough your distributions package manager (search for `python-urwid`) or you can use `pip` to install: `pip install urwid`.
+- Install `libunixsocket-java` from your package manager if you have not installed yet. (Arch Linux users should install `libmatthew-unix-java` from AUR. If you installed `signal-cli` from AUR, you can skip this step.)
+- Install `urwid`. You can install it trough your distributions package manager (search for `python3-urwid` or `python-urwid`) or you can use `pip` to install: `pip3 install urwid`.
+
+`scli` requires Python version 3. If your default Python version is 2, you need to run `scli` with `python3`, like: `python3 scli ...`.
 
 ## Linking your device and using
 `scli` does not provide anything for registering/linking, you need to do this using `signal-cli`.
@@ -27,12 +30,14 @@ scli -u PHONE_NUMBER
 A simple two-paned interface is provided. Left pane contains the contact list and the right pane contains the conversation. You can switch focus between panes by hitting `Tab` (or `Shift + Tab`). Hitting tab for the first time focuses the conversation, hitting it again focuses to input line. So the tab order is `Contacts -> Conversation -> Input`, you can use `Shift + Tab` for cycling backwards.
 
 ## Keys
-- Use j/k to go down/up in contacts list or in messages.
+- Use `j`/`k` to go down/up in contacts list or in messages.
 - Hitting `enter` on a contact starts conversation and focuses to input line.
 - Hitting `l` on a contact only starts conversation.
 - Hitting `o` on a message opens the URL if there is one, if not it opens the attachment if there is one. (needs `xdg-open`)
 - Hitting `enter` on a message opens the attachment if there is one, if not it opens the URL if there is one. (needs `xdg-open`)
 - Hitting `y` on a message puts it into system clipboard. (needs `xclip`)
+- `g` focuses first contact/message.
+- `G` focuses last contact/message.
 
 ## Commands
 There are some basic commands that you can use. Hit `:` to enter command mode (or simply focus the input line and type `:`).
