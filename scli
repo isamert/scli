@@ -8,7 +8,8 @@ import urwid
 import subprocess
 import tempfile
 import atexit
-import getopt
+import argparse
+import logging
 from subprocess import PIPE, Popen
 
 # #############################################################################
@@ -20,6 +21,9 @@ SIGNALCLI_FOLDER = os.getenv(os.path.join('XDG_DATA_HOME', 'signal-cli'),
 
 DATA_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'data')
 ATTACHMENT_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'attachments')
+
+LOG_FILE = os.path.expanduser('~/scli.log')
+
 
 # #############################################################################
 # utility
@@ -284,8 +288,8 @@ class Signal(object):
             e = json.loads(line)
             urwid.emit_signal(self, 'receive_message', e['envelope'])
         except Exception as e:
-            #log('ERR (daemon_handler): ' + traceback.format_exc())
-            pass
+            logging.error('input:' + str(line))
+            logging.exception(e)
 
     def send_message(self, contact, message="", attachments=[]):
         args = ['signal-cli', '--dbus', 'send', '--message', message]
@@ -307,6 +311,7 @@ class Signal(object):
         p = Popen(args, stdout=PIPE, stderr=PIPE)
         out, error = p.communicate()
         if p.returncode != 0:
+            logging.error('send_message: exit code=' + str(p.returncode) + ', err=' + str(error))
             return (False, 'err:' + str(p.returncode) + str(error))
         else:
             envelope = {'dataMessage': {'message': message, 'attachments': attachments}}
@@ -767,30 +772,16 @@ urwid.register_signal(State, State.signals)
 # main
 # #############################################################################
 
-def usage():
-    print('scli -u USERNAME')
-
 def main(argv):
-    opts, args = None, None
-    try:
-        opts, args = getopt.getopt(argv,"u:",["username="])
-    except:
-        usage()
-        sys.exit(2)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-u', '--username', type=str, required=True, help='Phone number starting with "+" followed by country code.')
+    parser.add_argument('--debug', action='store_true')
+    args = parser.parse_args()
 
-    number = None
-    for opt, arg in opts:
-        if opt == '-u' or opt == '--username':
-            number = arg
-        if opt == '-h':
-            usage()
-            sys.exit()
+    if args.debug: logging.basicConfig(filename=LOG_FILE, level=logging.DEBUG)
+    else: logging.basicConfig(filename=LOG_FILE, level=logging.CRITICAL)
 
-    if not number:
-        usage()
-        sys.exit(2)
-
-    state = State(number)
+    state = State(args.username)
     window = MainWindow(state)
 
     palette = [('normal', '', ''),
