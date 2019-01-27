@@ -3,10 +3,8 @@
 
 # Installation
 - Firstly, you need to install [signal-cli](https://github.com/AsamK/signal-cli). Follow the guide provided in the README.
-- Install `libunixsocket-java` from your package manager if you have not installed yet. (Arch Linux users should install `libmatthew-unix-java` from AUR. If you installed `signal-cli` from AUR, you can skip this step.)
+- Install `libunixsocket-java` from your package manager if you have not installed it yet. (Arch Linux users should install `libmatthew-unix-java` from AUR. If you installed `signal-cli` from AUR, you can skip this step.)
 - Install `urwid`. You can install it trough your distributions package manager (search for `python3-urwid` or `python-urwid`) or you can use `pip` to install: `pip3 install urwid`.
-
-`scli` requires Python version 3. If your default Python version is 2, you need to run `scli` with `python3`, like: `python3 scli ...`.
 
 ## Linking your device and using
 `scli` does not provide anything for registering/linking, you need to do this using `signal-cli`.
