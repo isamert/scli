@@ -379,6 +379,14 @@ class ContactsWindow(urwid.ListBox):
             if not self.get_focused_contact(): self.focus_prev()
         except: pass
 
+    def focus_first(self):
+        try: self.focus_position = 2
+        except: pass
+
+    def focus_last(self):
+        try: self.focus_position = len(self._body) - 1
+        except: pass
+
     def keypress(self, size, key):
         key = super().keypress(size, key)
         if key == 'enter' or key == 'l':
@@ -388,6 +396,10 @@ class ContactsWindow(urwid.ListBox):
             self.focus_next()
         elif key == 'k' or key == 'up':
             self.focus_prev()
+        elif key == 'g':
+            self.focus_first()
+        elif key == 'G':
+            self.focus_last()
         elif key == 'r':
             pass # TODO: refresh
         return key
@@ -552,6 +564,14 @@ class ChatWindow(urwid.Frame):
         try: self._wlist.focus_position = self._wlist.focus_position + 1
         except: pass
 
+    def focus_last_msg(self):
+        try: self._wlist.focus_position = len(self.state.current_chat) -1
+        except: pass
+
+    def focus_first_msg(self):
+        try: self._wlist.focus_position = 0
+        except: pass
+
     def keypress(self, size, key):
         key = super().keypress(size, key)
 
@@ -576,6 +596,10 @@ class ChatWindow(urwid.Frame):
                 self.focus_next_msg()
             elif key == 'k':
                 self.focus_prev_msg()
+            elif key == 'g':
+                self.focus_first_msg()
+            elif key == 'G':
+                self.focus_last_msg()
             elif key == 'y':
                 txt = envelope_get_msg(envelope)
                 clip.xput(txt)
