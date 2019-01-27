@@ -46,8 +46,8 @@ There are some basic commands that you can use. Hit `:` to enter command mode (o
 - `:openUrl` or `:u` opens last URL in messages, if there is one.
 - `:openAttach` or `:o` opens last attachment in messages, if there is one.
 - `:attach FILE_PATH` or `:a FILE_PATH` attaches given file to message.
-- `:attachClip` or `:c` attaches clipboard content to message.
-    This command tries to detect clipboard content. If clipboard contains something with the mime-type `image/png` or `image/jpg`, simply attaches the image to message. If clipboard contains `text/uri-list` it attaches all the files in that URI list to your message. This command needs `xclip` installed.
+- `:attachClip` or `:c` attaches clipboard content to message. This command tries to detect clipboard content. If clipboard contains something with the mime-type `image/png` or `image/jpg`, simply attaches the image to message. If clipboard contains `text/uri-list` it attaches all the files in that URI list to your message. This command needs `xclip` installed.
+- `:toggleNotifications` or `:n` toggles desktop notifications. If desktop notifications are enabled, when a new message arrives a notification will be sent trough `notify-send`. Notifications are disabled at program startup, you can toggle it with `:n`.
 
 Examples:
 ```
