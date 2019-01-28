@@ -286,10 +286,12 @@ class Signal(object):
 
         try:
             e = json.loads(line)
-            urwid.emit_signal(self, 'receive_message', e['envelope'])
         except Exception as e:
             logging.error('input:' + str(line))
             logging.exception(e)
+            return
+
+        urwid.emit_signal(self, 'receive_message', e['envelope'])
 
     def send_message(self, contact, message="", attachments=[]):
         args = ['signal-cli', '--dbus', 'send', '--message', message]
@@ -545,13 +547,29 @@ class ChatWindow(urwid.Frame):
         is_group = is_envelope_group_msg(envelope)
 
         if msg is None:
-            # log('NOMSG: ' + str(envelope))
+            logging.info('NOT_A_MESSAGE:' + str(envelope))
             return
+        else:
+            logging.info('MESSAGE:' + str(envelope))
 
         contact = None
-        if is_group: contact = self.state.signal.get_contact(envelope_get_group_id(envelope))
-        else: contact = self.state.signal.get_contact(envelope['source'])
-        notif = 'New message from ' + get_contact_name(contact) + ': "' + msg + '"'
+        if is_group:
+            contact = self.state.signal.get_contact(envelope_get_group_id(envelope))
+        else:
+            contact = self.state.signal.get_contact(envelope['source'])
+
+        contact_name = None
+        if not contact and not is_group:
+            if envelope.get('source') and envelope['source'].strip() != "":
+                contact_name = envelope['source']
+            else:
+                logging.critical('EMPTY_SENDER:' + str(envelope))
+        elif not contact and is_group:
+            logging.critical('GROUP_WITH_NO_NAME:' + str(envelope))
+        else:
+            contact_name = get_contact_name(contact)
+
+        notif = 'New message from ' + contact_name + ': "' + msg + '"'
 
         if is_same_:
             self.print_received_message(envelope)
