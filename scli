@@ -564,9 +564,11 @@ class ChatWindow(urwid.Frame):
                 contact_name = envelope['source']
             else:
                 logging.critical('EMPTY_SENDER:' + str(envelope))
+                self.state.set_notification('Message with no source: ' + str(msg))
                 return
         elif not contact and is_group:
             logging.critical('GROUP_WITH_NO_NAME:' + str(envelope))
+            self.state.set_notification('Message with no source: ' + str(msg))
             return
         else:
             contact_name = get_contact_name(contact)
