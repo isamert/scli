@@ -54,6 +54,20 @@ Examples:
 ```
 **Note**: Commands are case insensitive, `:quit` and `:qUiT` does the same thing.
 
+## Configuration
+There are some simple configuration options. You can either pass them as command-line arguments or add them to your configuration file. Run `scli --help` to see options. Configuration file syntax is also pretty easy. Lines starting with `#` and empty lines are ignored, other lines should consist `key=value` pairs.
+
+### Example
+```sh
+scli -u +1234567890 --enable-notifications=true
+```
+Configuration file equivalent of this command is:
+```ini
+# Long option forms are used in config file. (u=+123... is not valid.)
+username=+1234567890
+enable-notifications=true
+```
+
 # Screenshots
 ![scli](screenshots/1.png?raw=true)
 ![scli](screenshots/2.png?raw=true)

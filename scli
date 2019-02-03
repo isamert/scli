@@ -4,7 +4,6 @@ import os
 import re
 import sys
 import json
-import urwid
 import subprocess
 import tempfile
 import atexit
@@ -12,18 +11,17 @@ import argparse
 import logging
 from subprocess import PIPE, Popen
 
+import urwid
+
 # #############################################################################
 # constants
 # #############################################################################
 
-SIGNALCLI_FOLDER = os.getenv(os.path.join('XDG_DATA_HOME', 'signal-cli'),
-                             os.path.expanduser('~/.local/share/signal-cli'))
-
+SIGNALCLI_FOLDER = os.path.join(os.getenv('XDG_DATA_HOME', os.path.expanduser('~/.local/share')), 'signal-cli')
 DATA_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'data')
 ATTACHMENT_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'attachments')
-
+DEFAULT_CFG_PATH = os.path.join(os.getenv('XDG_CONFIG_HOME', os.path.expanduser('~/.config')), 'sclirc')
 LOG_FILE = os.path.expanduser('~/scli.log')
-
 
 # #############################################################################
 # utility
@@ -36,6 +34,19 @@ def has_key(key, x):
 def get_url(txt):
     try: return re.search('(?P<url>https?://[^\s]+)', txt).group('url')
     except: return None
+
+def mk_call(cmd, rmap={}):
+    for key, val in rmap.items():
+        cmd = cmd.replace(key, val)
+    pipe = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    out, err = pipe.communicate()
+    logging.info('mk_call:%s', cmd)
+    if pipe.returncode == 0:
+        logging.info('mk_call:exit_0:%s', out.decode('utf-8'))
+    else:
+        logging.critical('mk_call:exit_%d:%s', pipe.returncode, err.decode('utf-8'))
+
+    return out
 
 # #############################################################################
 # signal utility
@@ -145,6 +156,7 @@ class clip:
                         content = clip.xrun_lines(mtype)
                         return [x.replace('file://', '') for x in content[1:]]
 
+    @staticmethod
     def xput(txt):
         if not txt:
             return
@@ -154,11 +166,27 @@ class clip:
         p.stdin.close()
         p.wait()
 
+    @staticmethod
+    def put(state, txt):
+        cmd = state.cfg.clipboard_put_command
+        if cmd == "":
+            return clip.xput(txt)
+
+        return mk_call(cmd, {'%s': txt})
+
+    @staticmethod
+    def files(state):
+        cmd = state.cfg.clipboard_get_command
+        if cmd == "":
+            return clip.xfiles()
+
+        return mk_call(cmd).split('\n')
+
 # #############################################################################
 # commands
 # #############################################################################
 
-class commands(object):
+class commands:
     @staticmethod
     def exec(state, cmd, args):
         for (abbrvs, fn) in cmd_map:
@@ -183,7 +211,7 @@ class commands(object):
 
     @staticmethod
     def attach_clip(state, args):
-        files = clip.xfiles()
+        files = clip.files(state)
         message = ' '.join(args)
 
         if files:
@@ -192,16 +220,16 @@ class commands(object):
             state.set_notification('Clipboard is empty.')
 
     @staticmethod
-    def open_attach(envelope):
+    def open_attach(state, envelope):
         result = False
         attachments = envelope_get_attachments(envelope)
         for attachment in attachments:
             if isinstance(attachment, dict):
                 received_attachment = os.path.join(ATTACHMENT_FOLDER, str(attachment['id']))
-                subprocess.call(['xdg-open', received_attachment])
+                mk_call(state.cfg.open_command, {'%u': received_attachment})
                 result = True
             elif isinstance(attachment, str) and os.path.exists(attachment):
-                subprocess.call(['xdg-open', attachment])
+                mk_call(state.cfg.open_command, {'%u': attachment})
                 result = True
             else:
                 result = False
@@ -211,14 +239,14 @@ class commands(object):
     @staticmethod
     def open_last_attach(state, args):
         for txt in state.current_chat[::-1]:
-            if commands.open_attach(txt.envelope): return
+            if commands.open_attach(state, txt.envelope): return
 
     @staticmethod
-    def open_url(envelope):
+    def open_url(state, envelope):
         txt = envelope_get_msg(envelope)
         url = get_url(txt)
         if url:
-            subprocess.call(['xdg-open', url])
+            mk_call(state.cfg.open_command, {'%u': url})
             return True
 
         return False
@@ -226,30 +254,24 @@ class commands(object):
     @staticmethod
     def open_last_url(state, args):
         for txt in state.current_chat[::-1]:
-            if commands.open_url(txt.envelope): return
+            if commands.open_url(state, txt.envelope): return
 
     @staticmethod
     def toggle_notifications(state, args):
-        state.cfg_send_notifications = not state.cfg_send_notifications
+        state.cfg.enable_notifications = not state.cfg.enable_notifications
         notif = 'Desktop notifications are '
-        if state.cfg_send_notifications: notif = notif + 'ON'
+        if state.cfg.enable_notifications: notif = notif + 'ON'
         else: notif = notif + 'OFF'
         state.set_notification(notif + '.')
 
     @staticmethod
-    def send_notification(state, title, body):
-        if state.cfg_send_notifications:
-            subprocess.call(['notify-send', title, body])
+    def send_notification(state, sender, message):
+        if state.cfg.enable_notifications:
+            mk_call(state.cfg.notification_command, {'%s': sender, '%m': message})
 
     @staticmethod
     def quit(state, args):
         raise urwid.ExitMainLoop()
-
-# TODO:
-    # :quitGroup, :qg
-    # :updateGroup,   :ug
-    # :updateAccount, :ua
-    # :saveState
 
 cmd_map = [(['attach', 'a'], commands.attach),
            (['attachClip', 'c'], commands.attach_clip),
@@ -262,14 +284,14 @@ cmd_map = [(['attach', 'a'], commands.attach),
 # signal
 # #############################################################################
 
-class Signal(object):
+class Signal:
     signals = ['receive_message', 'send_message']
 
     def __init__(self, user):
         self.user = user
         self._path = os.path.join(DATA_FOLDER, user)
         if not os.path.exists(self._path):
-            raise Exception(self.user + " does not exists!")
+            raise Exception(self.user + " does not exist!")
         self._data = self.load_data()
 
     def load_data(self):
@@ -578,10 +600,11 @@ class ChatWindow(urwid.Frame):
         if is_same_:
             self.print_received_message(envelope)
             self.focus_chatlast()
-            commands.send_notification(self.state, 'scli', notif)
         else:
             self.append_received_message(contact, envelope)
             self.state.set_notification(notif, contact)
+
+        commands.send_notification(self.state, contact_name, msg)
 
     def on_current_contact_changed(self, old, current, focus=False):
         self.state.backup_chat(old)
@@ -622,9 +645,9 @@ class ChatWindow(urwid.Frame):
         elif self.is_focused_chat():
             envelope = self.get_current_envelope()
             if key == 'enter' or key == 'l':
-                commands.open_attach(envelope) or commands.open_url(envelope)
+                commands.open_attach(self.state, envelope) or commands.open_url(self.state, envelope)
             elif key == 'o':
-                commands.open_url(envelope) or commands.open_attach(envelope)
+                commands.open_url(self.state, envelope) or commands.open_attach(self.state, envelope)
             elif key == 'j':
                 self.focus_next_msg()
             elif key == 'k':
@@ -635,7 +658,7 @@ class ChatWindow(urwid.Frame):
                 self.focus_chatlast()
             elif key == 'y':
                 txt = envelope_get_msg(envelope)
-                clip.xput(txt)
+                clip.put(self.state, txt)
             elif key == 'q':
                 # TODO: quote (https://github.com/AsamK/signal-cli/issues/151)
                 pass
@@ -726,7 +749,6 @@ class MainWindow(urwid.Frame):
 
     def on_notification_changed(self, notif, data):
         self.set_status(notif)
-        commands.send_notification(self.state, 'scli', notif)
 
     def on_error_changed(self, err):
         self.set_status(err)
@@ -747,11 +769,12 @@ class MainWindow(urwid.Frame):
 # state
 # #############################################################################
 
-class State(object):
+class State:
     signals = ['current_contact_changed', 'status_changed', 'notification_changed', 'error_changed']
 
-    def __init__(self, number):
-        self.signal = Signal(number)
+    def __init__(self, cfg):
+        self.signal = Signal(cfg.username)
+        self.cfg = cfg
         self.chats = {}
         self.error = ''
         self.status = ''
@@ -759,8 +782,6 @@ class State(object):
         self.status_data = None
         self.current_contact = None
         self.current_chat = urwid.SimpleFocusListWalker([])
-
-        self.cfg_send_notifications = False
 
     def set_current_contact(self, contact, focus=False):
         old = self.current_contact
@@ -794,16 +815,94 @@ urwid.register_signal(State, State.signals)
 # main
 # #############################################################################
 
-def main(argv):
+def parse_cfg_file(cfg_file_path):
+    vars = {}
+    cfg_file_path = os.path.expanduser(cfg_file_path)
+    if os.path.exists(cfg_file_path):
+        with open(cfg_file_path) as cfg_file:
+            for line in cfg_file:
+                if not line.startswith('#') and line.strip() != "":
+                    name, var = line.partition("=")[::2]
+                    vars[name.strip().replace('-', '_')] = var.strip()
+    elif cfg_file_path != DEFAULT_CFG_PATH and cfg_file_path != "":
+        print('Given config file not found: ' + cfg_file_path, file=sys.stderr)
+        sys.exit(2)
+
+    return vars
+
+def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-u', '--username', type=str, required=True, help='Phone number starting with "+" followed by country code.')
-    parser.add_argument('--debug', action='store_true')
-    args = parser.parse_args()
+    parser.add_argument('-c',
+                        '--config-file',
+                        type=str,
+                        default=DEFAULT_CFG_PATH,
+                        help='Config file. Configs in this file overrides every other config supplied by command line. (Default: ' + DEFAULT_CFG_PATH + ')')
 
-    if args.debug: logging.basicConfig(filename=LOG_FILE, level=logging.DEBUG)
-    else: logging.basicConfig(filename=LOG_FILE, level=logging.CRITICAL)
+    parser.add_argument('-u',
+                        '--username',
+                        type=str,
+                        help='Phone number starting with "+" followed by country code.')
 
-    state = State(args.username)
+    parser.add_argument('-n',
+                        '--enable-notifications',
+                        type=bool,
+                        default=False,
+                        help='Enable desktop notifications. (Also see --notification-command)')
+
+    parser.add_argument('-N',
+                        '--notification-command',
+                        type=str,
+                        default="notify-send scli '%%s - %%m'",
+                        help='The command to run when a new message arrives. %%m is replaced with the message, %%s is replaced with the sender. (Default is "notify-send scli \'%%s - %%m\'')
+
+    parser.add_argument('-o',
+                        '--open-command',
+                        type=str,
+                        default='xdg-open "%%u"',
+                        help='File/URL opener command. %%u is replaced with the path. (Default is "xdg-open %%u")')
+
+    parser.add_argument('-G',
+                        '--clipboard-get-command',
+                        type=str,
+                        default="",
+                        help='A command that returns a valid file path(s). When user calls `:attachClip` or `:c`, this command is executed and the returned file(s) will be added as attachment(s). The command should return one absolute file path per each line. (Default uses `xclip`)')
+
+    parser.add_argument('-P',
+                        '--clipboard-put-command',
+                        type=str,
+                        default="",
+                        help='A command that puts given text to clipboard. %%s will be replaced with the text. (Default uses `xclip`.')
+
+    parser.add_argument('-s',
+                        '--save-history',
+                        type=bool,
+                        default=False,
+                        help='Enable saving history. History is saved as plain text. (Default is false.) (WARNING: This option has no effect for now.)')
+
+    parser.add_argument('--debug',
+                        action='store_true')
+
+    cfg = parser.parse_args()
+    file_cfg = parse_cfg_file(cfg.config_file)
+    for key, val in file_cfg.items():
+        attr = getattr(cfg, key)
+        if isinstance(attr, bool):
+            setattr(cfg, key, val.lower() in ['true', 't', 'yes', 'y'])
+        elif isinstance(attr, int):
+            setattr(cfg, key, int(val))
+        else:
+            setattr(cfg, key, val)
+
+    if cfg.debug:
+        logging.basicConfig(filename=LOG_FILE, level=logging.DEBUG)
+    else:
+        logging.basicConfig(filename=LOG_FILE, level=logging.CRITICAL)
+
+    if not cfg.username:
+        print("No username supplied.", file=sys.stderr)
+        sys.exit(1)
+
+    state = State(cfg)
     window = MainWindow(state)
 
     palette = [('normal', '', ''),
@@ -819,6 +918,5 @@ def main(argv):
     loop.run()
     proc.kill()
 
-
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    main()
