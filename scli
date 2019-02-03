@@ -17,9 +17,12 @@ import urwid
 # constants
 # #############################################################################
 
-SIGNALCLI_FOLDER = os.path.join(os.getenv('XDG_DATA_HOME', os.path.expanduser('~/.local/share')), 'signal-cli')
-DATA_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'data')
-ATTACHMENT_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'attachments')
+DATA_FOLDER = os.getenv('XDG_DATA_HOME', os.path.expanduser('~/.local/share'))
+SIGNALCLI_FOLDER = os.path.join(DATA_FOLDER, 'signal-cli')
+SIGNALCLI_DATA_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'data')
+SIGNALCLI_ATTACHMENT_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'attachments')
+
+SCLI_DATA_FOLDER = os.path.join(DATA_FOLDER, 'scli')
 DEFAULT_CFG_PATH = os.path.join(os.getenv('XDG_CONFIG_HOME', os.path.expanduser('~/.config')), 'sclirc')
 LOG_FILE = os.path.expanduser('~/scli.log')
 
@@ -54,10 +57,12 @@ def mk_call(cmd, rmap={}):
 
 def hash_contact(x):
     h = ''
-    if x.get('number'): h = h + x['number']
-    if x.get('name'): h = h + x['name']
-    if x.get('profileKey'): h = h + x['profileKey']
-    if x.get('groupId'): h = h + x['groupId']
+    if x.get('number'):
+        h = x['number']
+    elif x.get('groupId'):
+        h = x['groupId']
+    else:
+        logging.critical('hash_contact:No number or groupId')
     return h
 
 def get_contact_name(x):
@@ -82,7 +87,7 @@ def is_contact_group(contact):
     return has_key('groupId', contact)
 
 def is_same(contact, envelope):
-    if contact is None or envelope is None:
+    if not contact or not envelope:
         return False
 
     if is_contact_group(contact) and is_envelope_group_msg(envelope):
@@ -225,7 +230,7 @@ class commands:
         attachments = envelope_get_attachments(envelope)
         for attachment in attachments:
             if isinstance(attachment, dict):
-                received_attachment = os.path.join(ATTACHMENT_FOLDER, str(attachment['id']))
+                received_attachment = os.path.join(SIGNALCLI_ATTACHMENT_FOLDER, str(attachment['id']))
                 mk_call(state.cfg.open_command, {'%u': received_attachment})
                 result = True
             elif isinstance(attachment, str) and os.path.exists(attachment):
@@ -289,7 +294,7 @@ class Signal:
 
     def __init__(self, user):
         self.user = user
-        self._path = os.path.join(DATA_FOLDER, user)
+        self._path = os.path.join(SIGNALCLI_DATA_FOLDER, user)
         if not os.path.exists(self._path):
             raise Exception(self.user + " does not exist!")
         self._data = self.load_data()
@@ -335,12 +340,12 @@ class Signal:
         p = Popen(args, stdout=PIPE, stderr=PIPE)
         out, error = p.communicate()
         if p.returncode != 0:
-            logging.error('send_message: exit code=' + str(p.returncode) + ', err=' + str(error))
+            logging.error('send_message: exit code=%d:err=%s', p.returncode, error)
             return (False, 'err:' + str(p.returncode) + str(error))
-        else:
-            envelope = {'dataMessage': {'message': message, 'attachments': attachments}}
-            urwid.emit_signal(self, 'send_message', envelope)
-            return (True, out)
+
+        envelope = {'dataMessage': {'message': message, 'attachments': attachments}}
+        urwid.emit_signal(self, 'send_message', envelope)
+        return (True, out)
 
     def contacts(self):
         return list(filter(lambda x: bool(get_contact_name(x).strip(' ')),
@@ -384,6 +389,31 @@ class ContactsWindow(urwid.ListBox):
         self.set_contacts(self.state.signal.get_all_contacts())
         self.focus_next()
 
+        urwid.connect_signal(self.state.signal, 'receive_message', self.on_receive_message)
+        urwid.connect_signal(self.state, 'current_contact_changed', self.on_current_contact_changed)
+
+    @classmethod
+    def set_contact_notify_count(cls, w, count):
+        w.notify_count = count
+        if count > 0:
+            w.original_widget.set_text([('bold', '({}) '.format(w.notify_count)), get_contact_name(w.contact)])
+        else:
+            w.original_widget.set_text(get_contact_name(w.contact))
+
+    def on_current_contact_changed(self, _old, _current, _focus=False):
+        self.set_contact_notify_count(self.focus, 0)
+
+    def on_receive_message(self, envelope):
+        is_same_ = is_same(self.state.current_contact, envelope)
+        has_msg = envelope_get_msg(envelope)
+        if is_same_ or not has_msg:
+            return
+
+        for w in self._body:
+            if is_same(w.contact, envelope):
+                self.set_contact_notify_count(w, w.notify_count + 1)
+                return
+
     def set_contacts(self, contacts):
         def mk_contact(x):
             widget = None
@@ -398,6 +428,7 @@ class ContactsWindow(urwid.ListBox):
 
             am = urwid.AttrMap(widget, None, focus_map='reversed')
             am.contact = contact
+            am.notify_count = 0
             return am
 
         contacts = [mk_contact(x) for x in contacts]
@@ -497,7 +528,7 @@ class ChatWindow(urwid.Frame):
     def set_title(self, contact):
         num = contact.get("number")
         if not num:
-            num = str([get_contact_name(self.state.signal.get_contact(number)) for number in contact['members']])
+            num = ', '.join([get_contact_name(self.state.signal.get_contact(number)) for number in contact['members']])
 
         self._wtitle.set_text([('bold', get_contact_name(contact)), ' (', num, ')'])
 
