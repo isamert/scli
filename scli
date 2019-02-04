@@ -883,13 +883,13 @@ def main():
     parser.add_argument('-N',
                         '--notification-command',
                         type=str,
-                        default="notify-send scli '%%s - %%m'",
+                        default="notify-send scli '%s - %m'",
                         help='The command to run when a new message arrives. %%m is replaced with the message, %%s is replaced with the sender. (Default is "notify-send scli \'%%s - %%m\'')
 
     parser.add_argument('-o',
                         '--open-command',
                         type=str,
-                        default='xdg-open "%%u"',
+                        default='xdg-open "%u"',
                         help='File/URL opener command. %%u is replaced with the path. (Default is "xdg-open %%u")')
 
     parser.add_argument('-G',
