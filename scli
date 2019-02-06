@@ -518,6 +518,11 @@ class ChatWindow(urwid.Frame):
                          footer=self._wline)
 
         urwid.connect_signal(self.state, 'current_contact_changed', self.on_current_contact_changed)
+        urwid.connect_signal(self.state.signal, 'receive_message', self.on_new_message)
+        urwid.connect_signal(self.state.signal, 'send_message', self.on_new_message)
+
+    def on_new_message(self, _envelope):
+        self.focus_chatlast()
 
     def is_focused_input(self):
         return self.focus_position == 'footer'
@@ -605,6 +610,8 @@ class ChatWindow(urwid.Frame):
             elif key == 'y':
                 txt = get_envelope_msg(envelope)
                 clip.put(self.state, txt)
+            elif key == 'd':
+                del self.state.current_chat[self._wlist.focus_position]
             elif key == 'q':
                 # TODO: quote (https://github.com/AsamK/signal-cli/issues/151)
                 pass
