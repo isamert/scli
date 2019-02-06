@@ -10,6 +10,7 @@ import atexit
 import argparse
 import logging
 from subprocess import PIPE, Popen
+from datetime import datetime
 
 import urwid
 
@@ -23,7 +24,8 @@ SIGNALCLI_DATA_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'data')
 SIGNALCLI_ATTACHMENT_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'attachments')
 
 SCLI_DATA_FOLDER = os.path.join(DATA_FOLDER, 'scli')
-DEFAULT_CFG_PATH = os.path.join(os.getenv('XDG_CONFIG_HOME', os.path.expanduser('~/.config')), 'sclirc')
+SCLI_HISTORY_FILE = os.path.join(SCLI_DATA_FOLDER, 'history')
+SCLI_CFG_FILE = os.path.join(os.getenv('XDG_CONFIG_HOME', os.path.expanduser('~/.config')), 'sclirc')
 LOG_FILE = os.path.expanduser('~/scli.log')
 
 # #############################################################################
@@ -66,6 +68,10 @@ def hash_contact(x):
     return h
 
 def get_contact_name(x):
+    if not x:
+        logging.critical('get_contact_name:empty sender')
+        return "NULL"
+
     name = x.get('name')
     if name or name.strip(' ') != '':
         return name
@@ -76,40 +82,47 @@ def get_contact_name(x):
 
     return "ERR"
 
-def is_envelope_group_msg(envelope):
+def is_contact_group(contact):
+    return has_key('groupId', contact)
+
+def is_envelope_outgoing(envelope):
+    try:
+        envelope['target']
+        return True
+    except:
+        return False
+
+def is_envelope_group_message(envelope):
     try:
         envelope['dataMessage']['groupInfo']['groupId']
         return True
     except:
         return False
 
-def is_contact_group(contact):
-    return has_key('groupId', contact)
-
-def is_same(contact, envelope):
-    if not contact or not envelope:
-        return False
-
-    if is_contact_group(contact) and is_envelope_group_msg(envelope):
-        return contact['groupId'] == envelope['dataMessage']['groupInfo']['groupId']
-    elif not is_contact_group(contact) and not is_envelope_group_msg(envelope):
-        return contact['number'] == envelope['source']
-    else:
-        return False
-
-def envelope_get_msg(envelope):
+def get_envelope_msg(envelope):
     try: return envelope['dataMessage']['message']
     except: return None
 
-def envelope_get_group_id(envelope):
+def get_envelope_contact(envelope, signal):
+    x = None
+    if envelope.get('target'):
+        x = envelope['target']
+    elif is_envelope_group_message(envelope):
+        x = get_envelope_group_id(envelope)
+    else:
+        x = envelope['source']
+
+    return signal.get_contact(x)
+
+def get_envelope_group_id(envelope):
     try: return envelope['dataMessage']['groupInfo']['groupId']
     except: return None
 
-def envelope_get_attachments(envelope):
+def get_envelope_attachments(envelope):
     try: return envelope['dataMessage']['attachments']
     except: return []
 
-def attachment_get_name(attachment):
+def get_attachment_name(attachment):
     try: return attachment['contentType']
     except: return os.path.basename(attachment)
 
@@ -227,7 +240,7 @@ class commands:
     @staticmethod
     def open_attach(state, envelope):
         result = False
-        attachments = envelope_get_attachments(envelope)
+        attachments = get_envelope_attachments(envelope)
         for attachment in attachments:
             if isinstance(attachment, dict):
                 received_attachment = os.path.join(SIGNALCLI_ATTACHMENT_FOLDER, str(attachment['id']))
@@ -248,7 +261,7 @@ class commands:
 
     @staticmethod
     def open_url(state, envelope):
-        txt = envelope_get_msg(envelope)
+        txt = get_envelope_msg(envelope)
         url = get_url(txt)
         if url:
             mk_call(state.cfg.open_command, {'%u': url})
@@ -314,7 +327,7 @@ class Signal:
         try:
             e = json.loads(line)
         except Exception as e:
-            logging.error('input:' + str(line))
+            logging.error('input:%s', line)
             logging.exception(e)
             return
 
@@ -322,11 +335,13 @@ class Signal:
 
     def send_message(self, contact, message="", attachments=[]):
         args = ['signal-cli', '--dbus', 'send', '--message', message]
+        target = None
         if contact.get('number'):
-            args.append(contact['number'])
+            target = contact['number']
         else:
+            target = contact['groupId']
             args.append('--group')
-            args.append(contact['groupId'])
+        args.append(target)
 
         attachment_paths = [os.path.expanduser(attachment) for attachment in attachments]
         if all([os.path.exists(attachment_path) for attachment_path in attachment_paths]):
@@ -338,14 +353,21 @@ class Signal:
             return (False, "Attached file(s) does not exist.")
 
         p = Popen(args, stdout=PIPE, stderr=PIPE)
-        out, error = p.communicate()
+        _out, error = p.communicate()
         if p.returncode != 0:
             logging.error('send_message: exit code=%d:err=%s', p.returncode, error)
-            return (False, 'err:' + str(p.returncode) + str(error))
+            # https://github.com/AsamK/signal-cli/issues/73
+            # return
 
-        envelope = {'dataMessage': {'message': message, 'attachments': attachments}}
+        ts = datetime.now().timestamp()
+        envelope = {'source':self.user,
+                    'target': target,
+                    'timestamp': ts,
+                    'dataMessage': {'message': message,
+                                    'attachments': attachments,
+                                    'timestamp': ts}}
+
         urwid.emit_signal(self, 'send_message', envelope)
-        return (True, out)
 
     def contacts(self):
         return list(filter(lambda x: bool(get_contact_name(x).strip(' ')),
@@ -404,13 +426,13 @@ class ContactsWindow(urwid.ListBox):
         self.set_contact_notify_count(self.focus, 0)
 
     def on_receive_message(self, envelope):
-        is_same_ = is_same(self.state.current_contact, envelope)
-        has_msg = envelope_get_msg(envelope)
-        if is_same_ or not has_msg:
+        contact = get_envelope_contact(envelope, self.state.signal)
+        has_msg = get_envelope_msg(envelope)
+        if contact == self.state.current_contact or not has_msg:
             return
 
         for w in self._body:
-            if is_same(w.contact, envelope):
+            if w.contact == contact:
                 self.set_contact_notify_count(w, w.notify_count + 1)
                 return
 
@@ -482,7 +504,7 @@ class ContactsWindow(urwid.ListBox):
 class ChatWindow(urwid.Frame):
     def __init__(self, state):
         self.state = state
-        self._wtitle = urwid.Text("Receiver Name (+123456789)")
+        self._wtitle = urwid.Text('')
         self._wline = urwid.Edit('> ')
         self._wdiv = urwid.Divider('-')
         self._wlist = urwid.ListBox(self.state.current_chat)
@@ -496,8 +518,6 @@ class ChatWindow(urwid.Frame):
                          footer=self._wline)
 
         urwid.connect_signal(self.state, 'current_contact_changed', self.on_current_contact_changed)
-        urwid.connect_signal(self.state.signal, 'receive_message', self.on_receive_message)
-        urwid.connect_signal(self.state.signal, 'send_message', self.on_send_message)
 
     def is_focused_input(self):
         return self.focus_position == 'footer'
@@ -532,111 +552,6 @@ class ChatWindow(urwid.Frame):
 
         self._wtitle.set_text([('bold', get_contact_name(contact)), ' (', num, ')'])
 
-    def print_received_message(self, envelope, history=None):
-        source = envelope['source']
-        is_group = is_envelope_group_msg(envelope)
-        attachments = envelope_get_attachments(envelope)
-
-        txt = '>> '
-        if is_group:
-            contact = self.state.signal.get_contact(source)
-            if contact: txt = txt + get_contact_name(contact)
-            else: txt = txt + source
-            txt = txt + ' | '
-
-
-        message = envelope_get_msg(envelope)
-        attachments = envelope_get_attachments(envelope)
-
-        if attachments != []:
-            attachments_txt = ', '.join([attachment_get_name(attachment) + ' (' + str(i) + ')' for i, attachment in enumerate(attachments)])
-            txt = txt +  '[attached: ' + attachments_txt + '] '
-
-        body = None
-        if history is not None: body = history
-        else: body = self.state.current_chat
-
-        wtxt = urwid.AttrMap(urwid.Text(txt + message), None, focus_map='reversed')
-        wtxt.envelope = envelope
-        body.append(wtxt)
-
-        return body
-
-    def print_sent_message(self, envelope):
-        message = envelope_get_msg(envelope)
-        attachments = envelope_get_attachments(envelope)
-
-        txt = None
-        if len(attachments) > 0:
-            anames = ', '.join([os.path.basename(attachment) for attachment in attachments])
-            txt = '[attached: ' + anames  + '] ' + message + ' <<'
-        else:
-            txt = message + ' <<'
-
-        txt = urwid.AttrMap(urwid.Text(txt, align='right'), None, focus_map='reversed')
-        txt.envelope = envelope
-        self.state.current_chat.append(txt)
-        self.focus_chatlast()
-
-    def append_received_message(self, sender, envelope):
-        contact_hash = hash_contact(sender)
-        chat_history = []
-        try: chat_history = self.state.chats[contact_hash]
-        except: pass
-
-        chat_history = self.print_received_message(envelope, history=chat_history)
-        self.state.chats[contact_hash] = chat_history
-
-    def exec_cmd(self, cmd, args):
-        commands.exec(self.state, cmd, args)
-
-    def on_send_message(self, envelope):
-        self.print_sent_message(envelope)
-        self.focus_chatlast()
-
-    def on_receive_message(self, envelope):
-        msg = envelope_get_msg(envelope)
-        is_same_ = is_same(self.state.current_contact, envelope)
-        is_group = is_envelope_group_msg(envelope)
-
-        if msg is None:
-            logging.info('NOT_A_MESSAGE:' + str(envelope))
-            return
-        else:
-            logging.info('MESSAGE:' + str(envelope))
-
-        contact = None
-        if is_group:
-            contact = self.state.signal.get_contact(envelope_get_group_id(envelope))
-        else:
-            contact = self.state.signal.get_contact(envelope['source'])
-
-        contact_name = None
-        if not contact and not is_group:
-            if envelope.get('source') and envelope['source'].strip() != "":
-                contact_name = envelope['source']
-            else:
-                logging.critical('EMPTY_SENDER:' + str(envelope))
-                self.state.set_notification('Message with no source: ' + str(msg))
-                return
-        elif not contact and is_group:
-            logging.critical('GROUP_WITH_NO_NAME:' + str(envelope))
-            self.state.set_notification('Message with no source: ' + str(msg))
-            return
-        else:
-            contact_name = get_contact_name(contact)
-
-        notif = 'New message from ' + contact_name + ': "' + msg + '"'
-
-        if is_same_:
-            self.print_received_message(envelope)
-            self.focus_chatlast()
-        else:
-            self.append_received_message(contact, envelope)
-            self.state.set_notification(notif, contact)
-
-        commands.send_notification(self.state, contact_name, msg)
-
     def on_current_contact_changed(self, old, current, focus=False):
         self.state.backup_chat(old)
         self.state.clear_current_chat()
@@ -669,7 +584,7 @@ class ChatWindow(urwid.Frame):
                     elems = list(filter(lambda x: x != '', txt[1:].split(' ')))
                     cmd = elems[0].lower()
                     args = elems[1:]
-                    self.exec_cmd(cmd, args)
+                    commands.exec(self.state, cmd, args)
                 elif txt.strip(' ') != '' and self.state.current_contact:
                     self.state.signal.send_message(self.state.current_contact, txt)
                 self.set_edit_text('')
@@ -688,7 +603,7 @@ class ChatWindow(urwid.Frame):
             elif key == 'G':
                 self.focus_chatlast()
             elif key == 'y':
-                txt = envelope_get_msg(envelope)
+                txt = get_envelope_msg(envelope)
                 clip.put(self.state, txt)
             elif key == 'q':
                 # TODO: quote (https://github.com/AsamK/signal-cli/issues/151)
@@ -814,6 +729,9 @@ class State:
         self.current_contact = None
         self.current_chat = urwid.SimpleFocusListWalker([])
 
+        urwid.connect_signal(self.signal, 'receive_message', self.on_receive_message)
+        urwid.connect_signal(self.signal, 'send_message', self.on_send_message)
+
     def set_current_contact(self, contact, focus=False):
         old = self.current_contact
         self.current_contact = contact
@@ -840,6 +758,100 @@ class State:
         if contact:
             self.chats[hash_contact(contact)] = [x for x in self.current_chat]
 
+    def get_chat_for_envelope(self, envelope):
+        contact = get_envelope_contact(envelope, self.signal)
+        if contact == self.current_contact:
+            return self.current_chat
+
+        contact_hash = hash_contact(contact)
+        if contact_hash not in self.chats:
+            self.chats[contact_hash] = []
+
+        return self.chats[contact_hash]
+
+    def on_send_message(self, envelope):
+        self.print_sent_message(envelope)
+
+    def on_receive_message(self, envelope):
+        msg = get_envelope_msg(envelope)
+        sender = get_envelope_contact(envelope, self.signal)
+        contact_name = get_contact_name(sender)
+
+        if msg is None:
+            logging.info('NOT_A_MESSAGE:%s', envelope)
+            return
+        logging.info('MESSAGE:%s', envelope)
+
+        if sender != self.current_contact:
+            notif = 'New message from ' + contact_name + ': "' + msg + '"'
+            self.set_notification(notif, sender)
+
+        commands.send_notification(self, contact_name, msg)
+        self.print_received_message(envelope)
+
+    def print_received_message(self, envelope):
+        source = envelope['source']
+        is_group = is_envelope_group_message(envelope)
+        attachments = get_envelope_attachments(envelope)
+
+        txt = '>> '
+        if is_group:
+            contact = self.signal.get_contact(source)
+            if contact: txt = txt + get_contact_name(contact)
+            else: txt = txt + source
+            txt = txt + ' | '
+
+        message = get_envelope_msg(envelope)
+        attachments = get_envelope_attachments(envelope)
+
+        if attachments != []:
+            attachments_txt = ', '.join([get_attachment_name(attachment) + ' (' + str(i) + ')' for i, attachment in enumerate(attachments)])
+            txt = txt +  '[attached: ' + attachments_txt + '] '
+
+        wtxt = urwid.AttrMap(urwid.Text(txt + message), None, focus_map='reversed')
+        wtxt.envelope = envelope
+        self.get_chat_for_envelope(envelope).append(wtxt)
+
+    def print_sent_message(self, envelope):
+        message = get_envelope_msg(envelope)
+        attachments = get_envelope_attachments(envelope)
+
+        txt = None
+        if len(attachments) > 0:
+            anames = ', '.join([os.path.basename(attachment) for attachment in attachments])
+            txt = '[attached: ' + anames  + '] ' + message + ' <<'
+        else:
+            txt = message + ' <<'
+
+        txt = urwid.AttrMap(urwid.Text(txt, align='right'), None, focus_map='reversed')
+        txt.envelope = envelope
+        self.get_chat_for_envelope(envelope).append(txt)
+
+    def save_history(self):
+        if not self.cfg.save_history:
+            return
+
+        if not os.path.exists(SCLI_DATA_FOLDER):
+            os.mkdir(SCLI_DATA_FOLDER)
+
+        self.backup_chat(self.current_contact)
+        with open(SCLI_HISTORY_FILE, 'w') as history_file:
+            envelopes = [x.envelope for vals in self.chats.values() for x in vals]
+            items = {'envelopes': envelopes}
+            history_file.write(json.dumps(items))
+
+    def load_history(self):
+        if not self.cfg.save_history or not os.path.exists(SCLI_HISTORY_FILE):
+            return
+
+        with open(SCLI_HISTORY_FILE, 'r') as history_file:
+            history = json.load(history_file)
+            for envelope in history['envelopes']:
+                if is_envelope_outgoing(envelope):
+                    self.print_sent_message(envelope)
+                else:
+                    self.print_received_message(envelope)
+
 urwid.register_signal(State, State.signals)
 
 # #############################################################################
@@ -855,7 +867,7 @@ def parse_cfg_file(cfg_file_path):
                 if not line.startswith('#') and line.strip() != "":
                     name, var = line.partition("=")[::2]
                     vars[name.strip().replace('-', '_')] = var.strip()
-    elif cfg_file_path != DEFAULT_CFG_PATH and cfg_file_path != "":
+    elif cfg_file_path != SCLI_CFG_FILE and cfg_file_path != "":
         print('Given config file not found: ' + cfg_file_path, file=sys.stderr)
         sys.exit(2)
 
@@ -866,8 +878,8 @@ def main():
     parser.add_argument('-c',
                         '--config-file',
                         type=str,
-                        default=DEFAULT_CFG_PATH,
-                        help='Config file. Configs in this file overrides every other config supplied by command line. (Default: ' + DEFAULT_CFG_PATH + ')')
+                        default=SCLI_CFG_FILE,
+                        help='Config file. Configs in this file overrides every other config supplied by command line. (Default: ' + SCLI_CFG_FILE + ')')
 
     parser.add_argument('-u',
                         '--username',
@@ -908,7 +920,7 @@ def main():
                         '--save-history',
                         type=bool,
                         default=False,
-                        help='Enable saving history. History is saved as plain text. (Default is false.) (WARNING: This option has no effect for now.)')
+                        help='Enable saving history. History is saved as plain text. (Default is false.)')
 
     parser.add_argument('--debug',
                         action='store_true')
@@ -943,6 +955,10 @@ def main():
                ('reversed', 'standout', '')]
 
     loop = urwid.MainLoop(window, palette=palette)
+
+    state.load_history()
+    atexit.register(state.save_history)
+
     proc = state.signal.start_daemon(loop)
     atexit.register(proc.kill)
 
