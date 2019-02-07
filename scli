@@ -9,6 +9,7 @@ import tempfile
 import atexit
 import argparse
 import logging
+import errno
 from subprocess import PIPE, Popen
 from datetime import datetime
 
@@ -515,7 +516,7 @@ class ChatWindow(urwid.Frame):
     def __init__(self, state):
         self.state = state
         self._wtitle = urwid.Text('')
-        self._wline = urwid.Edit('> ')
+        self._wline = urwid.Edit(('bold', '> '))
         self._wdiv = urwid.Divider('-')
         self._wlist = urwid.ListBox(self.state.current_chat)
         wcontext = urwid.Frame(self._wlist,
@@ -849,9 +850,6 @@ class State:
         if not self.cfg.save_history:
             return
 
-        if not os.path.exists(SCLI_DATA_FOLDER):
-            os.mkdir(SCLI_DATA_FOLDER)
-
         self.backup_chat(self.current_contact)
         with open(SCLI_HISTORY_FILE, 'w') as history_file:
             envelopes = [x.envelope for vals in self.chats.values() for x in vals]
@@ -953,6 +951,14 @@ def main():
             setattr(cfg, key, int(val))
         else:
             setattr(cfg, key, val)
+
+    if not os.path.exists(SCLI_DATA_FOLDER):
+        try:
+            os.makedirs(SCLI_DATA_FOLDER)
+        except OSError as exc:
+            if not (exc.errno == errno.EEXIST and os.path.isdir(SCLI_DATA_FOLDER)):
+                print("Can't create data directory.", file=sys.stderr)
+                sys.exit(3)
 
     if cfg.debug:
         logging.basicConfig(filename=SCLI_LOG_FILE, level=logging.DEBUG)
