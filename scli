@@ -19,14 +19,20 @@ import urwid
 # #############################################################################
 
 DATA_FOLDER = os.getenv('XDG_DATA_HOME', os.path.expanduser('~/.local/share'))
+CFG_FOLDER = os.getenv('XDG_CONFIG_HOME', os.path.expanduser('~/.config'))
+
+SIGNALCLI_LEGACY_FOLDER = os.path.join(CFG_FOLDER, 'signal')
+SIGNALCLI_LEGACY_DATA_FOLDER = os.path.join(SIGNALCLI_LEGACY_FOLDER, 'data')
+SIGNALCLI_LEGACY_ATTACHMENT_FOLDER = os.path.join(SIGNALCLI_LEGACY_FOLDER, 'attachments')
+
 SIGNALCLI_FOLDER = os.path.join(DATA_FOLDER, 'signal-cli')
 SIGNALCLI_DATA_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'data')
 SIGNALCLI_ATTACHMENT_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'attachments')
 
 SCLI_DATA_FOLDER = os.path.join(DATA_FOLDER, 'scli')
 SCLI_HISTORY_FILE = os.path.join(SCLI_DATA_FOLDER, 'history')
-SCLI_CFG_FILE = os.path.join(os.getenv('XDG_CONFIG_HOME', os.path.expanduser('~/.config')), 'sclirc')
-LOG_FILE = os.path.expanduser('~/scli.log')
+SCLI_CFG_FILE = os.path.join(CFG_FOLDER, 'sclirc')
+SCLI_LOG_FILE = os.path.join(SCLI_DATA_FOLDER, 'log')
 
 # #############################################################################
 # utility
@@ -244,6 +250,8 @@ class commands:
         for attachment in attachments:
             if isinstance(attachment, dict):
                 received_attachment = os.path.join(SIGNALCLI_ATTACHMENT_FOLDER, str(attachment['id']))
+                if not os.path.exists(received_attachment):
+                    received_attachment = os.path.join(SIGNALCLI_LEGACY_ATTACHMENT_FOLDER, str(attachment['id']))
                 mk_call(state.cfg.open_command, {'%u': received_attachment})
                 result = True
             elif isinstance(attachment, str) and os.path.exists(attachment):
@@ -309,7 +317,9 @@ class Signal:
         self.user = user
         self._path = os.path.join(SIGNALCLI_DATA_FOLDER, user)
         if not os.path.exists(self._path):
-            raise Exception(self.user + " does not exist!")
+            self._path = os.path.join(SIGNALCLI_LEGACY_DATA_FOLDER, user)
+            if not os.path.exists(self._path):
+                raise Exception(self.user + " does not exist!")
         self._data = self.load_data()
 
     def load_data(self):
@@ -611,7 +621,8 @@ class ChatWindow(urwid.Frame):
                 txt = get_envelope_msg(envelope)
                 clip.put(self.state, txt)
             elif key == 'd':
-                del self.state.current_chat[self._wlist.focus_position]
+                if self.state.current_chat:
+                    del self.state.current_chat[self._wlist.focus_position]
             elif key == 'q':
                 # TODO: quote (https://github.com/AsamK/signal-cli/issues/151)
                 pass
@@ -944,9 +955,9 @@ def main():
             setattr(cfg, key, val)
 
     if cfg.debug:
-        logging.basicConfig(filename=LOG_FILE, level=logging.DEBUG)
+        logging.basicConfig(filename=SCLI_LOG_FILE, level=logging.DEBUG)
     else:
-        logging.basicConfig(filename=LOG_FILE, level=logging.CRITICAL)
+        logging.basicConfig(filename=SCLI_LOG_FILE, level=logging.CRITICAL)
 
     if not cfg.username:
         print("No username supplied.", file=sys.stderr)
