@@ -10,7 +10,7 @@
 `scli` does not provide anything for registering/linking, you need to do this using `signal-cli`.
 
 For linking your computer follow these steps (for registering a new number, see README of [signal-cli](https://github.com/AsamK/signal-cli))
-- Run `signal-cli link`.
+- Run `signal-cli link -n "DEVICE_NAME"`.
 - This will output `tsdevice:/...` URI. Copy that and create a QR code with it using `qrencode` (or any other QR code generator of your choice):
 ```
 qrencode 'LINK' -o qrcode.png
