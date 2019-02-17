@@ -666,6 +666,7 @@ class MainWindow(urwid.Frame):
         self.focus_position = 'body'
         self._wcontext.set_focus(1)
         self._wchat.focus_input()
+        self.current_focus = 'input'
 
         if cmd_mode:
             self._wchat._wline.set_edit_text(':')
@@ -674,33 +675,29 @@ class MainWindow(urwid.Frame):
     def focus_contacts(self):
         self.focus_position = 'body'
         self._wcontext.set_focus(0)
+        self.current_focus = 'contacts'
 
     def focus_chat(self):
         self.focus_position = 'body'
         self._wcontext.set_focus(1)
         self._wchat.focus_chat()
+        self.current_focus = 'chat'
 
     def focus_next(self):
         if self.current_focus == 'contacts':
             self.focus_chat()
-            self.current_focus = 'chat'
         elif self.current_focus == 'chat':
             self.focus_input()
-            self.current_focus = 'input'
         elif self.current_focus == 'input':
             self.focus_contacts()
-            self.current_focus = 'contacts'
 
     def focus_prev(self):
         if self.current_focus == 'contacts':
             self.focus_input()
-            self.current_focus = 'input'
         elif self.current_focus == 'chat':
             self.focus_contacts()
-            self.current_focus = 'contacts'
         elif self.current_focus == 'input':
             self.focus_chat()
-            self.current_focus = 'chat'
 
     def on_current_contact_changed(self, old, current, focus=False):
         if self.state.status_data is self.state.current_contact:
