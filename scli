@@ -322,8 +322,10 @@ class Signal:
             if not os.path.exists(self._path):
                 raise Exception(self.user + " does not exist!")
         self._data = self.load_data()
+        self._buffer = b''
 
     def load_data(self):
+        print(self._path)
         with open(self._path) as f:
             return json.load(f)
 
@@ -332,17 +334,29 @@ class Signal:
         return Popen(['signal-cli', '-u', self.user, 'daemon', '--json'], stdout=fd, stderr=fd, close_fds=True)
 
     def daemon_handler(self, line):
-        if not line.strip():
-            return
+        line = self._buffer + line
+        lines = line.split(b'\n')
+        if lines[-1] != b'':
+            # Not a complete message. Store in buffer
+            self._buffer = lines[-1]
+        else:
+            self._buffer = b''
+        
+        # The last item is either empty or an incomplete message, so we don't process it
+        for line in lines[:-1]:
+            if not line.strip():
+                continue
 
-        try:
-            e = json.loads(line)
-        except Exception as e:
-            logging.error('input:%s', line)
-            logging.exception(e)
-            return
+            try:
+                e = json.loads(line)
+                urwid.emit_signal(self, 'receive_message', e['envelope'])
+            except Exception as e:
+                logging.error('input: %s', line)
+                logging.exception(e)
+                urwid.emit_signal(self, 'receive_message', 'Lost message: %r %r' % (line, e))
+                continue
 
-        urwid.emit_signal(self, 'receive_message', e['envelope'])
+            
 
     def send_message(self, contact, message="", attachments=[]):
         args = ['signal-cli', '--dbus', 'send', '--message', message]
