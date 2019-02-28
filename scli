@@ -164,7 +164,7 @@ def get_attachment_name(attachment):
 
 class NiceBox(urwid.AttrMap):
     def __init__(self, w, title=''):
-        box = urwid.AttrMap(urwid.LineBox(urwid.AttrMap(w, 'normal'), title_align='center'), 'box_normal')
+        box = urwid.AttrMap(urwid.LineBox(urwid.AttrMap(w, 'normal'), title_align='center', title=title), 'box_normal')
         super().__init__(box, None, focus_map={'box_normal':'box_focused'})
 
 
@@ -979,7 +979,12 @@ def main():
                         default=False,
                         help='Enable saving history. History is saved as plain text. (Default is false.)')
 
+    parser.add_argument('--no-daemon',
+                        action='store_true',
+                        help='Not really useful.')
+
     parser.add_argument('--debug',
+                        default=False,
                         action='store_true')
 
     cfg = parser.parse_args()
@@ -1018,8 +1023,9 @@ def main():
     state.load_history()
     atexit.register(state.save_history)
 
-    proc = state.signal.start_daemon(loop)
-    atexit.register(proc.kill)
+    if not cfg.no_daemon:
+        proc = state.signal.start_daemon(loop)
+        atexit.register(proc.kill)
 
     loop.run()
     proc.kill()
