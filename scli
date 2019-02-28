@@ -36,6 +36,31 @@ SCLI_CFG_FILE = os.path.join(CFG_FOLDER, 'sclirc')
 SCLI_LOG_FILE = os.path.join(SCLI_DATA_FOLDER, 'log')
 
 # #############################################################################
+# coloring stuff
+# #############################################################################
+
+# TODO: make costumizable
+
+PALETTE = [('normal', '', ''),
+           ('box_normal', '', ''),
+           ('box_focused', 'dark blue', ''),
+           ('bold', 'bold', ''),
+           ('italic', 'italics', ''),
+           ('bolditalic', 'italics,bold', ''),
+           ('reversed', 'standout', '')]
+
+LIST_FOCUS_MAP = { None:'reversed',
+                   'normal': 'reversed',
+                   'bold'  : 'reversed',
+                   'italic': 'reversed',
+                   'bolditalic': 'reversed'}
+
+def ibtxt(txt): return ('bolditalic', txt)
+def ntxt(txt): return ('normal', txt)
+def btxt(txt): return ('bold', txt)
+def itxt(txt): return ('italic', txt)
+
+# #############################################################################
 # utility
 # #############################################################################
 
@@ -325,7 +350,6 @@ class Signal:
         self._buffer = b''
 
     def load_data(self):
-        print(self._path)
         with open(self._path) as f:
             return json.load(f)
 
@@ -341,7 +365,7 @@ class Signal:
             self._buffer = lines[-1]
         else:
             self._buffer = b''
-        
+
         # The last item is either empty or an incomplete message, so we don't process it
         for line in lines[:-1]:
             if not line.strip():
@@ -356,7 +380,7 @@ class Signal:
                 urwid.emit_signal(self, 'receive_message', 'Lost message: %r %r' % (line, e))
                 continue
 
-            
+
 
     def send_message(self, contact, message="", attachments=[]):
         args = ['signal-cli', '--dbus', 'send', '--message', message]
@@ -824,21 +848,22 @@ class State:
         is_group = is_envelope_group_message(envelope)
         attachments = get_envelope_attachments(envelope)
 
-        txt = '>> '
+        txt = [btxt('>> ')]
         if is_group:
             contact = self.signal.get_contact(source)
-            if contact: txt = txt + get_contact_name(contact)
-            else: txt = txt + source
-            txt = txt + ' | '
+            if contact: txt.append(ibtxt(get_contact_name(contact)))
+            else: txt.append(btxt(source))
+            txt.append(btxt(' | '))
 
         message = get_envelope_msg(envelope)
         attachments = get_envelope_attachments(envelope)
 
         if attachments != []:
             attachments_txt = ', '.join([get_attachment_name(attachment) + ' (' + str(i) + ')' for i, attachment in enumerate(attachments)])
-            txt = txt +  '[attached: ' + attachments_txt + '] '
+            txt.append(ntxt('[attached: ' + attachments_txt + '] '))
 
-        wtxt = urwid.AttrMap(urwid.Text(txt + message), None, focus_map='reversed')
+        txt.append(ntxt(message))
+        wtxt = urwid.AttrMap(urwid.Text(txt), None, focus_map=LIST_FOCUS_MAP)
         wtxt.envelope = envelope
         self.get_chat_for_envelope(envelope).append(wtxt)
 
@@ -846,14 +871,19 @@ class State:
         message = get_envelope_msg(envelope)
         attachments = get_envelope_attachments(envelope)
 
-        txt = None
+        txt = []
         if len(attachments) > 0:
             anames = ', '.join([os.path.basename(attachment) for attachment in attachments])
-            txt = '[attached: ' + anames  + '] ' + message + ' <<'
+            txt.append(ntxt('[attached: '))
+            txt.append(itxt(anames))
+            txt.append(ntxt('] '))
+            txt.append(ntxt(message))
+            txt.append(btxt(' <<'))
         else:
-            txt = message + ' <<'
+            txt.append(ntxt(message))
+            txt.append(btxt(' <<'))
 
-        txt = urwid.AttrMap(urwid.Text(txt, align='right'), None, focus_map='reversed')
+        txt = urwid.AttrMap(urwid.Text(txt, align='right'), None, focus_map=LIST_FOCUS_MAP)
         txt.envelope = envelope
         self.get_chat_for_envelope(envelope).append(txt)
 
@@ -983,13 +1013,7 @@ def main():
     state = State(cfg)
     window = MainWindow(state)
 
-    palette = [('normal', '', ''),
-               ('box_normal', '', ''),
-               ('box_focused', 'dark blue', ''),
-               ('bold', 'bold', ''),
-               ('reversed', 'standout', '')]
-
-    loop = urwid.MainLoop(window, palette=palette)
+    loop = urwid.MainLoop(window, palette=PALETTE)
 
     state.load_history()
     atexit.register(state.save_history)
