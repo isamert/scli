@@ -68,9 +68,8 @@ def has_key(key, x):
     if x: return key in x
     else: return False
 
-def get_url(txt):
-    try: return re.search('(?P<url>https?://[^\s]+)', txt).group('url')
-    except: return None
+def get_urls(txt):
+    return re.findall('(https?://[^\s]+)', txt)
 
 def mk_call(cmd, rmap={}):
     for key, val in rmap.items():
@@ -158,15 +157,152 @@ def get_attachment_name(attachment):
     try: return attachment['contentType']
     except: return os.path.basename(attachment)
 
+def get_attachment_path(attachment):
+    if isinstance(attachment, dict):
+        received_attachment = os.path.join(SIGNALCLI_ATTACHMENT_FOLDER, str(attachment['id']))
+        if not os.path.exists(received_attachment):
+            received_attachment = os.path.join(SIGNALCLI_LEGACY_ATTACHMENT_FOLDER, str(attachment['id']))
+        return received_attachment
+    elif isinstance(attachment, str) and os.path.exists(attachment):
+        return attachment
+
 # #############################################################################
 # ui utility
 # #############################################################################
+
+def listbox_focus_prev(listbox):
+    try: listbox.focus_position = listbox.focus_position - 1
+    except IndexError: pass
+
+def listbox_focus_next(listbox):
+    try: listbox.focus_position = listbox.focus_position + 1
+    except IndexError: pass
+
+
+class FocusableText(urwid.AttrMap):
+    def __init__(self, markup, **kwargs):
+        super().__init__(urwid.Text(markup, **kwargs), None, focus_map=LIST_FOCUS_MAP)
+
 
 class NiceBox(urwid.AttrMap):
     def __init__(self, w, title=''):
         box = urwid.AttrMap(urwid.LineBox(urwid.AttrMap(w, 'normal'), title_align='center', title=title), 'box_normal')
         super().__init__(box, None, focus_map={'box_normal':'box_focused'})
 
+
+class PopUpWrapper(urwid.LineBox):
+    signals = ['closed']
+
+    def __init__(self, widget, buttons=True):
+        self._widget = widget
+        self._widget.result = None
+
+        self._buttons = buttons
+        if buttons:
+            btn_ok = urwid.Button('OK')
+            btn_cancel = urwid.Button('Cancel')
+            self.buttons_grid = urwid.GridFlow([btn_ok, btn_cancel],
+                                                10, 1, 1,
+                                                ('relative', 100))
+            super().__init__(urwid.Frame(widget, footer=self.buttons_grid))
+        else:
+            super().__init__(widget)
+
+    def keypress(self, size, key):
+        if self._buttons:
+            if key == 'tab':
+                if self.original_widget.focus_position == 'footer':
+                    if self.buttons_grid.focus_position == 0:
+                        self.buttons_grid.focus_position = 1
+                    else:
+                        self.original_widget.focus_position = 'body'
+                else:
+                    self.buttons_grid.focus_position = 0
+                    self.original_widget.focus_position = 'footer'
+            # I'm not sure why I need to do this:
+            elif self.original_widget.focus_position == 'body':
+                self.original_widget.keypress(size, key)
+            elif key == 'enter':
+                if self.buttons_grid.focus_position == 0:
+                    self._emit('closed', True, self._widget.result)
+                else:
+                    self._emit('closed', False, None)
+                self._emit('closed')
+
+        if key == 'q':
+            self._emit('closed', False, None)
+
+
+class MessageInfo(urwid.ListBox):
+    def __init__(self, state, envelope):
+        self.state = state
+
+        source = envelope['source']
+        msg = get_envelope_msg(envelope)
+        date = None
+        try:
+            date = datetime.utcfromtimestamp(envelope['timestamp'])
+        except ValueError:
+            date = datetime.utcfromtimestamp(envelope['timestamp'] / 1000)
+        date = date.strftime('%H:%M (%Y-%m-%d)')
+
+        txt_name = FocusableText([btxt('Name   : '),
+                                  ntxt(get_contact_name(state.signal.get_contact(source)))])
+        txt_source = FocusableText([btxt('Number : '),
+                                    ntxt(source)])
+        txt_date = FocusableText([btxt('Date   : '),
+                                  ntxt(date)])
+        txt_msg = FocusableText([btxt('Message: '),
+                                 ntxt(msg)])
+        txt_urls = FocusableText([btxt('Links')], align='center')
+
+        urls = []
+        for url in get_urls(msg):
+            txt_url = FocusableText([ntxt(url)])
+            txt_url.full_path = url
+            urls.append(txt_url)
+
+        txt_atchs = FocusableText(btxt('Attachments'), align='center')
+
+        atchs = []
+        for atch in get_envelope_attachments(envelope):
+            txt_atch = FocusableText(ntxt(get_attachment_name(atch)))
+            txt_atch.original_widget.full_path = get_attachment_path(atch)
+            atchs.append(txt_atch)
+
+
+        items = [txt_name, txt_source, txt_date, txt_msg, txt_urls, *urls, txt_atchs, *atchs]
+        super().__init__(urwid.SimpleFocusListWalker(items))
+
+    def keypress(self, size, key):
+        item = self.body[self.focus_position].original_widget
+
+        if key == 'j':
+            listbox_focus_next(self)
+        elif key == 'k':
+            listbox_focus_prev(self)
+        elif key == 'y':
+            text, _ = item.get_text()
+            try:
+                clip.put(self.state, item.full_path)
+            except AttributeError:
+                try:
+                    clip.put(self.state, text.split(": ")[1])
+                except IndexError:
+                    clip.put(self.state, text)
+        elif key in ('enter', 'o'):
+            try:
+                commands.open_file(self.state, item.full_path)
+            except:
+                pass
+
+
+class HelpDialog(urwid.ListBox):
+    def __init__(self):
+        items = []
+        items.append(urwid.Text(btxt("Keybindings")))
+        items.append(urwid.Text(btxt("Commands")))
+        super().__init__(urwid.SimpleFocusListWalker(items))
 
 # #############################################################################
 # clipboard
@@ -245,6 +381,13 @@ class commands:
                 return
 
     @staticmethod
+    def  open_file(state, path):
+        if os.path.exists(path):
+            if isinstance(path, dict):
+                mk_call(state.cfg.open_command, path)
+            mk_call(state.cfg.open_command, {'%u': path})
+
+    @staticmethod
     def attach(state, args):
         try: args[0]
         except:
@@ -274,17 +417,10 @@ class commands:
         result = False
         attachments = get_envelope_attachments(envelope)
         for attachment in attachments:
-            if isinstance(attachment, dict):
-                received_attachment = os.path.join(SIGNALCLI_ATTACHMENT_FOLDER, str(attachment['id']))
-                if not os.path.exists(received_attachment):
-                    received_attachment = os.path.join(SIGNALCLI_LEGACY_ATTACHMENT_FOLDER, str(attachment['id']))
-                mk_call(state.cfg.open_command, {'%u': received_attachment})
+            file_path = get_attachment_path(attachment)
+            if file_path:
+                commands.open_file(state, file_path)
                 result = True
-            elif isinstance(attachment, str) and os.path.exists(attachment):
-                mk_call(state.cfg.open_command, {'%u': attachment})
-                result = True
-            else:
-                result = False
 
         return result
 
@@ -296,9 +432,9 @@ class commands:
     @staticmethod
     def open_url(state, envelope):
         txt = get_envelope_msg(envelope)
-        url = get_url(txt)
-        if url:
-            mk_call(state.cfg.open_command, {'%u': url})
+        urls = get_urls(txt)
+        if urls:
+            mk_call(state.cfg.open_command, {'%u': urls[0]})
             return True
 
         return False
@@ -553,11 +689,15 @@ class ContactsWindow(urwid.ListBox):
 class ChatWindow(urwid.Frame):
     def __init__(self, state):
         self.state = state
+        self.pop_up_action = None
+
         self._wtitle = urwid.Text('')
         self._wline = urwid.Edit(('bold', '> '))
         self._wdiv = urwid.Divider('-')
         self._wlist = urwid.ListBox(self.state.current_chat)
-        wcontext = urwid.Frame(self._wlist,
+
+        self._w = urwid.WidgetPlaceholder(self._wlist)
+        wcontext = urwid.Frame(self._w,
                               header=urwid.Divider('-'))
         self._wcontext = urwid.Frame(wcontext,
                                      header=self._wtitle,
@@ -567,8 +707,30 @@ class ChatWindow(urwid.Frame):
                          footer=self._wline)
 
         urwid.connect_signal(self.state, 'current_contact_changed', self.on_current_contact_changed)
+        urwid.connect_signal(self.state, 'dialog_requested', self.show_pop_up)
         urwid.connect_signal(self.state.signal, 'receive_message', self.on_new_message)
         urwid.connect_signal(self.state.signal, 'send_message', self.on_new_message)
+
+    def show_pop_up(self, widget):
+        def on_pop_up_closed(sender, accepted, result):
+            self.remove_pop_up()
+            urwid.emit_signal(self.state, 'dialog_finished', accepted, result)
+
+        wrapper = PopUpWrapper(widget)
+        urwid.connect_signal(wrapper, 'closed', on_pop_up_closed)
+
+        popup = urwid.Overlay(wrapper,
+                              self._wlist,
+                              align='center',
+                              valign='middle',
+                              width=('relative', 85),
+                              height=('relative', 75))
+
+        self._w.original_widget = popup
+        return wrapper
+
+    def remove_pop_up(self, sender=None):
+        self._w.original_widget = self._wlist
 
     def on_new_message(self, _envelope):
         self.focus_chatlast()
@@ -620,14 +782,6 @@ class ChatWindow(urwid.Frame):
         try: return self.state.current_chat[self._wlist.focus_position].envelope
         except: return None
 
-    def focus_prev_msg(self):
-        try: self._wlist.focus_position = self._wlist.focus_position - 1
-        except: pass
-
-    def focus_next_msg(self):
-        try: self._wlist.focus_position = self._wlist.focus_position + 1
-        except: pass
-
     def keypress(self, size, key):
         key = super().keypress(size, key)
 
@@ -649,9 +803,9 @@ class ChatWindow(urwid.Frame):
             elif key == 'o':
                 commands.open_url(self.state, envelope) or commands.open_attach(self.state, envelope)
             elif key == 'j':
-                self.focus_next_msg()
+                listbox_focus_next(self._wlist)
             elif key == 'k':
-                self.focus_prev_msg()
+                listbox_focus_prev(self._wlist)
             elif key == 'g':
                 self.focus_chatfirst()
             elif key == 'G':
@@ -662,10 +816,13 @@ class ChatWindow(urwid.Frame):
             elif key == 'd':
                 if self.state.current_chat:
                     del self.state.current_chat[self._wlist.focus_position]
+            elif key == 'i':
+                self.show_pop_up(MessageInfo(self.state, envelope))
+            elif key == 's':
+                commands.save_attach(self.state, envelope)
             elif key == 'q':
                 # TODO: quote (https://github.com/AsamK/signal-cli/issues/151)
                 pass
-
         return key
 
 # #############################################################################
@@ -737,6 +894,12 @@ class MainWindow(urwid.Frame):
         elif self.current_focus == 'input':
             self.focus_chat()
 
+    def show_help_pop_up(self):
+        if self.current_focus == 'contacts':
+            self._wchat.show_pop_up(HelpDialog())
+        elif self.current_focus == 'chat':
+            self._wchat.show_pop_up(HelpDialog())
+
     def on_current_contact_changed(self, old, current, focus=False):
         if self.state.status_data is self.state.current_contact:
             self.state.set_status('')
@@ -762,6 +925,8 @@ class MainWindow(urwid.Frame):
             self.focus_prev()
         elif key == ':':
             self.focus_input(cmd_mode=True)
+        elif key == '?':
+            self.show_help_pop_up()
 
         return key
 
@@ -770,7 +935,7 @@ class MainWindow(urwid.Frame):
 # #############################################################################
 
 class State:
-    signals = ['current_contact_changed', 'status_changed', 'notification_changed', 'error_changed']
+    signals = ['current_contact_changed', 'status_changed', 'notification_changed', 'error_changed', 'dialog_requested', 'dialog_finished']
 
     def __init__(self, cfg):
         self.signal = Signal(cfg.username)
@@ -804,6 +969,9 @@ class State:
     def set_error(self, err):
         self.error = err
         urwid.emit_signal(self, 'error_changed', err)
+
+    def show_dialog(self, w):
+        urwid.emit_signal(self, 'dialog_requested', w)
 
     def clear_current_chat(self):
         self.current_chat.clear()
@@ -863,7 +1031,7 @@ class State:
             txt.append(ntxt('[attached: ' + attachments_txt + '] '))
 
         txt.append(ntxt(message))
-        wtxt = urwid.AttrMap(urwid.Text(txt), None, focus_map=LIST_FOCUS_MAP)
+        wtxt = FocusableText(txt)
         wtxt.envelope = envelope
         self.get_chat_for_envelope(envelope).append(wtxt)
 
@@ -883,7 +1051,7 @@ class State:
             txt.append(ntxt(message))
             txt.append(btxt(' <<'))
 
-        txt = urwid.AttrMap(urwid.Text(txt, align='right'), None, focus_map=LIST_FOCUS_MAP)
+        txt = FocusableText(txt, align='right')
         txt.envelope = envelope
         self.get_chat_for_envelope(envelope).append(txt)
 
