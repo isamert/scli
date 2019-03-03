@@ -120,19 +120,21 @@ def is_envelope_outgoing(envelope):
     try:
         envelope['target']
         return True
-    except:
+    except KeyError:
         return False
 
 def is_envelope_group_message(envelope):
     try:
         envelope['dataMessage']['groupInfo']['groupId']
         return True
-    except:
+    except (KeyError, TypeError):
         return False
 
 def get_envelope_msg(envelope):
-    try: return envelope['dataMessage']['message']
-    except: return None
+    try:
+        return envelope['dataMessage']['message']
+    except (KeyError, TypeError):
+        return None
 
 def get_envelope_contact(envelope, signal):
     x = None
@@ -146,16 +148,22 @@ def get_envelope_contact(envelope, signal):
     return signal.get_contact(x)
 
 def get_envelope_group_id(envelope):
-    try: return envelope['dataMessage']['groupInfo']['groupId']
-    except: return None
+    try:
+        return envelope['dataMessage']['groupInfo']['groupId']
+    except (KeyError, TypeError):
+        return None
 
 def get_envelope_attachments(envelope):
-    try: return envelope['dataMessage']['attachments']
-    except: return []
+    try:
+        return envelope['dataMessage']['attachments']
+    except (KeyError, TypeError):
+        return []
 
 def get_attachment_name(attachment):
-    try: return attachment['contentType']
-    except: return os.path.basename(attachment)
+    try:
+        return attachment['contentType']
+    except (KeyError, TypeError):
+        return os.path.basename(attachment)
 
 def get_attachment_path(attachment):
     if isinstance(attachment, dict):
@@ -227,7 +235,7 @@ class PopUpWrapper(urwid.LineBox):
                     self._emit('closed', True, self._widget.result)
                 else:
                     self._emit('closed', False, None)
-                self._emit('closed')
+                self._emit('closed', False, None)
 
         if key == 'q':
             self._emit('closed', False, None)
@@ -293,7 +301,7 @@ class MessageInfo(urwid.ListBox):
         elif key in ('enter', 'o'):
             try:
                 commands.open_file(self.state, item.full_path)
-            except:
+            except AttributeError:
                 pass
 
 
@@ -389,8 +397,9 @@ class commands:
 
     @staticmethod
     def attach(state, args):
-        try: args[0]
-        except:
+        try:
+            args[0]
+        except IndexError:
             state.set_error(':attach takes at least one argument.')
             return
 
@@ -649,21 +658,27 @@ class ContactsWindow(urwid.ListBox):
         try:
             self.focus_position = self.focus_position + 1
             if not self.get_focused_contact(): self.focus_next()
-        except: pass
+        except IndexError:
+            pass
 
     def focus_prev(self):
         try:
             self.focus_position = self.focus_position - 1
             if not self.get_focused_contact(): self.focus_prev()
-        except: pass
+        except IndexError:
+            pass
 
     def focus_first(self):
-        try: self.focus_position = 2
-        except: pass
+        try:
+            self.focus_position = 2
+        except IndexError:
+            pass
 
     def focus_last(self):
-        try: self.focus_position = len(self._body) - 1
-        except: pass
+        try:
+            self.focus_position = len(self._body) - 1
+        except IndexError:
+            pass
 
     def keypress(self, size, key):
         key = super().keypress(size, key)
@@ -748,12 +763,16 @@ class ChatWindow(urwid.Frame):
         self.focus_position = 'body'
 
     def focus_chatfirst(self):
-        try: self._wlist.focus_position = 0
-        except: pass
+        try:
+            self._wlist.focus_position = 0
+        except IndexError:
+            pass
 
     def focus_chatlast(self):
-        try: self._wlist.focus_position = len(self.state.current_chat) - 1
-        except: pass
+        try:
+            self._wlist.focus_position = len(self.state.current_chat) - 1
+        except IndexError:
+            pass
 
     def get_edit_text(self):
         return self._wline.get_edit_text()
@@ -779,8 +798,10 @@ class ChatWindow(urwid.Frame):
         self.focus_chatlast()
 
     def get_current_envelope(self):
-        try: return self.state.current_chat[self._wlist.focus_position].envelope
-        except: return None
+        try:
+            return self.state.current_chat[self._wlist.focus_position].envelope
+        except (IndexError, AttributeError):
+            return None
 
     def keypress(self, size, key):
         key = super().keypress(size, key)
