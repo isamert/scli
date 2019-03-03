@@ -531,7 +531,7 @@ class Signal:
             except Exception as e:
                 logging.error('input: %s', line)
                 logging.exception(e)
-                urwid.emit_signal(self, 'receive_message', 'Lost message: %r %r' % (line, e))
+                # TODO: display error to user
                 continue
 
 
