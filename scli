@@ -71,18 +71,23 @@ def has_key(key, x):
 def get_urls(txt):
     return re.findall('(https?://[^\s]+)', txt)
 
-def mk_call(cmd, rmap={}):
+def mk_call(cmd, rmap={}, disown=False):
     for key, val in rmap.items():
         cmd = cmd.replace(key, val)
-    pipe = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    out, err = pipe.communicate()
-    logging.info('mk_call:%s', cmd)
-    if pipe.returncode == 0:
-        logging.info('mk_call:exit_0:%s', out.decode('utf-8'))
-    else:
-        logging.critical('mk_call:exit_%d:%s', pipe.returncode, err.decode('utf-8'))
 
-    return out
+    if disown:
+        with open(os.devnull, 'w') as f:
+            subprocess.Popen(cmd, shell=True, stdout=f, stderr=f, preexec_fn=os.setpgrp)
+    else:
+        pipe = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        out, err = pipe.communicate()
+        logging.info('mk_call:%s', cmd)
+        if pipe.returncode == 0:
+            logging.info('mk_call:exit_0:%s', out.decode('utf-8'))
+        else:
+            logging.critical('mk_call:exit_%d:%s', pipe.returncode, err.decode('utf-8'))
+
+        return out
 
 # #############################################################################
 # signal utility
@@ -392,8 +397,8 @@ class commands:
     def  open_file(state, path):
         if os.path.exists(path):
             if isinstance(path, dict):
-                mk_call(state.cfg.open_command, path)
-            mk_call(state.cfg.open_command, {'%u': path})
+                mk_call(state.cfg.open_command, path, True)
+            mk_call(state.cfg.open_command, {'%u': path}, True)
 
     @staticmethod
     def attach(state, args):
@@ -443,7 +448,7 @@ class commands:
         txt = get_envelope_msg(envelope)
         urls = get_urls(txt)
         if urls:
-            mk_call(state.cfg.open_command, {'%u': urls[0]})
+            mk_call(state.cfg.open_command, {'%u': urls[0]}, True)
             return True
 
         return False
