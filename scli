@@ -65,13 +65,17 @@ def itxt(txt): return ('italic', txt)
 # #############################################################################
 
 def has_key(key, x):
-    if x: return key in x
-    else: return False
+    if x:
+        return key in x
+    return False
 
 def get_urls(txt):
-    return re.findall('(https?://[^\s]+)', txt)
+    return re.findall(r'(https?://[^\s]+)', txt)
 
-def mk_call(cmd, rmap={}, disown=False):
+def mk_call(cmd, rmap=None, disown=False):
+    if not rmap:
+        rmap = {}
+
     for key, val in rmap.items():
         cmd = cmd.replace(key, val)
 
@@ -306,7 +310,7 @@ class MessageInfo(urwid.ListBox):
         elif key in ('enter', 'o'):
             try:
                 commands.open_file(self.state, item.full_path)
-            except AttributeError:
+            except (AttributeError, TypeError):
                 pass
 
 
@@ -532,7 +536,10 @@ class Signal:
 
 
 
-    def send_message(self, contact, message="", attachments=[]):
+    def send_message(self, contact, message="", attachments=None):
+        if not attachments:
+            attachments = []
+
         args = ['signal-cli', '--dbus', 'send', '--message', message]
         target = None
         if contact.get('number'):
@@ -544,12 +551,13 @@ class Signal:
 
         attachment_paths = [os.path.expanduser(attachment) for attachment in attachments]
         if all([os.path.exists(attachment_path) for attachment_path in attachment_paths]):
-            if len(attachment_paths) > 0:
+            if attachment_paths:
                 args.append('--attachment')
             for attachment_path in attachment_paths:
                 args.append(attachment_path)
         else:
-            return (False, "Attached file(s) does not exist.")
+            logging.warning('send_message: Attached file(s) does not exist.')
+            return
 
         p = Popen(args, stdout=PIPE, stderr=PIPE)
         _out, error = p.communicate()
@@ -687,12 +695,12 @@ class ContactsWindow(urwid.ListBox):
 
     def keypress(self, size, key):
         key = super().keypress(size, key)
-        if key == 'enter' or key == 'l':
+        if key in ('enter', 'l'):
             if self.get_focused_contact():
                 self.state.set_current_contact(self.get_focused_contact(), key == 'enter')
-        elif key == 'j' or key == 'down':
+        elif key in ('j', 'down'):
             self.focus_next()
-        elif key == 'k' or key == 'up':
+        elif key in ('k', 'up'):
             self.focus_prev()
         elif key == 'g':
             self.focus_first()
@@ -824,7 +832,7 @@ class ChatWindow(urwid.Frame):
                 self.set_edit_text('')
         elif self.is_focused_chat():
             envelope = self.get_current_envelope()
-            if key == 'enter' or key == 'l':
+            if key in ('enter', 'l'):
                 commands.open_attach(self.state, envelope) or commands.open_url(self.state, envelope)
             elif key == 'o':
                 commands.open_url(self.state, envelope) or commands.open_attach(self.state, envelope)
@@ -844,8 +852,6 @@ class ChatWindow(urwid.Frame):
                     del self.state.current_chat[self._wlist.focus_position]
             elif key == 'i':
                 self.show_pop_up(MessageInfo(self.state, envelope))
-            elif key == 's':
-                commands.save_attach(self.state, envelope)
             elif key == 'q':
                 # TODO: quote (https://github.com/AsamK/signal-cli/issues/151)
                 pass
