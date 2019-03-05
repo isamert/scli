@@ -10,6 +10,7 @@ import atexit
 import argparse
 import logging
 import errno
+import textwrap
 from subprocess import PIPE, Popen
 from datetime import datetime
 
@@ -1062,7 +1063,7 @@ class State:
             attachments_txt = ', '.join([get_attachment_name(attachment) + ' (' + str(i) + ')' for i, attachment in enumerate(attachments)])
             txt.append(ntxt('[attached: ' + attachments_txt + '] '))
 
-        txt.append(ntxt(message))
+        txt.append(ntxt('\n'.join(textwrap.wrap(message, width=self.cfg.wrap_at))))
         wtxt = FocusableText(txt)
         wtxt.envelope = envelope
         self.get_chat_for_envelope(envelope).append(wtxt)
@@ -1080,7 +1081,7 @@ class State:
             txt.append(ntxt(message))
             txt.append(btxt(' <<'))
         else:
-            txt.append(ntxt(message))
+            txt.append(ntxt('\n'.join(textwrap.wrap(message, width=self.cfg.wrap_at))))
             txt.append(btxt(' <<'))
 
         txt = FocusableText(txt, align='right')
@@ -1178,6 +1179,12 @@ def main():
                         type=bool,
                         default=False,
                         help='Enable saving history. History is saved as plain text. (Default is false.)')
+
+    parser.add_argument('-w',
+                        '--wrap-at',
+                        type=int,
+                        default=70,
+                        help='Wrap messages at given column.')
 
     parser.add_argument('--no-daemon',
                         action='store_true',
