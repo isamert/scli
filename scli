@@ -47,6 +47,7 @@ PALETTE = [('normal', '', ''),
            ('box_focused', 'dark blue', ''),
            ('bold', 'bold', ''),
            ('italic', 'italics', ''),
+           ('strikethrough', 'strikethrough', ''),
            ('bolditalic', 'italics,bold', ''),
            ('reversed', 'standout', '')]
 
@@ -54,7 +55,12 @@ LIST_FOCUS_MAP = { None:'reversed',
                    'normal': 'reversed',
                    'bold'  : 'reversed',
                    'italic': 'reversed',
+                   'strikethrough': 'reversed',
                    'bolditalic': 'reversed'}
+
+FORMAT_MAP = {'_': 'italic',
+              '*': 'bold',
+              '~': 'strikethrough'}
 
 def ibtxt(txt): return ('bolditalic', txt)
 def ntxt(txt): return ('normal', txt)
@@ -1096,6 +1102,34 @@ class State:
         commands.send_notification(self, contact_name, msg)
         self.print_received_message(envelope)
 
+    def format_msg(self, message):
+        message = '\n'.join(textwrap.wrap(message, width=self.cfg.wrap_at))
+
+        if not self.cfg.use_formatting:
+            return ntxt(message)
+
+        i, m = 0, []
+        while i < len(message):
+            c = message[i]
+            if c in ('_', '*', '~'):
+                try:
+                    end = message[i+1:].index(c)
+                    sub = message[i+1:i+1+end]
+                    m.append(c)
+                    m.append((FORMAT_MAP[c], sub))
+                    m.append(c)
+                    i = i + 2 + end
+                except ValueError:
+                    m.append(c)
+                    i = i + 1
+            else:
+                m.append(c)
+                i = i + 1
+
+        if not m:
+            m = " "
+        return m
+
     def print_received_message(self, envelope):
         source = envelope['source']
         is_group = is_envelope_group_message(envelope)
@@ -1108,20 +1142,20 @@ class State:
             else: txt.append(btxt(source))
             txt.append(btxt(' | '))
 
-        message = get_envelope_msg(envelope)
+        message = self.format_msg(get_envelope_msg(envelope))
         attachments = get_envelope_attachments(envelope)
 
         if attachments != []:
             attachments_txt = ', '.join([get_attachment_name(attachment) + ' (' + str(i) + ')' for i, attachment in enumerate(attachments)])
             txt.append(ntxt('[attached: ' + attachments_txt + '] '))
 
-        txt.append(ntxt('\n'.join(textwrap.wrap(message, width=self.cfg.wrap_at))))
+        txt.append(message)
         wtxt = FocusableText(txt)
         wtxt.envelope = envelope
         self.get_chat_for_envelope(envelope).append(wtxt)
 
     def print_sent_message(self, envelope):
-        message = get_envelope_msg(envelope)
+        message = self.format_msg(get_envelope_msg(envelope))
         attachments = get_envelope_attachments(envelope)
 
         txt = []
@@ -1133,7 +1167,7 @@ class State:
             txt.append(ntxt(message))
             txt.append(btxt(' <<'))
         else:
-            txt.append(ntxt('\n'.join(textwrap.wrap(message, width=self.cfg.wrap_at))))
+            txt.append(message)
             txt.append(btxt(' <<'))
 
         txt = FocusableText(txt, align='right')
@@ -1231,6 +1265,12 @@ def main():
                         type=bool,
                         default=False,
                         help='Enable saving history. History is saved as plain text. (Default is false.)')
+
+    parser.add_argument('-f',
+                        '--use-formatting',
+                        type=bool,
+                        default=False,
+                        help='Use _italic_, *bold*, ~strikethrough~ formatting in messages. (Default is false.)')
 
     parser.add_argument('-w',
                         '--wrap-at',
