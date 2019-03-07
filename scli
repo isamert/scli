@@ -207,7 +207,6 @@ class NiceBox(urwid.AttrMap):
         box = urwid.AttrMap(urwid.LineBox(urwid.AttrMap(w, 'normal'), title_align='center', title=title), 'box_normal')
         super().__init__(box, None, focus_map={'box_normal':'box_focused'})
 
-
 class PopUpWrapper(urwid.LineBox):
     signals = ['closed']
 
@@ -720,6 +719,10 @@ class ChatWindow(urwid.Frame):
         self.state = state
         self.pop_up_action = None
 
+        self.search_mode = False
+        self.search_list = urwid.SimpleFocusListWalker([])
+
+        self._wsearch = urwid.ListBox(self.search_list)
         self._wtitle = urwid.Text('')
         self._wline = urwid.Edit(('bold', '> '))
         self._wdiv = urwid.Divider('-')
@@ -735,6 +738,7 @@ class ChatWindow(urwid.Frame):
         super().__init__(self._wcontext,
                          footer=self._wline)
 
+        urwid.connect_signal(self._wline, 'postchange', self.on_edit_text_changed)
         urwid.connect_signal(self.state, 'current_contact_changed', self.on_current_contact_changed)
         urwid.connect_signal(self.state, 'dialog_requested', self.show_pop_up)
         urwid.connect_signal(self.state.signal, 'receive_message', self.on_new_message)
@@ -749,7 +753,7 @@ class ChatWindow(urwid.Frame):
         urwid.connect_signal(wrapper, 'closed', on_pop_up_closed)
 
         popup = urwid.Overlay(wrapper,
-                              self._wlist,
+                              self._w.original_widget,
                               align='center',
                               valign='middle',
                               width=('relative', 85),
@@ -758,8 +762,34 @@ class ChatWindow(urwid.Frame):
         self._w.original_widget = popup
         return wrapper
 
-    def remove_pop_up(self, sender=None):
-        self._w.original_widget = self._wlist
+    def remove_pop_up(self, _sender=None):
+        if self.search_mode:
+            self._w.original_widget = self._wsearch
+        else:
+            self._w.original_widget = self._wlist
+
+    def on_edit_text_changed(self, _sender, _old_text):
+        txt = self.get_edit_text()
+        if txt.startswith('/'):
+            if not self.search_mode:
+                self.search_mode = True
+                self._w.original_widget = self._wsearch
+            self.search_in_chat()
+        elif self.search_mode:
+            self.search_mode = False
+            self._w.original_widget = self._wlist
+
+    def search_in_chat(self):
+        if not self.search_mode:
+            return
+
+        search_txt = self.get_edit_text()[1:]
+        def setx(i, txt):
+            txt.real_index = i
+            return txt
+        found = [setx(i, txt) for i, txt in enumerate(self.state.current_chat) if search_txt in txt.original_widget.text]
+        self.search_list.clear()
+        self.search_list.extend(found)
 
     def on_new_message(self, _envelope):
         self.focus_chatlast()
@@ -778,13 +808,13 @@ class ChatWindow(urwid.Frame):
 
     def focus_chatfirst(self):
         try:
-            self._wlist.focus_position = 0
+            self._w.original_widget.focus_position = 0
         except IndexError:
             pass
 
     def focus_chatlast(self):
         try:
-            self._wlist.focus_position = len(self.state.current_chat) - 1
+            self._w.original_widget.focus_position = len(self._w.original_widget.body) - 1
         except IndexError:
             pass
 
@@ -813,12 +843,17 @@ class ChatWindow(urwid.Frame):
 
     def get_current_envelope(self):
         try:
+            if self.search_mode:
+                return self.search_list[self._wsearch.focus_position].envelope
             return self.state.current_chat[self._wlist.focus_position].envelope
         except (IndexError, AttributeError):
             return None
 
     def keypress(self, size, key):
         key = super().keypress(size, key)
+
+        if not self.state.current_chat:
+            return key
 
         if self.is_focused_input():
             if key == 'enter':
@@ -828,19 +863,26 @@ class ChatWindow(urwid.Frame):
                     cmd = elems[0].lower()
                     args = elems[1:]
                     commands.exec(self.state, cmd, args)
+                elif txt.startswith('/'):
+                    pass
                 elif txt.strip(' ') != '' and self.state.current_contact:
                     self.state.signal.send_message(self.state.current_contact, txt)
                 self.set_edit_text('')
         elif self.is_focused_chat():
             envelope = self.get_current_envelope()
             if key in ('enter', 'l'):
-                commands.open_attach(self.state, envelope) or commands.open_url(self.state, envelope)
+                if self.search_mode:
+                    real_index = self.search_list[self._wsearch.focus_position].real_index
+                    self.set_edit_text('')
+                    self._wlist.focus_position = real_index
+                else:
+                    commands.open_attach(self.state, envelope) or commands.open_url(self.state, envelope)
             elif key == 'o':
                 commands.open_url(self.state, envelope) or commands.open_attach(self.state, envelope)
             elif key == 'j':
-                listbox_focus_next(self._wlist)
+                listbox_focus_next(self._w.original_widget)
             elif key == 'k':
-                listbox_focus_prev(self._wlist)
+                listbox_focus_prev(self._w.original_widget)
             elif key == 'g':
                 self.focus_chatfirst()
             elif key == 'G':
@@ -849,7 +891,12 @@ class ChatWindow(urwid.Frame):
                 txt = get_envelope_msg(envelope)
                 clip.put(self.state, txt)
             elif key == 'd':
-                if self.state.current_chat:
+                if self.search_mode:
+                    item = self.search_list[self._wsearch.focus_position]
+                    real_index = item.real_index
+                    del self.search_list[self._wsearch.focus_position]
+                    del self.state.current_chat[real_index]
+                else:
                     del self.state.current_chat[self._wlist.focus_position]
             elif key == 'i':
                 self.show_pop_up(MessageInfo(self.state, envelope))
@@ -890,7 +937,7 @@ class MainWindow(urwid.Frame):
     def set_contacts(self, contacts):
         self._wcontacts.set_contacts(contacts)
 
-    def focus_input(self, cmd_mode=False):
+    def focus_input(self, cmd_mode=False, search_mode=False):
         self.focus_position = 'body'
         self._wcontext.set_focus(1)
         self._wchat.focus_input()
@@ -898,6 +945,9 @@ class MainWindow(urwid.Frame):
 
         if cmd_mode:
             self._wchat._wline.set_edit_text(':')
+            self._wchat._wline.set_edit_pos(1)
+        elif search_mode:
+            self._wchat._wline.set_edit_text('/')
             self._wchat._wline.set_edit_pos(1)
 
     def focus_contacts(self):
@@ -958,6 +1008,8 @@ class MainWindow(urwid.Frame):
             self.focus_prev()
         elif key == ':':
             self.focus_input(cmd_mode=True)
+        elif key == '/':
+            self.focus_input(search_mode=True)
         elif key == '?':
             self.show_help_pop_up()
 
