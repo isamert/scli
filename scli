@@ -668,7 +668,10 @@ class ContactsWindow(urwid.ListBox):
 
         contacts = [mk_contact(x) for x in contacts]
         self._body.extend(contacts)
-        self.focus_position = 0
+        try:
+            self.focus_position = 2
+        except IndexError:
+            pass
 
     def get_focused_contact(self):
         return self.focus.contact
@@ -676,14 +679,17 @@ class ContactsWindow(urwid.ListBox):
     def focus_next(self):
         try:
             self.focus_position = self.focus_position + 1
-            if not self.get_focused_contact(): self.focus_next()
+            if not self.get_focused_contact():
+                self.focus_next()
         except IndexError:
             pass
 
     def focus_prev(self):
         try:
-            self.focus_position = self.focus_position - 1
-            if not self.get_focused_contact(): self.focus_prev()
+            if self.focus_position > 2:
+                self.focus_position = self.focus_position - 1
+                if not self.get_focused_contact():
+                    self.focus_prev()
         except IndexError:
             pass
 
