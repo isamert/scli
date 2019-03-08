@@ -31,11 +31,13 @@ A simple two-paned interface is provided. Left pane contains the contact list an
 - Use `j`/`k` to go down/up in contacts list or in messages.
 - Hitting `enter` on a contact starts conversation and focuses to input line.
 - Hitting `l` on a contact only starts conversation.
-- Hitting `o` on a message opens the URL if there is one, if not it opens the attachment if there is one. (needs `xdg-open`)
-- Hitting `enter` on a message opens the attachment if there is one, if not it opens the URL if there is one. (needs `xdg-open`)
+- Hitting `o` on a message opens the URL if there is one, if not it opens the attachment if there is one.
+- Hitting `enter` on a message opens the attachment if there is one, if not it opens the URL if there is one.
 - Hitting `y` on a message puts it into system clipboard. (needs `xclip`)
 - `g` focuses first contact/message.
 - `G` focuses last contact/message.
+- `d` deletes the message from your screen (and from your history, if history is enabled).
+- `i` show a popup that contains detailed information about the message.
 
 ## Commands
 There are some basic commands that you can use. Hit `:` to enter command mode (or simply focus the input line and type `:`).
@@ -45,7 +47,7 @@ There are some basic commands that you can use. Hit `:` to enter command mode (o
 - `:openAttach` or `:o` opens last attachment in messages, if there is one.
 - `:attach FILE_PATH` or `:a FILE_PATH` attaches given file to message.
 - `:attachClip` or `:c` attaches clipboard content to message. This command tries to detect clipboard content. If clipboard contains something with the mime-type `image/png` or `image/jpg`, simply attaches the image to message. If clipboard contains `text/uri-list` it attaches all the files in that URI list to your message. This command needs `xclip` installed.
-- `:toggleNotifications` or `:n` toggles desktop notifications. If desktop notifications are enabled, when a new message arrives a notification will be sent trough `notify-send`. Notifications are disabled at program startup, you can toggle it with `:n`.
+- `:toggleNotifications` or `:n` toggles desktop notifications.
 
 Examples:
 ```
@@ -53,6 +55,9 @@ Examples:
 :attachclip here is another picture.
 ```
 **Note**: Commands are case insensitive, `:quit` and `:qUiT` does the same thing.
+
+## Searching
+There is a built-in search feature. Simply hit `/` and start writing, the chat will be filtered out based on your input. You can focus any of the search results and hit `enter` (or `l`) to open that result in full conversation.
 
 ## Configuration
 There are some simple configuration options. You can either pass them as command-line arguments or add them to your configuration file. Run `scli --help` to see options. Configuration file syntax is also pretty easy. Lines starting with `#` and empty lines are ignored, other lines should consist `key=value` pairs.
