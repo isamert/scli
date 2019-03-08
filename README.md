@@ -19,7 +19,7 @@ qrencode 'LINK' -o qrcode.png
 - Run `signal-cli -u PHONE_NUMBER receive`. This is required to fetch your contacts for the first time.
 - Now you can start using:
 ```
-scli -u PHONE_NUMBER
+scli
 ```
 
 **Note**: `PHONE_NUMBER` starts with `+` followed by the country code.
@@ -57,7 +57,7 @@ Examples:
 **Note**: Commands are case insensitive, `:quit` and `:qUiT` does the same thing.
 
 ## Searching
-There is a built-in search feature. Simply hit `/` and start writing, the chat will be filtered out based on your input. You can focus any of the search results and hit `enter` (or `l`) to open that result in full conversation.
+There is a built-in search feature. Simply hit `/` (or focus the input line then type `/`) and start typing, the chat will be filtered out based on your input. You can focus any of the search results and hit `enter` (or `l`) to open that result in full conversation.
 
 ## Configuration
 There are some simple configuration options. You can either pass them as command-line arguments or add them to your configuration file. Run `scli --help` to see options. Configuration file syntax is also pretty easy. Lines starting with `#` and empty lines are ignored, other lines should consist `key=value` pairs.
