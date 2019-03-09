@@ -587,8 +587,10 @@ class Signal:
                            self._data['contactStore']['contacts']))
 
     def groups(self):
-        return list(filter(lambda x: bool(x['name'].strip(' ')),
-                           self._data["groupStore"]['groups']))
+        # Need to filter out any groups that where "active" == false
+        return list(filter(lambda a: bool(a['active']),
+                    (filter(lambda n: bool(n['name'].strip(' ')),
+                     self._data["groupStore"]['groups']))))
 
     def get_contact(self, number_or_id):
         for contact in self.contacts():
