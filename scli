@@ -161,7 +161,11 @@ def get_envelope_contact(envelope, signal):
     else:
         x = envelope['source']
 
-    return signal.get_contact(x)
+    contact = signal.get_contact(x)
+    if not contact:
+        logging.critical('NULL_CONTACT:%s', envelope)
+
+    return contact
 
 def get_envelope_group_id(envelope):
     try:
