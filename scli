@@ -66,6 +66,13 @@ def ibtxt(txt): return ('bolditalic', txt)
 def ntxt(txt): return ('normal', txt)
 def btxt(txt): return ('bold', txt)
 def itxt(txt): return ('italic', txt)
+def to_txt(txt):
+    if isinstance(txt, str):
+        return txt
+    elif isinstance(txt, tuple):
+        return txt[1]
+    else:
+        return ''.join([to_txt(t) for t in txt])
 
 # #############################################################################
 # utility
@@ -1110,8 +1117,8 @@ class State:
             notif = 'New message from ' + contact_name + ': "' + msg + '"'
             self.set_notification(notif, sender)
 
-        commands.send_notification(self, contact_name, msg)
-        self.print_received_message(envelope)
+        formatted_message = self.print_received_message(envelope)
+        commands.send_notification(self, contact_name, to_txt(formatted_message))
 
     def format_msg(self, message):
         message = '\n'.join(textwrap.wrap(message, width=self.cfg.wrap_at))
@@ -1165,6 +1172,8 @@ class State:
         wtxt.envelope = envelope
         self.get_chat_for_envelope(envelope).append(wtxt)
 
+        return txt[1:]
+
     def print_sent_message(self, envelope):
         message = self.format_msg(get_envelope_msg(envelope))
         attachments = get_envelope_attachments(envelope)
@@ -1181,9 +1190,11 @@ class State:
             txt.append(message)
             txt.append(btxt(' <<'))
 
-        txt = FocusableText(txt, align='right')
-        txt.envelope = envelope
-        self.get_chat_for_envelope(envelope).append(txt)
+        wtxt = FocusableText(txt, align='right')
+        wtxt.envelope = envelope
+        self.get_chat_for_envelope(envelope).append(wtxt)
+
+        return txt[:-1]
 
     def save_history(self):
         if not self.cfg.save_history:
