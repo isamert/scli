@@ -882,9 +882,12 @@ class ChatWindow(urwid.Frame):
                 txt = self.get_edit_text()
                 if txt.startswith(':'):
                     elems = list(filter(lambda x: x != '', txt[1:].split(' ')))
-                    cmd = elems[0].lower()
-                    args = elems[1:]
-                    commands.exec(self.state, cmd, args)
+                    try:
+                        cmd = elems[0].lower()
+                        args = elems[1:]
+                        commands.exec(self.state, cmd, args)
+                    except IndexError:
+                        pass
                 elif txt.startswith('/'):
                     pass
                 elif txt.strip(' ') != '' and self.state.current_contact:
