@@ -224,6 +224,7 @@ class NiceBox(urwid.AttrMap):
         box = urwid.AttrMap(urwid.LineBox(urwid.AttrMap(w, 'normal'), title_align='center', title=title), 'box_normal')
         super().__init__(box, None, focus_map={'box_normal':'box_focused'})
 
+
 class PopUpWrapper(urwid.LineBox):
     signals = ['closed']
 
@@ -326,7 +327,7 @@ class MessageInfo(urwid.ListBox):
                     clip.put(self.state, text)
         elif key in ('enter', 'o'):
             try:
-                commands.open_file(self.state, item.full_path)
+                self.state.commands.open_file(item.full_path)
             except (AttributeError, TypeError):
                 pass
 
@@ -406,102 +407,97 @@ class clip:
 # commands
 # #############################################################################
 
-class commands:
-    @staticmethod
-    def exec(state, cmd, args):
-        for (abbrvs, fn) in cmd_map:
+class Commands:
+    def __init__(self, state):
+        self.state = state
+        self.map = [(['attach', 'a'], self.attach),
+                    (['attachClip', 'c'], self.attach_clip),
+                    (['openAttach', 'o'], self.open_last_attach),
+                    (['openUrl', 'u'], self.open_last_url),
+                    (['toggleNotifications', 'n'], self.toggle_notifications),
+                    (['quit', 'q'], self.quit)]
+
+    def exec(self, cmd, args):
+        for (abbrvs, fn) in self.map:
             if cmd in [abbrv.lower() for abbrv in abbrvs]:
-                fn(state, args)
+                fn(args)
                 return
 
-    @staticmethod
-    def  open_file(state, path):
+    def  open_file(self, path):
         if os.path.exists(path):
             if isinstance(path, dict):
-                mk_call(state.cfg.open_command, path, True)
-            mk_call(state.cfg.open_command, {'%u': path}, True)
+                mk_call(self.state.cfg.open_command, path, True)
+            mk_call(self.state.cfg.open_command, {'%u': path}, True)
 
-    @staticmethod
-    def attach(state, args):
+    def attach(self, args):
         try:
             args[0]
         except IndexError:
-            state.set_error(':attach takes at least one argument.')
+            self.state.set_error(':attach takes at least one argument.')
             return
 
         attachment = os.path.expanduser(args[0])
         message = ' '.join(args[1:])
         if not os.path.exists(attachment):
-            state.set_error('File does not exist: ' + attachment)
+            self.state.set_error('File does not exist: ' + attachment)
             return
 
-        state.signal.send_message(state.current_contact, message, [attachment])
+        self.state.signal.send_message(self.state.current_contact, message, [attachment])
 
-    @staticmethod
-    def attach_clip(state, args):
-        files = clip.files(state)
+    def attach_clip(self, args):
+        files = clip.files(self.state)
         message = ' '.join(args)
 
         if files:
-            state.signal.send_message(state.current_contact, message, files)
+            self.state.signal.send_message(self.state.current_contact, message, files)
         else:
-            state.set_notification('Clipboard is empty.')
+            self.state.set_notification('Clipboard is empty.')
 
-    @staticmethod
-    def open_attach(state, envelope):
+    def open_attach(self, envelope):
         result = False
         attachments = get_envelope_attachments(envelope)
         for attachment in attachments:
             file_path = get_attachment_path(attachment)
             if file_path:
-                commands.open_file(state, file_path)
+                self.open_file(file_path)
                 result = True
 
         return result
 
-    @staticmethod
-    def open_last_attach(state, args):
-        for txt in state.current_chat[::-1]:
-            if commands.open_attach(state, txt.envelope): return
+    def open_last_attach(self, args):
+        for txt in self.state.current_chat[::-1]:
+            if self.open_attach(txt.envelope):
+                return
 
-    @staticmethod
-    def open_url(state, envelope):
+    def open_url(self, envelope):
         txt = get_envelope_msg(envelope)
         urls = get_urls(txt)
         if urls:
-            mk_call(state.cfg.open_command, {'%u': urls[0]}, True)
+            mk_call(self.state.cfg.open_command, {'%u': urls[0]}, True)
             return True
 
         return False
 
-    @staticmethod
-    def open_last_url(state, args):
-        for txt in state.current_chat[::-1]:
-            if commands.open_url(state, txt.envelope): return
+    def open_last_url(self, args):
+        for txt in self.state.current_chat[::-1]:
+            if self.open_url(txt.envelope):
+                return
 
-    @staticmethod
-    def toggle_notifications(state, args):
-        state.cfg.enable_notifications = not state.cfg.enable_notifications
+    def toggle_notifications(self, args):
+        self.state.cfg.enable_notifications = not self.state.cfg.enable_notifications
         notif = 'Desktop notifications are '
-        if state.cfg.enable_notifications: notif = notif + 'ON'
-        else: notif = notif + 'OFF'
-        state.set_notification(notif + '.')
+        if self.state.cfg.enable_notifications:
+            notif = notif + 'ON'
+        else:
+            notif = notif + 'OFF'
+        self.state.set_notification(notif + '.')
 
-    @staticmethod
-    def send_notification(state, sender, message):
-        if state.cfg.enable_notifications:
-            mk_call(state.cfg.notification_command, {'%s': sender, '%m': message})
+    def send_notification(self, sender, message):
+        if self.state.cfg.enable_notifications:
+            mk_call(self.state.cfg.notification_command, {'%s': sender, '%m': message})
 
-    @staticmethod
-    def quit(state, args):
+    def quit(self, args):
         raise urwid.ExitMainLoop()
-
-cmd_map = [(['attach', 'a'], commands.attach),
-           (['attachClip', 'c'], commands.attach_clip),
-           (['openAttach', 'o'], commands.open_last_attach),
-           (['openUrl', 'u'], commands.open_last_url),
-           (['toggleNotifications', 'n'], commands.toggle_notifications),
-           (['quit', 'q'], commands.quit)]
 
 # #############################################################################
 # signal
@@ -512,17 +508,20 @@ class Signal:
 
     def __init__(self, user):
         self.user = user
+        self._data = None
+        self._buffer = b''
         self._path = os.path.join(SIGNALCLI_DATA_FOLDER, user)
+
         if not os.path.exists(self._path):
             self._path = os.path.join(SIGNALCLI_LEGACY_DATA_FOLDER, user)
             if not os.path.exists(self._path):
                 raise Exception(self.user + " does not exist!")
-        self._data = self.load_data()
-        self._buffer = b''
 
-    def load_data(self):
+        self.reload_data()
+
+    def reload_data(self):
         with open(self._path) as f:
-            return json.load(f)
+            self._data = json.load(f)
 
     def start_daemon(self, loop):
         fd = loop.watch_pipe(self.daemon_handler)
@@ -885,7 +884,7 @@ class ChatWindow(urwid.Frame):
                     try:
                         cmd = elems[0].lower()
                         args = elems[1:]
-                        commands.exec(self.state, cmd, args)
+                        self.state.commands.exec(cmd, args)
                     except IndexError:
                         pass
                 elif txt.startswith('/'):
@@ -903,9 +902,9 @@ class ChatWindow(urwid.Frame):
                     self.set_edit_text('')
                     self._wlist.focus_position = real_index
                 else:
-                    commands.open_attach(self.state, envelope) or commands.open_url(self.state, envelope)
+                    self.state.commands.open_attach(envelope) or self.state.commands.open_url(envelope)
             elif key == 'o':
-                commands.open_url(self.state, envelope) or commands.open_attach(self.state, envelope)
+                self.state.commands.open_url(envelope) or self.state.commands.open_attach(envelope)
             elif key == 'j':
                 listbox_focus_next(self._w.original_widget)
             elif key == 'k':
@@ -1058,7 +1057,10 @@ class State:
         self.notification = ''
         self.status_data = None
         self.current_contact = None
+        self.loop = None
         self.current_chat = urwid.SimpleFocusListWalker([])
+
+        self.commands = Commands(self)
 
         urwid.connect_signal(self.signal, 'receive_message', self.on_receive_message)
         urwid.connect_signal(self.signal, 'send_message', self.on_send_message)
@@ -1121,7 +1123,7 @@ class State:
             self.set_notification(notif, sender)
 
         formatted_message = self.print_received_message(envelope)
-        commands.send_notification(self, contact_name, to_txt(formatted_message))
+        self.commands.send_notification(contact_name, to_txt(formatted_message))
 
     def format_msg(self, message):
         message = '\n'.join(textwrap.wrap(message, width=self.cfg.wrap_at))
@@ -1363,6 +1365,7 @@ def main():
 
     loop = urwid.MainLoop(window, palette=PALETTE)
 
+    state.loop = loop
     state.load_history()
     atexit.register(state.save_history)
 
