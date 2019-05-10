@@ -86,7 +86,7 @@ def has_key(key, x):
 def get_urls(txt):
     return re.findall(r'(https?://[^\s]+)', txt)
 
-def mk_call(cmd, rmap=None, disown=False):
+def mk_call(cmd, rmap=None, disown=False, use_pipe=True):
     if not rmap:
         rmap = {}
 
@@ -97,13 +97,20 @@ def mk_call(cmd, rmap=None, disown=False):
         with open(os.devnull, 'w') as f:
             subprocess.Popen(cmd, shell=True, stdout=f, stderr=f, preexec_fn=os.setpgrp)
     else:
-        pipe = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if use_pipe:
+            pipe = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        else:
+            pipe = subprocess.Popen(cmd, shell=True)
+
         out, err = pipe.communicate()
         logging.info('mk_call:%s', cmd)
-        if pipe.returncode == 0:
-            logging.info('mk_call:exit_0:%s', out.decode('utf-8'))
-        else:
-            logging.critical('mk_call:exit_%d:%s', pipe.returncode, err.decode('utf-8'))
+        try:
+            if pipe.returncode == 0:
+                logging.info('mk_call:exit_0:%s', out.decode('utf-8'))
+            else:
+                logging.critical('mk_call:exit_%d:%s', pipe.returncode, err.decode('utf-8'))
+        except AttributeError:
+            pass
 
         return out
 
@@ -411,6 +418,7 @@ class Commands:
     def __init__(self, state):
         self.state = state
         self.map = [(['attach', 'a'], self.attach),
+                    (['edit', 'e'], self.external_edit),
                     (['attachClip', 'c'], self.attach_clip),
                     (['openAttach', 'o'], self.open_last_attach),
                     (['openUrl', 'u'], self.open_last_url),
@@ -423,7 +431,21 @@ class Commands:
                 fn(args)
                 return
 
-    def  open_file(self, path):
+    def external_edit(self, args):
+        if args:
+            msg_file_path = os.path.expanduser(args[0])
+        else:
+            msg_file_path = tempfile.NamedTemporaryFile(suffix='.md', delete=False).name
+
+        self.state.loop.stop()
+        mk_call(self.state.cfg.editor_command + " " + msg_file_path, use_pipe=False)
+        print('Please wait...')
+        self.state.loop.start()
+
+        with open(msg_file_path, 'r') as msg_file:
+            self.state.signal.send_message(self.state.current_contact, msg_file.read())
+
+    def open_file(self, path):
         if os.path.exists(path):
             if isinstance(path, dict):
                 mk_call(self.state.cfg.open_command, path, True)
@@ -1274,6 +1296,12 @@ def main():
                         type=str,
                         default='xdg-open "%u"',
                         help='File/URL opener command. %%u is replaced with the path. (Default is "xdg-open %%u")')
+
+    parser.add_argument('-e',
+                        '--editor-command',
+                        type=str,
+                        default='$EDITOR',
+                        help='A text editor command to edit your messages externally.')
 
     parser.add_argument('-G',
                         '--clipboard-get-command',
