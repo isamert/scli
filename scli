@@ -443,7 +443,9 @@ class Commands:
         self.state.loop.start()
 
         with open(msg_file_path, 'r') as msg_file:
-            self.state.signal.send_message(self.state.current_contact, msg_file.read())
+            msg = msg_file.read().strip()
+            if msg:
+                self.state.signal.send_message(self.state.current_contact, msg)
 
     def open_file(self, path):
         if os.path.exists(path):
