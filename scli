@@ -51,7 +51,7 @@ PALETTE = [('normal', '', ''),
            ('bolditalic', 'italics,bold', ''),
            ('reversed', 'standout', '')]
 
-LIST_FOCUS_MAP = { None:'reversed',
+LIST_FOCUS_MAP = { None: 'reversed',
                    'normal': 'reversed',
                    'bold'  : 'reversed',
                    'italic': 'reversed',
@@ -62,10 +62,18 @@ FORMAT_MAP = {'_': 'italic',
               '*': 'bold',
               '~': 'strikethrough'}
 
-def ibtxt(txt): return ('bolditalic', txt)
-def ntxt(txt): return ('normal', txt)
-def btxt(txt): return ('bold', txt)
-def itxt(txt): return ('italic', txt)
+def ibtxt(txt):
+    return ('bolditalic', txt)
+
+def ntxt(txt):
+    return ('normal', txt)
+
+def btxt(txt):
+    return ('bold', txt)
+
+def itxt(txt):
+    return ('italic', txt)
+
 def to_txt(txt):
     if isinstance(txt, str):
         return txt
@@ -142,6 +150,13 @@ def get_contact_name(x):
         return number
 
     return "ERR"
+
+def get_contact_color(x):
+    color = x.get('color')
+    if color or color.strip(' ') != '':
+        return color
+
+    return 'white'
 
 def is_contact_group(contact):
     return has_key('groupId', contact)
@@ -573,8 +588,6 @@ class Signal:
                 logging.exception(e)
                 # TODO: display error to user
                 continue
-
-
 
     def send_message(self, contact, message="", attachments=None):
         if not attachments:
@@ -1183,10 +1196,12 @@ class State:
         attachments = get_envelope_attachments(envelope)
 
         txt = [btxt('>> ')]
-        if is_group:
+        if is_group or self.cfg.show_names:
             contact = self.signal.get_contact(source)
-            if contact: txt.append(ibtxt(get_contact_name(contact)))
-            else: txt.append(btxt(source))
+            if contact:
+                txt.append(ibtxt(get_contact_name(contact)))
+            else:
+                txt.append(btxt(source))
             txt.append(btxt(' | '))
 
         message = self.format_msg(get_envelope_msg(envelope))
@@ -1214,12 +1229,19 @@ class State:
             txt.append(itxt(anames))
             txt.append(ntxt('] '))
             txt.append(ntxt(message))
-            txt.append(btxt(' <<'))
         else:
             txt.append(message)
-            txt.append(btxt(' <<'))
 
-        wtxt = FocusableText(txt, align='right')
+        if self.cfg.one_sided:
+            align = 'left'
+            txt.insert(0, btxt('>> '))
+            if self.cfg.show_names:
+                txt.insert(1, btxt('You | '))
+        else:
+            align = 'right'
+            txt.append(btxt(' | You <<'))
+
+        wtxt = FocusableText(txt, align=align)
         wtxt.envelope = envelope
         self.get_chat_for_envelope(envelope).append(wtxt)
 
@@ -1283,8 +1305,8 @@ def main():
 
     parser.add_argument('-n',
                         '--enable-notifications',
-                        type=bool,
                         default=False,
+                        action='store_true',
                         help='Enable desktop notifications. (Also see --notification-command)')
 
     parser.add_argument('-N',
@@ -1319,21 +1341,31 @@ def main():
 
     parser.add_argument('-s',
                         '--save-history',
-                        type=bool,
                         default=False,
-                        help='Enable saving history. History is saved as plain text. (Default is false.)')
+                        action='store_true',
+                        help='Enable saving history. History is saved as plain text. (Disabled by default.)')
 
     parser.add_argument('-f',
                         '--use-formatting',
-                        type=bool,
                         default=False,
-                        help='Use _italic_, *bold*, ~strikethrough~ formatting in messages. (Default is false.)')
+                        action='store_true',
+                        help='Use _italic_, *bold*, ~strikethrough~ formatting in messages. (Disabled by default.)')
 
     parser.add_argument('-w',
                         '--wrap-at',
                         type=int,
-                        default=70,
+                        default=300,
                         help='Wrap messages at given column.')
+
+    parser.add_argument('--one-sided',
+                        default=False,
+                        action='store_true',
+                        help='Show messages aligned to one side in message list. (Disabled by default.)')
+
+    parser.add_argument('--show-names',
+                        default=False,
+                        action='store_true',
+                        help='Show contact names even in message list even if it is one-to-one conversation. (Disabled by default.)')
 
     parser.add_argument('--no-daemon',
                         action='store_true',
