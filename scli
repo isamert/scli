@@ -1239,7 +1239,9 @@ class State:
                 txt.insert(1, btxt('You | '))
         else:
             align = 'right'
-            txt.append(btxt(' | You <<'))
+            if self.cfg.show_names:
+                txt.append(btxt(' | You'))
+            txt.append(btxt(" <<"))
 
         wtxt = FocusableText(txt, align=align)
         wtxt.envelope = envelope
