@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+# pylint: disable=invalid-name, ungrouped-imports, too-many-lines, missing-docstring, line-too-long
+
 import os
 import re
 import sys
@@ -121,6 +123,25 @@ def mk_call(cmd, rmap=None, disown=False, use_pipe=True):
             pass
 
         return out
+
+
+class ObservableConfig:
+    signals = ['changed']
+
+    def __init__(self, cfg_obj):
+        self._cfg_obj = cfg_obj
+
+    def __getattr__(self, name):
+        return getattr(self._cfg_obj, name)
+
+    def __setattr__(self, name, value):
+        if name != '_cfg_obj' and hasattr(self._cfg_obj, name):
+            setattr(self._cfg_obj, name, value)
+            urwid.emit_signal(self, 'changed', name, value)
+        else:
+            super().__setattr__(name, value)
+
+urwid.register_signal(ObservableConfig, ObservableConfig.signals)
 
 # #############################################################################
 # signal utility
@@ -438,6 +459,7 @@ class Commands:
                     (['openAttach', 'o'], self.open_last_attach),
                     (['openUrl', 'u'], self.open_last_url),
                     (['toggleNotifications', 'n'], self.toggle_notifications),
+                    (['toggleAutohide', 'h'], self.toggle_autohide),
                     (['quit', 'q'], self.quit)]
 
     def exec(self, cmd, args):
@@ -530,6 +552,9 @@ class Commands:
         else:
             notif = notif + 'OFF'
         self.state.set_notification(notif + '.')
+
+    def toggle_autohide(self, args):
+        self.state.cfg.contacts_autohide = not self.state.cfg.contacts_autohide
 
     def send_notification(self, sender, message):
         if self.state.cfg.enable_notifications:
@@ -666,18 +691,27 @@ urwid.register_signal(Signal, Signal.signals)
 # #############################################################################
 
 class ContactsWindow(urwid.ListBox):
+    signals = ['notify_count_changed']
+
     def __init__(self, state):
         self.state = state
         self._body = []
+        self.notify_count = 0
+
         super().__init__(urwid.SimpleFocusListWalker(self._body))
         self.set_contacts(self.state.signal.get_all_contacts())
-        self.focus_next()
 
         urwid.connect_signal(self.state.signal, 'receive_message', self.on_receive_message)
         urwid.connect_signal(self.state, 'current_contact_changed', self.on_current_contact_changed)
 
-    @classmethod
-    def set_contact_notify_count(cls, w, count):
+    def set_contact_notify_count(self, w, count):
+        if hasattr(w, 'notify_count'):
+            self.notify_count += count - w.notify_count
+        else:
+            self.notify_count += count
+
+        urwid.emit_signal(self, 'notify_count_changed', self.notify_count)
+
         w.notify_count = count
         if count > 0:
             w.original_widget.set_text([('bold', '({}) '.format(w.notify_count)), get_contact_name(w.contact)])
@@ -981,18 +1015,21 @@ class MainWindow(urwid.Frame):
         self._wcontacts = ContactsWindow(self.state)
         self._wchat = ChatWindow(self.state)
         self._wstatus = urwid.Text("...")
+        self._wnotify_count = urwid.Text("...")
 
-        wrapped_contacts = NiceBox(self._wcontacts)
-        wrapped_chat = NiceBox(self._wchat)
-        self._widgets = [('weight', 1, wrapped_contacts), ('weight', 3, wrapped_chat)]
+        self._wrapped_contacts = NiceBox(self._wcontacts)
+        self._wrapped_chat = NiceBox(self._wchat)
+        self._widgets = [('weight', 1, self._wrapped_contacts), ('weight', 3, self._wrapped_chat)]
         self._wcontext = urwid.Columns(widget_list=self._widgets, dividechars=0, focus_column=0)
-        super().__init__(self._wcontext, footer=self._wstatus)
+        super().__init__(self._wcontext, footer=urwid.Columns([self._wstatus, ('pack', self._wnotify_count)]))
 
         # signals
         urwid.connect_signal(self.state, 'current_contact_changed', self.on_current_contact_changed)
         urwid.connect_signal(self.state, 'status_changed', self.on_status_changed)
         urwid.connect_signal(self.state, 'notification_changed', self.on_notification_changed)
         urwid.connect_signal(self.state, 'error_changed', self.on_error_changed)
+        urwid.connect_signal(self.state.cfg, 'changed', self.on_cfg_changed)
+        urwid.connect_signal(self._wcontacts, 'notify_count_changed', self.on_notify_count_changed)
 
     def set_status(self, txt):
         self._wstatus.set_text(txt)
@@ -1000,9 +1037,27 @@ class MainWindow(urwid.Frame):
     def set_contacts(self, contacts):
         self._wcontacts.set_contacts(contacts)
 
+    def toggle_contacts(self):
+        if len(self._wcontext.contents) == 2:
+            if self.current_focus == 'contacts':
+                self.focus_next()
+
+            self._wcontext.contents.clear()
+            self._wcontext.contents.append((self._wrapped_chat, self._wcontext.options(width_amount=3)))
+        else:
+            self._wcontext.contents.insert(0, (self._wrapped_contacts, self._wcontext.options(width_amount=1)))
+
+    def body_pos(self):
+        if len(self._wcontext.contents) == 1:
+            return 0
+        return 1
+
     def focus_input(self, cmd_mode=False, search_mode=False):
+        if self.current_focus == 'contacts' and self.state.cfg.contacts_autohide:
+            self.toggle_contacts()
+
         self.focus_position = 'body'
-        self._wcontext.set_focus(1)
+        self._wcontext.set_focus(self.body_pos())
         self._wchat.focus_input()
         self.current_focus = 'input'
 
@@ -1014,19 +1069,24 @@ class MainWindow(urwid.Frame):
             self._wchat._wline.set_edit_pos(1)
 
     def focus_contacts(self):
+        if len(self._wcontext.contents) == 1:
+            self.toggle_contacts()
+
         self.focus_position = 'body'
         self._wcontext.set_focus(0)
         self.current_focus = 'contacts'
 
     def focus_chat(self):
         self.focus_position = 'body'
-        self._wcontext.set_focus(1)
+        self._wcontext.set_focus(self.body_pos())
         self._wchat.focus_chat()
         self.current_focus = 'chat'
 
     def focus_next(self):
         if self.current_focus == 'contacts':
             self.focus_chat()
+            if self.state.cfg.contacts_autohide:
+                self.toggle_contacts()
         elif self.current_focus == 'chat':
             self.focus_input()
         elif self.current_focus == 'input':
@@ -1061,6 +1121,13 @@ class MainWindow(urwid.Frame):
 
     def on_error_changed(self, err):
         self.set_status(err)
+
+    def on_cfg_changed(self, key, val):
+        if key == 'contacts_autohide':
+            self.toggle_contacts()
+
+    def on_notify_count_changed(self, count):
+        self._wnotify_count.set_text(btxt(str(count)))
 
     def keypress(self, size, key):
         key = super().keypress(size, key)
@@ -1369,6 +1436,11 @@ def main():
                         action='store_true',
                         help='Show contact names even in message list even if it is one-to-one conversation. (Disabled by default.)')
 
+    parser.add_argument('--contacts-autohide',
+                        default=False,
+                        action='store_true',
+                        help='Autohide the contacts pane when it loses focus. (Disabled by default)')
+
     parser.add_argument('--no-daemon',
                         action='store_true',
                         help='Not really useful.')
@@ -1424,7 +1496,7 @@ def main():
                 print("\tscli --username=" + u, file=sys.stderr)
             sys.exit(1)
 
-    state = State(cfg)
+    state = State(ObservableConfig(cfg))
     window = MainWindow(state)
 
     loop = urwid.MainLoop(window, palette=PALETTE)
