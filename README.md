@@ -48,6 +48,8 @@ There are some basic commands that you can use. Hit `:` to enter command mode (o
 - `:attach FILE_PATH` or `:a FILE_PATH` attaches given file to message.
 - `:attachClip` or `:c` attaches clipboard content to message. This command tries to detect clipboard content. If clipboard contains something with the mime-type `image/png` or `image/jpg`, simply attaches the image to message. If clipboard contains `text/uri-list` it attaches all the files in that URI list to your message. This command needs `xclip` installed.
 - `:toggleNotifications` or `:n` toggles desktop notifications.
+- `:edit` or `:e` lets you edit your message in your `$EDITOR`.
+- `:toggleAutohide` or `:h` toggles autohide property of the contacts pane.
 
 Examples:
 ```
