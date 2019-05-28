@@ -469,10 +469,13 @@ class Commands:
                 return
 
     def external_edit(self, args):
-        if args:
+        if args and len(args) == 1 and (args[0].startswith("/") or args[0].startswith("~/")):
             msg_file_path = os.path.expanduser(args[0])
         else:
             msg_file_path = tempfile.NamedTemporaryFile(suffix='.md', delete=False).name
+            if args:
+                with open(msg_file_path, "w") as msg_file:
+                    msg_file.write(' '.join(args))
 
         self.state.loop.stop()
         mk_call(self.state.cfg.editor_command + " " + msg_file_path, use_pipe=False)
