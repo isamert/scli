@@ -609,7 +609,7 @@ class Signal:
                 continue
 
             try:
-                e = json.loads(line)
+                e = json.loads(line.decode('utf-8'))
                 urwid.emit_signal(self, 'receive_message', e['envelope'])
             except Exception as e:
                 logging.error('input: %s', line)
