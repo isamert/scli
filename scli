@@ -1537,15 +1537,13 @@ def main():
 
     if not cfg.username:
         ulist = []
-        try:
-            users = [x for x in os.listdir(SIGNALCLI_DATA_FOLDER)
-                     if os.path.isfile(os.path.join(SIGNALCLI_DATA_FOLDER, x))]
-            ulist.extend(users)
-            legacy_users = [x for x in os.listdir(SIGNALCLI_LEGACY_DATA_FOLDER)
-                            if os.path.isfile(os.path.join(SIGNALCLI_LEGACY_DATA_FOLDER, x))]
-            ulist.extend(legacy_users)
-        except FileNotFoundError:
-            pass
+        for folder in [SIGNALCLI_DATA_FOLDER, SIGNALCLI_LEGACY_DATA_FOLDER]:
+            try:
+                users = [x for x in os.listdir(folder)
+                         if os.path.isfile(os.path.join(folder, x))]
+                ulist.extend(users)
+            except FileNotFoundError:
+                pass
 
         if not ulist:
             print("Couldn't find any linked device.", file=sys.stderr)
