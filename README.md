@@ -59,7 +59,9 @@ Examples:
 **Note**: Commands are case insensitive, `:quit` and `:qUiT` does the same thing.
 
 ## Searching
-There is a built-in search feature. Simply hit `/` (or focus the input line then type `/`) and start typing, the chat will be filtered out based on your input. You can focus any of the search results and hit `enter` (or `l`) to open that result in full conversation.
+There is a built-in search feature. Simply hit `/` while you are on the chat window (or focus the input line then type `/`) and start typing, the chat will be filtered out based on your input. You can focus any of the search results and hit `enter` (or `l`) to open that result in full conversation.
+
+For searching trough contacts, you need to hit `/` while you are on the contacts window and start typing, contacts will be filtered out while you are typing. Hit `enter` to focus the results. Hitting `Esc` will clear the search.
 
 ## Configuration
 There are some simple configuration options. You can either pass them as command-line arguments or add them to your configuration file. Run `scli --help` to see options. Configuration file syntax is also pretty easy. Lines starting with `#` and empty lines are ignored, other lines should consist `key=value` pairs.
