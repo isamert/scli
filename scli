@@ -170,7 +170,18 @@ def get_contact_name(x):
     if number:
         return number
 
-    return "ERR"
+    return "NULL"
+
+def get_contact_number(x):
+    if not x:
+        logging.critical('get_contact_number:empty sender')
+        return "NULL"
+
+    number = x.get('number')
+    if number:
+        return number
+
+    return "NULL"
 
 def get_contact_color(x):
     color = x.get('color')
@@ -736,6 +747,7 @@ class ContactsWindow(urwid.ListBox):
                 return
 
     def set_contacts(self, contacts):
+        self._body.clear()
         def mk_contact(x):
             widget = None
             contact = None
@@ -807,6 +819,53 @@ class ContactsWindow(urwid.ListBox):
         elif key == 'r':
             pass # TODO: refresh
         return key
+
+
+class LeftWindow(urwid.Frame):
+    def __init__(self, state):
+        self.state = state
+        self._wcontacts = ContactsWindow(self.state)
+        self._wsearch = urwid.Edit(('bold', '> '))
+
+        urwid.connect_signal(self._wsearch, 'postchange', self.on_search_text_changed)
+
+        super().__init__(self._wcontacts, footer=None)
+
+    def start_search(self):
+        self.footer = self._wsearch
+        self.focus_position = 'footer'
+
+    def hide_search(self):
+        self.focus_position = 'body'
+        self.footer = None
+
+    def clear_search(self):
+        self._wsearch.set_edit_text('')
+
+    def set_contacts(self, contacts):
+        self._wcontacts.set_contacts(contacts)
+
+    def on_search_text_changed(self, _sender, _old_text):
+        def contact_match(contact):
+            txt = self._wsearch.get_edit_text()
+            if isinstance(contact, str):
+                return True
+            return (txt.lower() in get_contact_name(contact).lower()) or (txt in get_contact_number(contact))
+
+        results = [c for c in self.state.signal.get_all_contacts() if contact_match(c)]
+        self.set_contacts(results)
+
+    def keypress(self, size, key):
+        key = super().keypress(size, key)
+        if key == '/':
+            self.start_search()
+        elif key == 'enter' and self.focus_position == 'footer':
+            self.hide_search()
+        elif key == 'esc':
+            self.hide_search()
+            self.clear_search()
+        return key
+
 
 # #############################################################################
 # ChatWindow
@@ -1015,14 +1074,14 @@ class MainWindow(urwid.Frame):
 
         # ui
         self.current_focus = 'contacts'
-        self._wcontacts = ContactsWindow(self.state)
+        self._wleft = LeftWindow(self.state)
         self._wchat = ChatWindow(self.state)
         self._wstatus = urwid.Text("...")
         self._wnotify_count = urwid.Text("...")
 
-        self._wrapped_contacts = NiceBox(self._wcontacts)
+        self._wrapped_left = NiceBox(self._wleft)
         self._wrapped_chat = NiceBox(self._wchat)
-        self._widgets = [('weight', 1, self._wrapped_contacts), ('weight', 3, self._wrapped_chat)]
+        self._widgets = [('weight', 1, self._wrapped_left), ('weight', 3, self._wrapped_chat)]
         self._wcontext = urwid.Columns(widget_list=self._widgets, dividechars=0, focus_column=0)
         super().__init__(self._wcontext, footer=urwid.Columns([self._wstatus, ('pack', self._wnotify_count)]))
 
@@ -1032,13 +1091,13 @@ class MainWindow(urwid.Frame):
         urwid.connect_signal(self.state, 'notification_changed', self.on_notification_changed)
         urwid.connect_signal(self.state, 'error_changed', self.on_error_changed)
         urwid.connect_signal(self.state.cfg, 'changed', self.on_cfg_changed)
-        urwid.connect_signal(self._wcontacts, 'notify_count_changed', self.on_notify_count_changed)
+        urwid.connect_signal(self._wleft._wcontacts, 'notify_count_changed', self.on_notify_count_changed)
 
     def set_status(self, txt):
         self._wstatus.set_text(txt)
 
     def set_contacts(self, contacts):
-        self._wcontacts.set_contacts(contacts)
+        self._wleft.set_contacts(contacts)
 
     def toggle_contacts(self):
         if len(self._wcontext.contents) == 2:
@@ -1048,7 +1107,7 @@ class MainWindow(urwid.Frame):
             self._wcontext.contents.clear()
             self._wcontext.contents.append((self._wrapped_chat, self._wcontext.options(width_amount=3)))
         else:
-            self._wcontext.contents.insert(0, (self._wrapped_contacts, self._wcontext.options(width_amount=1)))
+            self._wcontext.contents.insert(0, (self._wrapped_left, self._wcontext.options(width_amount=1)))
 
     def body_pos(self):
         if len(self._wcontext.contents) == 1:
@@ -1141,7 +1200,7 @@ class MainWindow(urwid.Frame):
             self.focus_prev()
         elif key == ':':
             self.focus_input(cmd_mode=True)
-        elif key == '/':
+        elif key == '/' and self.current_focus == 'chat':
             self.focus_input(search_mode=True)
         elif key == '?':
             self.show_help_pop_up()
