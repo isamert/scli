@@ -241,9 +241,10 @@ def get_envelope_attachments(envelope):
         return []
 
 def get_attachment_name(attachment):
-    try:
-        return attachment['contentType']
-    except (KeyError, TypeError):
+    if isinstance(attachment, dict):
+        filename = attachment['filename']
+        return filename if filename is not None else attachment['contentType']
+    else:
         return os.path.basename(attachment)
 
 def get_attachment_path(attachment):
@@ -1353,7 +1354,7 @@ class State:
 
         txt = []
         if len(attachments) > 0:
-            anames = ', '.join([os.path.basename(attachment) for attachment in attachments])
+            anames = ', '.join([get_attachment_name(attachment) for attachment in attachments])
             txt.append(ntxt('[attached: '))
             txt.append(itxt(anames))
             txt.append(ntxt('] '))
