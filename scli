@@ -13,6 +13,7 @@ import argparse
 import logging
 import errno
 import textwrap
+import bisect
 from subprocess import PIPE, Popen
 from datetime import datetime
 
@@ -195,30 +196,58 @@ def is_contact_group(contact):
 
 def is_envelope_outgoing(envelope):
     try:
-        envelope['target']
-        return True
+        if 'target' in envelope:
+            return True
+
+        syncMessage = envelope['syncMessage']
+        if syncMessage is not None \
+        and syncMessage['sentMessage'] is not None:
+            return True
     except KeyError:
         return False
 
 def is_envelope_group_message(envelope):
     try:
-        envelope['dataMessage']['groupInfo']['groupId']
-        return True
+        if envelope['dataMessage'] is not None:
+            return envelope['dataMessage'].get('groupInfo') is not None
+        if envelope['syncMessage'] is not None:
+            return envelope['syncMessage']['sentMessage'].get('groupInfo') is not None
+        else:
+            return False
     except (KeyError, TypeError):
         return False
 
 def get_envelope_msg(envelope):
     try:
-        return envelope['dataMessage']['message']
+        if envelope['dataMessage'] is not None:
+            return envelope['dataMessage']['message']
+        if envelope['syncMessage'] is not None:
+            return envelope['syncMessage']['sentMessage']['message']
+        else:
+            return None
     except (KeyError, TypeError):
         return None
 
+def get_envelope_time(envelope):
+    try:
+        if envelope['dataMessage'] is not None:
+            return envelope['dataMessage']['timestamp']
+        if envelope['syncMessage'] is not None:
+            return envelope['syncMessage']['sentMessage']['timestamp']
+        else:
+            return envelope['timestamp']
+    except (KeyError, TypeError):
+        return envelope['timestamp']
+
 def get_envelope_contact(envelope, signal):
+    syncMessage = envelope.get('syncMessage')
     x = None
     if envelope.get('target'):
         x = envelope['target']
     elif is_envelope_group_message(envelope):
         x = get_envelope_group_id(envelope)
+    elif syncMessage and syncMessage.get('sentMessage'):
+        x = syncMessage['sentMessage']['destination']
     else:
         x = envelope['source']
 
@@ -230,14 +259,19 @@ def get_envelope_contact(envelope, signal):
 
 def get_envelope_group_id(envelope):
     try:
-        return envelope['dataMessage']['groupInfo']['groupId']
+        if envelope['dataMessage'] is not None:
+            return envelope['dataMessage']['groupInfo']['groupId']
+        if envelope['syncMessage'] is not None:
+            return envelope['syncMessage']['sentMessage']['groupInfo']['groupId']
     except (KeyError, TypeError):
         return None
 
 def get_envelope_attachments(envelope):
-    try:
+    if envelope['dataMessage'] is not None:
         return envelope['dataMessage']['attachments']
-    except (KeyError, TypeError):
+    if envelope['syncMessage'] is not None:
+        return envelope['syncMessage']['sentMessage']['attachments']
+    else:
         return []
 
 def get_attachment_name(attachment):
@@ -272,6 +306,8 @@ class FocusableText(urwid.AttrMap):
     def __init__(self, markup, **kwargs):
         super().__init__(urwid.Text(markup, **kwargs), None, focus_map=LIST_FOCUS_MAP)
 
+    def __lt__(self, wtxt):
+        return get_envelope_time(self.envelope) < get_envelope_time(wtxt.envelope)
 
 class NiceBox(urwid.AttrMap):
     def __init__(self, w, title=''):
@@ -329,10 +365,11 @@ class MessageInfo(urwid.ListBox):
         source = envelope['source']
         msg = get_envelope_msg(envelope)
         date = None
+        timestamp = get_envelope_time(envelope)
         try:
-            date = datetime.utcfromtimestamp(envelope['timestamp'])
+            date = datetime.utcfromtimestamp(timestamp)
         except ValueError:
-            date = datetime.utcfromtimestamp(envelope['timestamp'] / 1000)
+            date = datetime.utcfromtimestamp(timestamp / 1000)
         date = date.strftime('%H:%M (%Y-%m-%d)')
 
         txt_name = FocusableText([btxt('Name   : '),
@@ -621,7 +658,17 @@ class Signal:
 
             try:
                 e = json.loads(line.decode('utf-8'))
-                urwid.emit_signal(self, 'receive_message', e['envelope'])
+                envelope = e['envelope']
+
+                syncMessage = envelope['syncMessage']
+                if syncMessage is not None \
+                and syncMessage['sentMessage'] is not None:
+                    urwid.emit_signal(self, 'send_message', envelope)
+                elif envelope['dataMessage'] is not None:
+                    urwid.emit_signal(self, 'receive_message', envelope)
+                else:
+                    logging.info('NOT_A_MESSAGE:%s', envelope)
+
             except Exception as e:
                 logging.error('input: %s', line)
                 logging.exception(e)
@@ -658,7 +705,7 @@ class Signal:
             # https://github.com/AsamK/signal-cli/issues/73
             # return
 
-        ts = datetime.now().timestamp()
+        ts = int(datetime.now().timestamp() * 1000)
         envelope = {'source':self.user,
                     'target': target,
                     'timestamp': ts,
@@ -1343,7 +1390,7 @@ class State:
         txt.append(message)
         wtxt = FocusableText(txt)
         wtxt.envelope = envelope
-        self.get_chat_for_envelope(envelope).append(wtxt)
+        bisect.insort(self.get_chat_for_envelope(envelope), wtxt)
 
         return txt[1:]
 
@@ -1374,7 +1421,7 @@ class State:
 
         wtxt = FocusableText(txt, align=align)
         wtxt.envelope = envelope
-        self.get_chat_for_envelope(envelope).append(wtxt)
+        bisect.insort(self.get_chat_for_envelope(envelope), wtxt)
 
         return txt[:-1]
 
