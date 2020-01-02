@@ -19,6 +19,12 @@ from datetime import datetime
 
 import urwid
 
+try:
+    from urwid_readline import ReadlineEdit
+    Edit = ReadlineEdit
+except ImportError:
+    Edit = urwid.Edit
+
 # #############################################################################
 # constants
 # #############################################################################
@@ -873,7 +879,7 @@ class LeftWindow(urwid.Frame):
     def __init__(self, state):
         self.state = state
         self._wcontacts = ContactsWindow(self.state)
-        self._wsearch = urwid.Edit(('bold', '> '))
+        self._wsearch = Edit(('bold', '> '))
 
         urwid.connect_signal(self._wsearch, 'postchange', self.on_search_text_changed)
 
@@ -929,7 +935,7 @@ class ChatWindow(urwid.Frame):
 
         self._wsearch = urwid.ListBox(self.search_list)
         self._wtitle = urwid.Text('')
-        self._wline = urwid.Edit(('bold', '> '))
+        self._wline = Edit(('bold', '> '))
         self._wdiv = urwid.Divider('-')
         self._wlist = urwid.ListBox(self.state.current_chat)
 
