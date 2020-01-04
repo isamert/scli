@@ -675,7 +675,7 @@ class Signal:
     def groups(self):
         # Need to filter out any groups that where "active" == false
         return list(filter(lambda a: bool(a['active']),
-                    (filter(lambda n: bool(n['name'].strip(' ')),
+                    (filter(lambda n: bool(n['name']),
                      self._data["groupStore"]['groups']))))
 
     def get_contact(self, number_or_id):
