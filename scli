@@ -446,7 +446,10 @@ class clip:
 
     @staticmethod
     def xrun(mime):
-        p = Popen(['xclip', '-selection', 'clipboard', '-t', mime, '-o'], stdout=PIPE, stderr=PIPE)
+        try:
+            p = Popen(['xclip', '-selection', 'clipboard', '-t', mime, '-o'], stdout=PIPE, stderr=PIPE)
+        except OSError:
+            return
         out, err = p.communicate()
         return out
 
@@ -479,8 +482,10 @@ class clip:
     def xput(txt):
         if not txt:
             return
-
-        p = Popen(['xclip', '-selection', 'clipboard'], stdout=PIPE, stderr=PIPE, stdin=PIPE)
+        try:
+            p = Popen(['xclip', '-selection', 'clipboard'], stdout=PIPE, stderr=PIPE, stdin=PIPE)
+        except OSError:
+            return
         p.stdin.write(bytes(txt, 'utf-8'))
         p.stdin.close()
         p.wait()
