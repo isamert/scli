@@ -1357,6 +1357,13 @@ class State:
         if not self.cfg.use_formatting:
             return ntxt(message)
 
+        if "~~" in message:
+            doubletilde = Trie
+        else:
+            doubletilde = False
+
+        message = message.replace("~~", "~")
+
         i, m = 0, []
         while i < len(message):
             c = message[i]
@@ -1364,9 +1371,15 @@ class State:
                 try:
                     end = message[i+1:].index(c)
                     sub = message[i+1:i+1+end]
-                    m.append(c)
+                    if doubletilde:
+                        m.append("~~")
+                    else:
+                        m.append(c)
                     m.append((FORMAT_MAP[c], sub))
-                    m.append(c)
+                    if doubletilde:
+                        m.append("~~")
+                    else:
+                        m.append(c)
                     i = i + 2 + end
                 except ValueError:
                     m.append(c)
