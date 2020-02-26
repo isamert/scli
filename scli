@@ -14,6 +14,7 @@ import logging
 import errno
 import textwrap
 import bisect
+import shlex
 from subprocess import PIPE, Popen
 from datetime import datetime
 
@@ -1072,7 +1073,7 @@ class ChatWindow(urwid.Frame):
             if key == 'enter':
                 txt = self.get_edit_text()
                 if txt.startswith(':'):
-                    elems = list(filter(lambda x: x != '', txt[1:].split(' ')))
+                    elems = list(filter(lambda x: x != '', shlex.split(txt[1:])))
                     try:
                         cmd = elems[0].lower()
                         args = elems[1:]
