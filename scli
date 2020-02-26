@@ -1362,16 +1362,26 @@ class State:
             c = message[i]
             if c in ('_', '*', '~'):
                 try:
-                    end = message[i+1:].index(c)
-                    sub = message[i+1:i+1+end]
-                    m.append(c)
-                    m.append((FORMAT_MAP[c], sub))
-                    m.append(c)
-                    i = i + 2 + end
+                    if message[i+1] in ('_', '*', '~'): # ~~, **, or __
+                        end = message[i+2:].index(c)
+                        sub = message[i+2:i+2+end]
+                        m.append(message[i:i+2])
+                        m.append((FORMAT_MAP[c], sub))
+                        m.append(message[i:i+2])
+                        i = i + 4 + end
+                    else: # only single ~, *, or _
+                        end = message[i+1:].index(c)
+                        sub = message[i+1:i+1+end]   
+                        m.append(c)
+                        m.append((FORMAT_MAP[c], sub))
+                        m.append(c)
+                        i = i + 2 + end
+                except IndexError: # i+1 is out of bounds
+                    pass
                 except ValueError:
                     m.append(c)
                     i = i + 1
-            else:
+            else: # normal text
                 m.append(c)
                 i = i + 1
 
