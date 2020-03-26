@@ -17,6 +17,7 @@ import bisect
 import shlex
 from subprocess import PIPE, Popen
 from datetime import datetime
+import base64
 
 import urwid
 
@@ -692,24 +693,30 @@ class Signal:
         if not attachments:
             attachments = []
 
-        args = ['signal-cli', '--dbus', 'send', '--message', message]
+        args = ['dbus-send', '--session', '--type=method_call', '--print-reply', '--dest=org.asamk.Signal', '/org/asamk/Signal']
+
         target = None
         if contact.get('number'):
             target = contact['number']
+            args.append('org.asamk.Signal.sendMessage')
         else:
             target = contact['groupId']
-            args.append('--group')
-        args.append(target)
+            args.append('org.asamk.Signal.sendGroupMessage')
+
+        args.append('string:' + message)
 
         attachment_paths = [os.path.expanduser(attachment) for attachment in attachments]
         if all([os.path.exists(attachment_path) for attachment_path in attachment_paths]):
-            if attachment_paths:
-                args.append('--attachment')
-            for attachment_path in attachment_paths:
-                args.append(attachment_path)
+            args.append('array:string:' + ','.join(attachment_paths))
         else:
             logging.warning('send_message: Attached file(s) does not exist.')
             return
+
+        if contact.get('number'):
+            args.append('string:' + contact['number'])
+        else:
+            args.append('array:byte:' + ','.join(
+                str(i) for i in base64.b64decode(contact['groupId'].encode())))
 
         p = Popen(args, stdout=PIPE, stderr=PIPE)
         _out, error = p.communicate()
