@@ -470,7 +470,7 @@ class clip:
                     if mtype.startswith('image/'):
                         content = clip.xrun(mtype)
                         suffix = '.' + mtype.split('/')[1]
-                        tmp = tempfile.NamedTemporaryFile(mode='w+b', suffix=suffix, delete=False)
+                        tmp = tempfile.NamedTemporaryFile(mode='w+b', prefix='_scli-tmp.', suffix=suffix, delete=False)
                         tmp.write(content)
                         tmp.flush()
                         tmp.close()
@@ -533,7 +533,7 @@ class Commands:
         if args and len(args) == 1 and (args[0].startswith("/") or args[0].startswith("~/")):
             msg_file_path = os.path.expanduser(args[0])
         else:
-            msg_file_path = tempfile.NamedTemporaryFile(suffix='.md', delete=False).name
+            msg_file_path = tmpfile = tempfile.NamedTemporaryFile(suffix='.md', delete=False).name
             if args:
                 with open(msg_file_path, "w") as msg_file:
                     msg_file.write(' '.join(args))
@@ -547,6 +547,11 @@ class Commands:
             msg = msg_file.read().strip()
             if msg:
                 self.state.signal.send_message(self.state.current_contact, msg)
+
+        try:
+            os.remove(tmpfile)
+        except NameError:
+            pass
 
     def open_file(self, path):
         if os.path.exists(path):
@@ -575,6 +580,9 @@ class Commands:
 
         if files:
             self.state.signal.send_message(self.state.current_contact, message, files)
+            if files[0].startswith(
+                    os.path.join(tempfile.gettempdir(), '_scli-tmp.')):
+                os.remove(files[0])
         else:
             self.state.set_notification('Clipboard is empty.')
 
