@@ -751,9 +751,7 @@ class Signal:
 
     def groups(self):
         # Need to filter out any groups that where "active" == false
-        return list(filter(lambda a: bool(a['active']),
-                    (filter(lambda n: bool(n['name']),
-                     self._data["groupStore"]['groups']))))
+        return list(filter(lambda n: bool(n['name']), self._data["groupStore"]['groups']))
 
     def get_contact(self, number_or_id):
         for contact in self.contacts():
@@ -1064,7 +1062,7 @@ class ChatWindow(urwid.Frame):
     def set_title(self, contact):
         num = contact.get("number")
         if not num:
-            num = ', '.join([get_contact_name(self.state.signal.get_contact(number)) for number in contact['members']])
+            num = ', '.join([get_contact_name(self.state.signal.get_contact(contact["number"])) for contact in contact['members']])
 
         self._wtitle.set_text([('bold', get_contact_name(contact)), ' (', num, ')'])
 
