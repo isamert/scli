@@ -750,8 +750,8 @@ class Signal:
             key = lambda i: i['name'])
 
     def groups(self):
-        # Need to filter out any groups that where "active" == false
-        return list(filter(lambda a: bool(a['active']),
+        # Older versions of `signal-cli` use `active` key while newer ones use `archived`.
+        return list(filter(lambda a: not bool(a.get('archived', not bool(a.get('active', True)))),
                     (filter(lambda n: bool(n['name']),
                      self._data["groupStore"]['groups']))))
 
@@ -1064,7 +1064,8 @@ class ChatWindow(urwid.Frame):
     def set_title(self, contact):
         num = contact.get("number")
         if not num:
-            num = ', '.join([get_contact_name(self.state.signal.get_contact(number)) for number in contact['members']])
+            # see this: https://github.com/isamert/scli/issues/53#issuecomment-612571462
+            num = ', '.join([get_contact_name(self.state.signal.get_contact(contact if isinstance(contact, str) else contact['number'])) for contact in contact['members']])
 
         self._wtitle.set_text([('bold', get_contact_name(contact)), ' (', num, ')'])
 
