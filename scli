@@ -654,14 +654,17 @@ class Signal:
             if not os.path.exists(self._path):
                 raise Exception(self.user + " does not exist!")
 
+        self.loop = None
+        self.sending_procs = {}
+
         self.reload_data()
 
     def reload_data(self):
         with open(self._path) as f:
             self._data = json.load(f)
 
-    def start_daemon(self, loop):
-        fd = loop.watch_pipe(self.daemon_handler)
+    def start_daemon(self):
+        fd = self.loop.watch_pipe(self.daemon_handler)
         return Popen(['signal-cli', '-u', self.user, 'daemon', '--json'], stdout=fd, stderr=fd, close_fds=True)
 
     def daemon_handler(self, line):
@@ -711,27 +714,21 @@ class Signal:
             target = contact['groupId']
             args.append('org.asamk.Signal.sendGroupMessage')
 
-        args.append('string:' + message)
+        # If the send command is run with Popen(.., shell=True), shlex.quote is needed to escape special chars in the message.
+        args.append('string:' + shlex.quote(message))
 
         attachment_paths = [os.path.expanduser(attachment) for attachment in attachments]
         if all([os.path.exists(attachment_path) for attachment_path in attachment_paths]):
-            args.append('array:string:' + ','.join(attachment_paths))
+            args.append('array:string:' + ','.join(shlex.quote(a) for a in attachment_paths))
         else:
             logging.warning('send_message: Attached file(s) does not exist.')
             return
 
         if contact.get('number'):
-            args.append('string:' + contact['number'])
+            args.append('string:' + shlex.quote(contact['number']))
         else:
             args.append('array:byte:' + ','.join(
                 str(i) for i in base64.b64decode(contact['groupId'].encode())))
-
-        p = Popen(args, stdout=PIPE, stderr=PIPE)
-        _out, error = p.communicate()
-        if p.returncode != 0:
-            logging.error('send_message: exit code=%d:err=%s', p.returncode, error)
-            # https://github.com/AsamK/signal-cli/issues/73
-            # return
 
         ts = int(datetime.now().timestamp() * 1000)
         envelope = {'source':self.user,
@@ -741,7 +738,25 @@ class Signal:
                                     'attachments': attachments,
                                     'timestamp': ts}}
 
+        watchpipe_fd = self.loop.watch_pipe(self.send_watchpipe_handler)
+        # Make all `dbus-send` output go to stderr, and write the process PID and exit status to the watch pipe.
+        sh_command = " ".join(args) + " 1>&2; echo $$ $?"
+        send_proc = Popen(sh_command, shell=True, stdout=watchpipe_fd, stderr=PIPE, universal_newlines=True)
+        self.sending_procs[send_proc.pid] = (send_proc, watchpipe_fd, envelope)
+
+        logging.info('send_message:%s', envelope)
         urwid.emit_signal(self, 'send_message', envelope)
+
+    def send_watchpipe_handler(self, line):
+        # The line printed to watch pipe is of the form "b'<PID> <RETURN_CODE>\n'"
+        proc_pid, return_code = [int(i) for i in line.decode().split()]
+        send_proc, watchpipe_fd, envelope = self.sending_procs.pop(proc_pid)
+        send_proc.wait()  # reap the child process, to prevent zombies
+        if return_code != 0:
+            logging.error('send_message: exit code=%d:err=%s', return_code, send_proc.stderr.read())
+            # https://github.com/AsamK/signal-cli/issues/73
+        os.close(watchpipe_fd)    # Close the write end of urwid's watch pipe.
+        return False    # Close the read end of urwid's watch pipe and remove the watch from event_loop.
 
     def contacts(self):
         return sorted(list(filter(
@@ -1643,11 +1658,12 @@ def main():
     loop = urwid.MainLoop(window, palette=PALETTE)
 
     state.loop = loop
+    state.signal.loop = loop
     state.load_history()
     atexit.register(state.save_history)
 
     if not cfg.no_daemon:
-        proc = state.signal.start_daemon(loop)
+        proc = state.signal.start_daemon()
         atexit.register(proc.kill)
 
     loop.run()
