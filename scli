@@ -542,10 +542,41 @@ class Commands:
                     return
         self.state.set_error(f"Command `{cmd}` not found")
 
+    @staticmethod
+    def split_path(string):
+        string = string.strip()
+        if not string:
+            return []
+        PATH_RE = re.compile(r"""
+                # Matches a path-like string, with whitespaces escaped or with the whole path in quotes.
+                (
+                    (
+                        \\\ |           # escaped whitespace OR ..
+                        [^'" ]          # .. not a quote or space
+                    )+
+                )                       # Path with escaped whitespace ..
+                |                       # .. OR ..
+                (                       # .. path in quotes.
+                    (?P<quote>['"])     # a quote char; name the capture
+                    .+?                 # anything, non-greedily
+                    (?P=quote)          # matching quote
+                )
+                """, re.VERBOSE)
+        re_match = PATH_RE.match(string)
+        if not re_match:
+            return ['', string]
+        path = re_match.group()
+        if re_match.group(1):           # unquoted path
+            path = path.replace(r'\ ', ' ')
+        else:                           # path in quotes
+            path = path.strip('\'"')
+        rest = string[re_match.end():].strip()
+        return [path, rest] if rest else [path]
+
     def external_edit(self, *args):
         filename = ''
         if args:
-            filename, *message = args[0].split(maxsplit=1)  # for now, whitespace in the filename is not allowed
+            filename, *message = Commands.split_path(*args)
         if filename.startswith(("/", "~/", "./")):
             msg_file_path = os.path.expanduser(filename)
         else:
@@ -577,7 +608,7 @@ class Commands:
             mk_call(self.state.cfg.open_command, {'%u': path}, True)
 
     def attach(self, args):
-        attachment, *message = args.split(maxsplit=1)  # for now, whitespace in the filename is not allowed
+        attachment, *message = Commands.split_path(args)
         attachment = os.path.expanduser(attachment)
         if not os.path.isfile(attachment):
             self.state.set_error('File does not exist: ' + attachment)
