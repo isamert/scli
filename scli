@@ -1114,8 +1114,10 @@ class ChatWindow(urwid.Frame):
     def get_edit_text(self):
         return self._wline.get_edit_text()
 
-    def set_edit_text(self, txt):
+    def set_edit_text(self, txt, move_cursor_to_end=False):
         self._wline.set_edit_text(txt)
+        if move_cursor_to_end:
+            self._wline.set_edit_pos(len(txt))
 
     def set_title(self, contact):
         num = contact.get("number")
@@ -1143,12 +1145,21 @@ class ChatWindow(urwid.Frame):
         except (IndexError, AttributeError):
             return None
 
+    def auto_complete_commands(self, txt):
+        all_commands = list(filter(lambda x: x.lower().startswith(txt[1:].lower()), [tupl[0][0] for tupl in self.state.commands.map]))
+        commonprefix = os.path.commonprefix(all_commands)
+        if len(all_commands) == 1:
+            self.set_edit_text(':' + all_commands[0] + ' ', True)
+        elif commonprefix != '':
+            self.set_edit_text(':' + commonprefix, True)
+        self.state.set_notification('{' + '|'.join(all_commands) + '}')
+
     def keypress(self, size, key):
         key = super().keypress(size, key)
 
         if self.is_focused_input():
+            txt = self.get_edit_text()
             if key == 'enter':
-                txt = self.get_edit_text()
                 if txt.startswith(':'):
                     if txt.strip() == ":":
                         self.state.set_error('Command missing after `:`')
@@ -1160,6 +1171,10 @@ class ChatWindow(urwid.Frame):
                 elif txt.strip(' ') != '' and self.state.current_contact:
                     self.state.signal.send_message(self.state.current_contact, txt)
                 self.set_edit_text('')
+            elif key == 'tab':
+                if txt.startswith(':'):
+                    self.auto_complete_commands(txt)
+                    return
         elif not self.state.current_chat:
             return key
         elif self.is_focused_chat():
@@ -1259,11 +1274,9 @@ class MainWindow(urwid.Frame):
         self.current_focus = 'input'
 
         if cmd_mode:
-            self._wchat._wline.set_edit_text(':')
-            self._wchat._wline.set_edit_pos(1)
+            self._wchat.set_edit_text(':', True)
         elif search_mode:
-            self._wchat._wline.set_edit_text('/')
-            self._wchat._wline.set_edit_pos(1)
+            self._wchat.set_edit_text('/', True)
 
     def focus_contacts(self):
         if len(self._wcontext.contents) == 1:
