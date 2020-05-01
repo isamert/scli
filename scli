@@ -547,7 +547,7 @@ class Commands:
     def split_path(string):
         string = string.strip()
         if not string:
-            return []
+            return ['', '']
         PATH_RE = re.compile(r"""
                 # Matches a path-like string, with whitespaces escaped or with the whole path in quotes.
                 (
@@ -574,11 +574,16 @@ class Commands:
         rest = string[re_match.end():].strip()
         return [path, rest] if rest else [path]
 
+    @staticmethod
+    def is_path(path):
+        return path.startswith(("/", "~/", "./"))
+
     def external_edit(self, *args):
         filename = ''
         if args:
             filename, *message = Commands.split_path(*args)
-        if filename.startswith(("/", "~/", "./")):
+
+        if Commands.is_path(filename):
             msg_file_path = os.path.expanduser(filename)
         else:
             msg_file_path = tmpfile = tempfile.NamedTemporaryFile(suffix='.md', delete=False).name
@@ -1146,13 +1151,45 @@ class ChatWindow(urwid.Frame):
             return None
 
     def auto_complete_commands(self, txt):
-        all_commands = list(filter(lambda x: x.lower().startswith(txt[1:].lower()), [tupl[0][0] for tupl in self.state.commands.map]))
-        commonprefix = os.path.commonprefix(all_commands)
-        if len(all_commands) == 1:
-            self.set_edit_text(':' + all_commands[0] + ' ', True)
-        elif commonprefix != '':
-            self.set_edit_text(':' + commonprefix, True)
-        self.state.set_notification('{' + '|'.join(all_commands) + '}')
+        splitted_txt = txt.split(' ')
+        if len(splitted_txt) > 1:
+            path, *messages = Commands.split_path(' '.join(splitted_txt[1:]))
+
+            # Check we are trying to complete a path
+            if len(messages) > 0 or not Commands.is_path(path):
+                return
+
+            fullpath = os.path.expanduser(path)
+            dirname = os.path.dirname(fullpath)
+            if not os.path.isdir(dirname):
+                return
+
+            possible_paths = [x for x in os.listdir(dirname) if os.path.join(dirname, x).startswith(fullpath)]
+            commonprefix = os.path.commonprefix(possible_paths)
+
+            self.state.set_notification('|'.join(possible_paths))
+
+            completion = ''
+            if commonprefix != '':
+                completion = os.path.join(os.path.dirname(path), commonprefix)
+            if os.path.isdir(os.path.expanduser(completion)) and not completion.endswith('/'):
+                completion = completion + '/'
+            if ' ' in completion:
+                completion = '"' + completion + '"'
+
+            if completion != '':
+                self.set_edit_text(splitted_txt[0] + ' ' + completion, True)
+        else:
+            all_commands = list(filter(lambda x: x.lower().startswith(txt[1:].lower()), [tupl[0][0] for tupl in self.state.commands.map]))
+            commonprefix = os.path.commonprefix(all_commands)
+
+            self.state.set_notification('{' + '|'.join(all_commands) + '}')
+
+            if len(all_commands) == 1:
+                self.set_edit_text(':' + all_commands[0] + ' ', True)
+            elif commonprefix != '':
+                self.set_edit_text(':' + commonprefix, True)
+
 
     def keypress(self, size, key):
         key = super().keypress(size, key)
