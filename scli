@@ -445,6 +445,7 @@ class HelpDialog(urwid.ListBox):
 
 class clip:
     mime_order = ['image/png', 'image/jpeg', 'image/jpg', 'text/uri-list']
+    tempfile_prefix = '_scli-tmp.'
 
     @staticmethod
     def xrun(mime):
@@ -471,7 +472,7 @@ class clip:
                     if mtype.startswith('image/'):
                         content = clip.xrun(mtype)
                         suffix = '.' + mtype.split('/')[1]
-                        tmp = tempfile.NamedTemporaryFile(mode='w+b', prefix='_scli-tmp.', suffix=suffix, delete=False)
+                        tmp = tempfile.NamedTemporaryFile(mode='w+b', prefix=clip.tempfile_prefix, suffix=suffix, delete=False)
                         tmp.write(content)
                         tmp.flush()
                         tmp.close()
@@ -581,9 +582,6 @@ class Commands:
 
         if files:
             self.state.signal.send_message(self.state.current_contact, message, files)
-            if files[0].startswith(
-                    os.path.join(tempfile.gettempdir(), '_scli-tmp.')):
-                os.remove(files[0])
         else:
             self.state.set_notification('Clipboard is empty.')
 
@@ -752,6 +750,10 @@ class Signal:
         proc_pid, return_code = [int(i) for i in line.decode().split()]
         send_proc, watchpipe_fd, envelope = self.sending_procs.pop(proc_pid)
         send_proc.wait()  # reap the child process, to prevent zombies
+        for attachment in envelope['dataMessage']['attachments']:
+            if attachment.startswith(
+                    os.path.join(tempfile.gettempdir(), clip.tempfile_prefix)):
+                os.remove(attachment)
         if return_code != 0:
             logging.error('send_message: exit code=%d:err=%s', return_code, send_proc.stderr.read())
             # https://github.com/AsamK/signal-cli/issues/73
