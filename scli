@@ -445,6 +445,7 @@ class HelpDialog(urwid.ListBox):
 
 class clip:
     mime_order = ['image/png', 'image/jpeg', 'image/jpg', 'text/uri-list']
+    tempfile_prefix = '_scli-tmp.'
 
     @staticmethod
     def xrun(mime):
@@ -471,7 +472,7 @@ class clip:
                     if mtype.startswith('image/'):
                         content = clip.xrun(mtype)
                         suffix = '.' + mtype.split('/')[1]
-                        tmp = tempfile.NamedTemporaryFile(mode='w+b', prefix='_scli-tmp.', suffix=suffix, delete=False)
+                        tmp = tempfile.NamedTemporaryFile(mode='w+b', prefix=clip.tempfile_prefix, suffix=suffix, delete=False)
                         tmp.write(content)
                         tmp.flush()
                         tmp.close()
@@ -524,23 +525,70 @@ class Commands:
                     (['toggleAutohide', 'h'], self.toggle_autohide),
                     (['quit', 'q'], self.quit)]
 
-    def exec(self, cmd, args):
+    def exec(self, cmd, *args):
         for (abbrvs, fn) in self.map:
             if cmd in [abbrv.lower() for abbrv in abbrvs]:
-                fn(args)
-                return
+                try:
+                    return fn(*args)
+                except TypeError as err:
+                    # Handle only the exceptions produced by giving the wrong number of arguments to `fn()`, not any exceptions produced inside executing `fn()` (i.e. deeper in the stack trace)
+                    if err.__traceback__.tb_next is not None:
+                        raise
+                    if re.search(r"missing \d+ required positional argument", str(err)):
+                        self.state.set_error(f':{cmd} missing arguments')
+                    elif re.search(r"takes \d+ positional arguments? but \d+ were given", str(err)):
+                        self.state.set_error(f':{cmd} extra arguments')
+                    else:
+                        raise
+                    return
+        self.state.set_error(f"Command `{cmd}` not found")
 
-    def external_edit(self, args):
-        if args and len(args) == 1 and (args[0].startswith("/") or args[0].startswith("~/")):
-            msg_file_path = os.path.expanduser(args[0])
+    @staticmethod
+    def split_path(string):
+        string = string.strip()
+        if not string:
+            return []
+        PATH_RE = re.compile(r"""
+                # Matches a path-like string, with whitespaces escaped or with the whole path in quotes.
+                (
+                    (
+                        \\\ |           # escaped whitespace OR ..
+                        [^'" ]          # .. not a quote or space
+                    )+
+                )                       # Path with escaped whitespace ..
+                |                       # .. OR ..
+                (                       # .. path in quotes.
+                    (?P<quote>['"])     # a quote char; name the capture
+                    .+?                 # anything, non-greedily
+                    (?P=quote)          # matching quote
+                )
+                """, re.VERBOSE)
+        re_match = PATH_RE.match(string)
+        if not re_match:
+            return ['', string]
+        path = re_match.group()
+        if re_match.group(1):           # unquoted path
+            path = path.replace(r'\ ', ' ')
+        else:                           # path in quotes
+            path = path.strip('\'"')
+        rest = string[re_match.end():].strip()
+        return [path, rest] if rest else [path]
+
+    def external_edit(self, *args):
+        filename = ''
+        if args:
+            filename, *message = Commands.split_path(*args)
+        if filename.startswith(("/", "~/", "./")):
+            msg_file_path = os.path.expanduser(filename)
         else:
             msg_file_path = tmpfile = tempfile.NamedTemporaryFile(suffix='.md', delete=False).name
-            if args:
-                with open(msg_file_path, "w") as msg_file:
-                    msg_file.write(' '.join(args))
+            message = args
+        if message:
+            with open(msg_file_path, "w") as msg_file:
+                msg_file.write(*message)
 
         self.state.loop.stop()
-        mk_call(self.state.cfg.editor_command + " " + msg_file_path, use_pipe=False)
+        mk_call(self.state.cfg.editor_command + " " + shlex.quote(msg_file_path), use_pipe=False)
         print('Please wait...')
         self.state.loop.start()
 
@@ -561,29 +609,18 @@ class Commands:
             mk_call(self.state.cfg.open_command, {'%u': path}, True)
 
     def attach(self, args):
-        try:
-            args[0]
-        except IndexError:
-            self.state.set_error(':attach takes at least one argument.')
-            return
-
-        attachment = os.path.expanduser(args[0])
-        message = ' '.join(args[1:])
-        if not os.path.exists(attachment):
+        attachment, *message = Commands.split_path(args)
+        attachment = os.path.expanduser(attachment)
+        if not os.path.isfile(attachment):
             self.state.set_error('File does not exist: ' + attachment)
             return
+        self.state.signal.send_message(self.state.current_contact, *message, attachments=[attachment])
 
-        self.state.signal.send_message(self.state.current_contact, message, [attachment])
-
-    def attach_clip(self, args):
+    def attach_clip(self, *message):
         files = clip.files(self.state)
-        message = ' '.join(args)
 
         if files:
-            self.state.signal.send_message(self.state.current_contact, message, files)
-            if files[0].startswith(
-                    os.path.join(tempfile.gettempdir(), '_scli-tmp.')):
-                os.remove(files[0])
+            self.state.signal.send_message(self.state.current_contact, *message, attachments=files)
         else:
             self.state.set_notification('Clipboard is empty.')
 
@@ -598,7 +635,7 @@ class Commands:
 
         return result
 
-    def open_last_attach(self, args):
+    def open_last_attach(self):
         for txt in self.state.current_chat[::-1]:
             if self.open_attach(txt.envelope):
                 return
@@ -612,12 +649,12 @@ class Commands:
 
         return False
 
-    def open_last_url(self, args):
+    def open_last_url(self):
         for txt in self.state.current_chat[::-1]:
             if self.open_url(txt.envelope):
                 return
 
-    def toggle_notifications(self, args):
+    def toggle_notifications(self):
         self.state.cfg.enable_notifications = not self.state.cfg.enable_notifications
         notif = 'Desktop notifications are '
         if self.state.cfg.enable_notifications:
@@ -626,14 +663,14 @@ class Commands:
             notif = notif + 'OFF'
         self.state.set_notification(notif + '.')
 
-    def toggle_autohide(self, args):
+    def toggle_autohide(self):
         self.state.cfg.contacts_autohide = not self.state.cfg.contacts_autohide
 
     def send_notification(self, sender, message):
         if self.state.cfg.enable_notifications:
             mk_call(self.state.cfg.notification_command, {'%s': sender, '%m': message})
 
-    def quit(self, args):
+    def quit(self):
         raise urwid.ExitMainLoop()
 
 # #############################################################################
@@ -752,6 +789,10 @@ class Signal:
         proc_pid, return_code = [int(i) for i in line.decode().split()]
         send_proc, watchpipe_fd, envelope = self.sending_procs.pop(proc_pid)
         send_proc.wait()  # reap the child process, to prevent zombies
+        for attachment in envelope['dataMessage']['attachments']:
+            if attachment.startswith(
+                    os.path.join(tempfile.gettempdir(), clip.tempfile_prefix)):
+                os.remove(attachment)
         if return_code != 0:
             logging.error('send_message: exit code=%d:err=%s', return_code, send_proc.stderr.read())
             # https://github.com/AsamK/signal-cli/issues/73
@@ -1109,13 +1150,11 @@ class ChatWindow(urwid.Frame):
             if key == 'enter':
                 txt = self.get_edit_text()
                 if txt.startswith(':'):
-                    elems = list(filter(lambda x: x != '', shlex.split(txt[1:])))
-                    try:
-                        cmd = elems[0].lower()
-                        args = elems[1:]
-                        self.state.commands.exec(cmd, args)
-                    except IndexError:
-                        pass
+                    if txt.strip() == ":":
+                        self.state.set_error('Command missing after `:`')
+                        return key
+                    cmd, *args = txt[1:].split(maxsplit=1)
+                    self.state.commands.exec(cmd.lower(), *args)
                 elif txt.startswith('/'):
                     pass
                 elif txt.strip(' ') != '' and self.state.current_contact:
