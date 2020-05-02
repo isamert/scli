@@ -518,6 +518,7 @@ class Commands:
         self.state = state
         self.map = [(['attach', 'a'], self.attach),
                     (['edit', 'e'], self.external_edit),
+                    (['read', 'r'], self.read),
                     (['attachClip', 'c'], self.attach_clip),
                     (['openAttach', 'o'], self.open_last_attach),
                     (['openUrl', 'u'], self.open_last_url),
@@ -606,6 +607,17 @@ class Commands:
             os.remove(tmpfile)
         except NameError:
             pass
+
+    def read(self, path_or_cmd):
+        message = ''
+        if Commands.is_path(path_or_cmd):
+            with open(os.path.expanduser(path_or_cmd), 'r') as file:
+                message = file.read()
+        elif path_or_cmd.startswith('!'):
+            message = subprocess.check_output(['/bin/sh', '-c', path_or_cmd[1:].strip()]).decode("utf-8")
+
+        if message != '':
+            self.state.signal.send_message(self.state.current_contact, message)
 
     def open_file(self, path):
         if os.path.exists(path):
