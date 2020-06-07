@@ -172,14 +172,10 @@ def get_contact_name(x):
         return "NULL"
 
     name = x.get('name')
-    if name or name.strip(' ') != '':
+    if name and not name.isspace():
         return name
 
-    number = x.get('number')
-    if number:
-        return number
-
-    return "NULL"
+    return get_contact_number(x)
 
 def get_contact_number(x):
     if not x:
@@ -817,10 +813,9 @@ class Signal:
         return False    # Close the read end of urwid's watch pipe and remove the watch from event_loop.
 
     def contacts(self):
-        return sorted(list(filter(
-            lambda x: bool(get_contact_name(x).strip(' ')),
-            self._data['contactStore']['contacts'])),
-            key = lambda i: i['name'])
+        return sorted(
+            self._data['contactStore']['contacts'],
+            key = lambda i: get_contact_name(i))
 
     def groups(self):
         # Older versions of `signal-cli` use `active` key while newer ones use `archived`.
