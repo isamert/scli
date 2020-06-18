@@ -882,8 +882,7 @@ class ContactsWindow(urwid.ListBox):
 
     def on_receive_message(self, envelope):
         contact = get_envelope_contact(envelope, self.state.signal)
-        has_msg = get_envelope_msg(envelope)
-        if contact == self.state.current_contact or not has_msg:
+        if contact == self.state.current_contact or get_envelope_msg(envelope) is None:
             return
 
         for w in self._body:
