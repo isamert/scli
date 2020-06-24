@@ -3,7 +3,6 @@
 
 # Installation
 - Firstly, you need to install [signal-cli](https://github.com/AsamK/signal-cli). Follow the guide provided in the README.
-- Install `libunixsocket-java` from your package manager if you have not installed it yet. (Arch Linux users should install `libmatthew-unix-java` from AUR. If you installed `signal-cli` from AUR, you can skip this step.)
 - Install `urwid`. You can install it trough your distributions package manager (search for `python3-urwid` or `python-urwid`) or you can use `pip` to install: `pip3 install urwid`.
 - (Optional) Install `urwid_readline` if you want readline keybinds while typing. It may be available through your distribution's package manager as `python3-urwid_readline` or `python-urwid_readline`, or you can install it through `pip` with `pip install urwid_readline`
 
