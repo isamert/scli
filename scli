@@ -224,9 +224,9 @@ def is_envelope_group_message(envelope):
 def get_envelope_msg(envelope):
     try:
         if envelope['dataMessage'] is not None:
-            return envelope['dataMessage']['message']
+            return envelope['dataMessage']['message'] or ''
         if envelope['syncMessage'] is not None:
-            return envelope['syncMessage']['sentMessage']['message']
+            return envelope['syncMessage']['sentMessage']['message'] or ''
         else:
             return None
     except (KeyError, TypeError):
@@ -882,8 +882,7 @@ class ContactsWindow(urwid.ListBox):
 
     def on_receive_message(self, envelope):
         contact = get_envelope_contact(envelope, self.state.signal)
-        has_msg = get_envelope_msg(envelope)
-        if contact == self.state.current_contact or not has_msg:
+        if contact == self.state.current_contact or get_envelope_msg(envelope) is None:
             return
 
         for w in self._body:
