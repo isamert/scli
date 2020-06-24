@@ -864,6 +864,9 @@ class ContactsWindow(urwid.ListBox):
         urwid.connect_signal(self.state, 'current_contact_changed', self.on_current_contact_changed)
 
     def set_contact_notify_count(self, w, count):
+        if not w:
+            return
+
         if hasattr(w, 'notify_count'):
             self.notify_count += count - w.notify_count
         else:
@@ -885,13 +888,23 @@ class ContactsWindow(urwid.ListBox):
         if contact == self.state.current_contact or get_envelope_msg(envelope) is None:
             return
 
+        contact_widget = self.get_contact_widget(contact)
+        self.set_contact_notify_count(contact_widget, contact_widget.notify_count + 1)
+        self.move_contact_top(contact_widget, is_envelope_group_message(envelope))
+
+    def get_contact_widget(self, contact):
         for w in self._body:
             if w.contact == contact:
-                self.set_contact_notify_count(w, w.notify_count + 1)
-                return
+                return w
+
+    def move_contact_top(self, w, is_group):
+        offset = 2 + (0 if is_group else (3 + len(self.state.signal.groups())))
+        self._body.remove(w)
+        self._body.insert(offset, w)
 
     def set_contacts(self, contacts):
         self._body.clear()
+
         def mk_contact(x):
             widget = None
             contact = None
