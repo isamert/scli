@@ -171,6 +171,9 @@ def get_contact_name(x):
         logging.critical('get_contact_name:empty sender')
         return "NULL"
 
+    if isinstance(x, str):
+        return x
+
     name = x.get('name')
     if name and not name.isspace():
         return name
@@ -1147,7 +1150,8 @@ class ChatWindow(urwid.Frame):
         num = contact.get("number")
         if not num:
             # see this: https://github.com/isamert/scli/issues/53#issuecomment-612571462
-            num = ', '.join([get_contact_name(self.state.signal.get_contact(contact if isinstance(contact, str) else contact['number'])) for contact in contact['members']])
+            contacts = [self.state.signal.get_contact(contact if isinstance(contact, str) else contact['number']) or contact for contact in contact['members']]
+            num = ', '.join([get_contact_name(contact) for contact in contacts])
 
         self._wtitle.set_text([('bold', get_contact_name(contact)), ' (', num, ')'])
 
