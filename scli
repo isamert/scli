@@ -685,6 +685,18 @@ class Signal:
 
         self.reload_data()
 
+        self.contacts = sorted(
+            self._data['contactStore']['contacts'],
+            key = lambda i: get_contact_name(i))
+        self.groups = [g for g in self._data["groupStore"]['groups']
+                if g['name']
+                # Older versions of `signal-cli` use `active` key while newer ones use `archived`.
+                and (g.get('active') or not g.get('archived'))]
+        self.contacts_map = {c['number']: c for c in self.contacts}
+        self.contacts_map.update({g['groupId']: g for g in self.groups})
+
+        self.formatted_contacts = self.make_formatted_contacts_list()
+
     def reload_data(self):
         with open(self._path) as f:
             self._data = json.load(f)
@@ -786,35 +798,19 @@ class Signal:
         os.close(watchpipe_fd)    # Close the write end of urwid's watch pipe.
         return False    # Close the read end of urwid's watch pipe and remove the watch from event_loop.
 
-    def contacts(self):
-        return sorted(
-            self._data['contactStore']['contacts'],
-            key = lambda i: get_contact_name(i))
-
-    def groups(self):
-        # Older versions of `signal-cli` use `active` key while newer ones use `archived`.
-        return list(filter(lambda a: not bool(a.get('archived', not bool(a.get('active', True)))),
-                    (filter(lambda n: bool(n['name']),
-                     self._data["groupStore"]['groups']))))
-
     def get_contact(self, number_or_id):
-        for contact in self.contacts():
-            if contact['number'] == number_or_id:
-                return contact
+        return self.contacts_map.get(number_or_id)
 
-        for group in self.groups():
-            if group['groupId'] == number_or_id:
-                return group
 
-    def get_all_contacts(self):
+    def make_formatted_contacts_list(self):
         xs = []
         xs.append('Groups')
         xs.append('---')
-        xs.extend(self.groups())
+        xs.extend(self.groups)
         xs.append('---')
         xs.append('Contacts')
         xs.append('---')
-        xs.extend(self.contacts())
+        xs.extend(self.contacts)
         return xs
 
 urwid.register_signal(Signal, Signal.signals)
@@ -832,7 +828,7 @@ class ContactsWindow(urwid.ListBox):
         self.notify_count = 0
 
         super().__init__(urwid.SimpleFocusListWalker(self._body))
-        self.set_contacts(self.state.signal.get_all_contacts())
+        self.set_contacts(self.state.signal.formatted_contacts)
 
         urwid.connect_signal(self.state.signal, 'receive_message', self.on_receive_message)
         urwid.connect_signal(self.state, 'current_contact_changed', self.on_current_contact_changed)
@@ -872,7 +868,7 @@ class ContactsWindow(urwid.ListBox):
                 return w
 
     def move_contact_top(self, w, is_group):
-        offset = 2 + (0 if is_group else (3 + len(self.state.signal.groups())))
+        offset = 2 + (0 if is_group else (3 + len(self.state.signal.groups)))
         self._body.remove(w)
         self._body.insert(offset, w)
 
@@ -986,7 +982,7 @@ class LeftWindow(urwid.Frame):
                 return True
             return (txt.lower() in get_contact_name(contact).lower()) or (txt in get_contact_number(contact))
 
-        results = [c for c in self.state.signal.get_all_contacts() if contact_match(c)]
+        results = [c for c in self.state.signal.formatted_contacts if contact_match(c)]
         self.set_contacts(results)
 
     def keypress(self, size, key):
