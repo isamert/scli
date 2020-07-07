@@ -487,7 +487,7 @@ class clip:
 class Commands:
     def __init__(self, state):
         self.state = state
-        self.map = [(['attach', 'a'], self.attach),
+        cmd_mapping = [(['attach', 'a'], self.attach),
                     (['edit', 'e'], self.external_edit),
                     (['read', 'r'], self.read),
                     (['attachClip', 'c'], self.attach_clip),
@@ -496,24 +496,25 @@ class Commands:
                     (['toggleNotifications', 'n'], self.toggle_notifications),
                     (['toggleAutohide', 'h'], self.toggle_autohide),
                     (['quit', 'q'], self.quit)]
+        self.map = {cmd.lower(): fn for cmds, fn in cmd_mapping for cmd in cmds}
 
     def exec(self, cmd, *args):
-        for (abbrvs, fn) in self.map:
-            if cmd in [abbrv.lower() for abbrv in abbrvs]:
-                try:
-                    return fn(*args)
-                except TypeError as err:
-                    # Handle only the exceptions produced by giving the wrong number of arguments to `fn()`, not any exceptions produced inside executing `fn()` (i.e. deeper in the stack trace)
-                    if err.__traceback__.tb_next is not None:
-                        raise
-                    if re.search(r"missing \d+ required positional argument", str(err)):
-                        self.state.set_error(f':{cmd} missing arguments')
-                    elif re.search(r"takes \d+ positional arguments? but \d+ were given", str(err)):
-                        self.state.set_error(f':{cmd} extra arguments')
-                    else:
-                        raise
-                    return
-        self.state.set_error(f"Command `{cmd}` not found")
+        fn = self.map.get(cmd.lower())
+        if fn is None:
+            self.state.set_error(f"Command `{cmd}` not found")
+            return
+        try:
+            return fn(*args)
+        except TypeError as err:
+            # Handle only the exceptions produced by giving the wrong number of arguments to `fn()`, not any exceptions produced inside executing `fn()` (i.e. deeper in the stack trace)
+            if err.__traceback__.tb_next is not None:
+                raise
+            if re.search(r"missing \d+ required positional argument", str(err)):
+                self.state.set_error(f':{cmd} missing arguments')
+            elif re.search(r"takes \d+ positional arguments? but \d+ were given", str(err)):
+                self.state.set_error(f':{cmd} extra arguments')
+            else:
+                raise
 
     @staticmethod
     def split_path(string):
@@ -1173,7 +1174,7 @@ class ChatWindow(urwid.Frame):
             if completion != '':
                 self.set_edit_text(splitted_txt[0] + ' ' + completion, True)
         else:
-            all_commands = list(filter(lambda x: x.lower().startswith(txt[1:].lower()), [tupl[0][0] for tupl in self.state.commands.map]))
+            all_commands = [x for x in self.state.commands.map if x.startswith(txt[1:]) and len(x) > 1]      # only show the long versions of the commands
             commonprefix = os.path.commonprefix(all_commands)
 
             self.state.set_notification('{' + '|'.join(all_commands) + '}')
