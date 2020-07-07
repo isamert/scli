@@ -102,6 +102,14 @@ def has_key(key, x):
         return key in x
     return False
 
+def get_nested(dct, *keys, default=None):
+    for key in keys:
+        try:
+            dct = dct[key]
+        except (KeyError, TypeError, IndexError):
+            return default
+    return dct
+
 def get_urls(txt):
     return re.findall(r'(https?://[^\s]+)', txt)
 
@@ -157,12 +165,8 @@ urwid.register_signal(ObservableConfig, ObservableConfig.signals)
 # #############################################################################
 
 def hash_contact(x):
-    h = ''
-    if 'number' in x:
-        h = x['number']
-    elif 'groupId' in x:
-        h = x['groupId']
-    else:
+    h = x.get('number') or x.get('groupId')
+    if h is None:
         logging.critical('hash_contact:No number or groupId')
     return h
 
@@ -202,61 +206,39 @@ def is_contact_group(contact):
     return has_key('groupId', contact)
 
 def is_envelope_outgoing(envelope):
-    try:
-        if 'target' in envelope:
-            return True
-
-        syncMessage = envelope['syncMessage']
-        if syncMessage is not None \
-        and syncMessage['sentMessage'] is not None:
-            return True
-    except KeyError:
-        return False
+    return ('target' in envelope
+            or
+            get_nested(envelope, 'syncMessage', 'sentMessage') is not None)
 
 def is_envelope_group_message(envelope):
-    try:
-        if envelope['dataMessage'] is not None:
-            return envelope['dataMessage'].get('groupInfo') is not None
-        if envelope['syncMessage'] is not None:
-            return envelope['syncMessage']['sentMessage'].get('groupInfo') is not None
-        else:
-            return False
-    except (KeyError, TypeError):
-        return False
+    return (get_nested(envelope, 'dataMessage', 'groupInfo') is not None
+            or
+            get_nested(envelope, 'syncMessage', 'sentMessage', 'groupInfo') is not None)
 
 def get_envelope_msg(envelope):
-    try:
-        if envelope['dataMessage'] is not None:
-            return envelope['dataMessage']['message'] or ''
-        if envelope['syncMessage'] is not None:
-            return envelope['syncMessage']['sentMessage']['message'] or ''
-        else:
-            return None
-    except (KeyError, TypeError):
-        return None
+    # If the `message` field is absent from the envelope: return None. If it is present but contains no text (since signal-cli v0.6.8, this is represented as `'message': null`): return ''. Otherwise: return the `message` field's value.
+    for msg in (
+            get_nested(envelope, 'dataMessage', 'message', default=0),
+            get_nested(envelope, 'syncMessage', 'sentMessage', 'message', default=0)):
+        if msg is None:
+            return ''
+        elif msg is not 0:
+            return msg
+    return None
 
 def get_envelope_time(envelope):
-    try:
-        if envelope['dataMessage'] is not None:
-            return envelope['dataMessage']['timestamp']
-        if envelope['syncMessage'] is not None:
-            return envelope['syncMessage']['sentMessage']['timestamp']
-        else:
-            return envelope['timestamp']
-    except (KeyError, TypeError):
-        return envelope['timestamp']
+    return (get_nested(envelope, 'dataMessage', 'timestamp')
+            or
+            get_nested(envelope, 'syncMessage', 'sentMessage', 'timestamp')
+            or
+            envelope['timestamp'])
 
 def get_envelope_contact(envelope, signal):
-    syncMessage = envelope.get('syncMessage')
-    x = None
-    if envelope.get('target'):
-        x = envelope['target']
-    elif is_envelope_group_message(envelope):
-        x = get_envelope_group_id(envelope)
-    elif syncMessage and syncMessage.get('sentMessage'):
-        x = syncMessage['sentMessage']['destination']
-    else:
-        x = envelope['source']
+    x = (envelope.get('target')
+            or get_nested(envelope, 'dataMessage', 'groupInfo', 'groupId')
+            or get_nested(envelope, 'syncMessage', 'sentMessage', 'groupInfo', 'groupId')
+            or get_nested(envelope, 'syncMessage', 'sentMessage', 'destination')
+            or envelope['source'])
 
     contact = signal.get_contact(x)
     if not contact:
@@ -264,22 +246,12 @@ def get_envelope_contact(envelope, signal):
 
     return contact
 
-def get_envelope_group_id(envelope):
-    try:
-        if envelope['dataMessage'] is not None:
-            return envelope['dataMessage']['groupInfo']['groupId']
-        if envelope['syncMessage'] is not None:
-            return envelope['syncMessage']['sentMessage']['groupInfo']['groupId']
-    except (KeyError, TypeError):
-        return None
-
 def get_envelope_attachments(envelope):
-    if envelope['dataMessage'] is not None:
-        return envelope['dataMessage']['attachments']
-    if envelope['syncMessage'] is not None:
-        return envelope['syncMessage']['sentMessage']['attachments']
-    else:
-        return []
+    return (get_nested(envelope, 'dataMessage', 'attachments')
+            or
+            get_nested(envelope, 'syncMessage', 'sentMessage', 'attachments')
+            or
+            [])
 
 def get_attachment_name(attachment):
     if isinstance(attachment, dict):
@@ -738,11 +710,9 @@ class Signal:
                 e = json.loads(line.decode('utf-8'))
                 envelope = e['envelope']
 
-                syncMessage = envelope['syncMessage']
-                if syncMessage is not None \
-                and syncMessage['sentMessage'] is not None:
+                if get_nested(envelope, 'syncMessage', 'sentMessage') is not None:
                     urwid.emit_signal(self, 'send_message', envelope)
-                elif envelope['dataMessage'] is not None:
+                elif envelope.get('dataMessage') is not None:
                     urwid.emit_signal(self, 'receive_message', envelope)
                 else:
                     logging.info('NOT_A_MESSAGE:%s', envelope)
