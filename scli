@@ -233,18 +233,12 @@ def get_envelope_time(envelope):
             or
             envelope['timestamp'])
 
-def get_envelope_contact(envelope, signal):
-    x = (envelope.get('target')
+def get_envelope_contact_id(envelope):
+    return (envelope.get('target')
             or get_nested(envelope, 'dataMessage', 'groupInfo', 'groupId')
             or get_nested(envelope, 'syncMessage', 'sentMessage', 'groupInfo', 'groupId')
             or get_nested(envelope, 'syncMessage', 'sentMessage', 'destination')
             or envelope['source'])
-
-    contact = signal.get_contact(x)
-    if not contact:
-        logging.critical('NULL_CONTACT:%s', envelope)
-
-    return contact
 
 def get_envelope_attachments(envelope):
     return (get_nested(envelope, 'dataMessage', 'attachments')
@@ -801,6 +795,12 @@ class Signal:
     def get_contact(self, number_or_id):
         return self.contacts_map.get(number_or_id)
 
+    def get_envelope_contact(self, envelope):
+        contact_id = get_envelope_contact_id(envelope)
+        contact = self.get_contact(contact_id)
+        if not contact:
+            logging.critical('NULL_CONTACT:%s', envelope)
+        return contact
 
     def make_formatted_contacts_list(self):
         xs = []
@@ -1436,7 +1436,7 @@ class State:
             self.chats[hash_contact(contact)] = [x for x in self.current_chat]
 
     def get_chat_for_envelope(self, envelope):
-        contact = get_envelope_contact(envelope, self.signal)
+        contact = self.signal.get_envelope_contact(envelope)
         if contact == self.current_contact:
             return self.current_chat
 
@@ -1451,7 +1451,7 @@ class State:
 
     def on_receive_message(self, envelope):
         msg = get_envelope_msg(envelope)
-        sender = get_envelope_contact(envelope, self.signal)
+        sender = self.signal.get_envelope_contact(envelope)
         contact_name = get_contact_name(sender)
 
         if msg is None:
