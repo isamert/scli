@@ -854,18 +854,13 @@ class ContactsWindow(urwid.ListBox):
         self.set_contact_notify_count(self.focus, 0)
 
     def on_receive_message(self, envelope):
-        contact = get_envelope_contact(envelope, self.state.signal)
-        if contact == self.state.current_contact or get_envelope_msg(envelope) is None:
+        contact_id = get_envelope_contact_id(envelope)
+        contact_widget = self.contact_widgets_map[contact_id]
+        if contact_widget.contact == self.state.current_contact or get_envelope_msg(envelope) is None:
             return
 
-        contact_widget = self.get_contact_widget(contact)
         self.set_contact_notify_count(contact_widget, contact_widget.notify_count + 1)
         self.move_contact_top(contact_widget, is_envelope_group_message(envelope))
-
-    def get_contact_widget(self, contact):
-        for w in self._body:
-            if w.contact == contact:
-                return w
 
     def move_contact_top(self, w, is_group):
         offset = 2 + (0 if is_group else (3 + len(self.state.signal.groups)))
@@ -891,8 +886,9 @@ class ContactsWindow(urwid.ListBox):
             am.notify_count = 0
             return am
 
-        contacts = [mk_contact(x) for x in contacts]
-        self._body.extend(contacts)
+        contact_widgets = [mk_contact(x) for x in contacts]
+        self._body.extend(contact_widgets)
+        self.contact_widgets_map = {hash_contact(w.contact): w for w in contact_widgets if w.contact}
         try:
             self.focus_position = 2
         except IndexError:
