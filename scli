@@ -718,8 +718,6 @@ class Signal:
         self.contacts_map = {c['number']: c for c in self.contacts}
         self.contacts_map.update({g['groupId']: g for g in self.groups})
 
-        self.formatted_contacts = self.make_formatted_contacts_list()
-
     def start_daemon(self):
         fd = self.loop.watch_pipe(self.daemon_handler)
         return Popen(['signal-cli', '-u', self.user, 'daemon', '--json'], stdout=fd, stderr=fd, close_fds=True)
@@ -841,17 +839,6 @@ class Signal:
             logging.critical('NULL_CONTACT:%s', envelope)
         return contact
 
-    def make_formatted_contacts_list(self):
-        xs = []
-        xs.append('Groups')
-        xs.append('---')
-        xs.extend(self.groups)
-        xs.append('---')
-        xs.append('Contacts')
-        xs.append('---')
-        xs.extend(self.contacts)
-        return xs
-
 urwid.register_signal(Signal, Signal.signals)
 
 # #############################################################################
@@ -865,6 +852,7 @@ class ContactsWindow(urwid.ListBox):
         self.state = state
         self._body = []
         self.notify_count = 0
+        self.formatted_contacts_list = []
 
         super().__init__(urwid.SimpleFocusListWalker(self._body))
         self.reload()
@@ -873,7 +861,24 @@ class ContactsWindow(urwid.ListBox):
         urwid.connect_signal(self.state, 'current_contact_changed', self.on_current_contact_changed)
 
     def reload(self):
-        self.set_contacts(self.state.signal.formatted_contacts)
+        self.formatted_contacts_list = self.make_formatted_contacts_list()
+        self.set_contacts(self.formatted_contacts_list)
+
+    def make_formatted_contacts_list(self):
+        xs = []
+        if self.state.cfg.group_contacts:
+            xs.append('Groups')
+            xs.append('---')
+
+        xs.extend(self.state.signal.groups)
+
+        if self.state.cfg.group_contacts:
+            xs.append('---')
+            xs.append('Contacts')
+            xs.append('---')
+
+        xs.extend(self.state.signal.contacts)
+        return xs
 
     def set_contact_notify_count(self, w, count):
         if not w:
@@ -905,7 +910,11 @@ class ContactsWindow(urwid.ListBox):
         self.move_contact_top(contact_widget, is_envelope_group_message(envelope))
 
     def move_contact_top(self, w, is_group):
-        offset = 2 + (0 if is_group else (3 + len(self.state.signal.groups)))
+        if self.state.cfg.group_contacts:
+            offset = 2 + (0 if is_group else (3 + len(self.state.signal.groups)))
+        else:
+            offset = 0
+
         self._body.remove(w)
         self._body.insert(offset, w)
 
@@ -931,10 +940,8 @@ class ContactsWindow(urwid.ListBox):
         contact_widgets = [mk_contact(x) for x in contacts]
         self._body.extend(contact_widgets)
         self.contact_widgets_map = {hash_contact(w.contact): w for w in contact_widgets if w.contact}
-        try:
-            self.focus_position = 2
-        except IndexError:
-            pass
+
+        self.focus_first()
 
     def get_focused_contact(self):
         return self.focus.contact
@@ -949,7 +956,7 @@ class ContactsWindow(urwid.ListBox):
 
     def focus_prev(self, num=1):
         try:
-            if self.focus_position > 2:
+            if not self.state.cfg.group_contacts or self.focus_position > 2:
                 self.focus_position = self.focus_position - num
                 if not self.get_focused_contact():
                     self.focus_prev()
@@ -958,7 +965,10 @@ class ContactsWindow(urwid.ListBox):
 
     def focus_first(self):
         try:
-            self.focus_position = 2
+            if self.state.cfg.group_contacts:
+                self.focus_position = 2
+            else:
+                self.focus_position = 0
         except IndexError:
             pass
 
@@ -985,7 +995,7 @@ class ContactsWindow(urwid.ListBox):
         elif key == 'G':
             self.focus_last()
         elif key == 'r':
-            pass # TODO: refresh
+            self.state.reload()
         return key
 
 
@@ -998,6 +1008,9 @@ class LeftWindow(urwid.Frame):
         urwid.connect_signal(self._wsearch, 'postchange', self.on_search_text_changed)
 
         super().__init__(self._wcontacts, footer=None)
+
+        if not self.state.cfg.group_contacts:
+            self.header = urwid.Pile([urwid.Text(btxt('Contacts'), align='center'), urwid.Divider('-')])
 
     def start_search(self):
         self.footer = self._wsearch
@@ -1020,7 +1033,7 @@ class LeftWindow(urwid.Frame):
                 return True
             return (txt.lower() in get_contact_name(contact).lower()) or (txt in get_contact_number(contact))
 
-        results = [c for c in self.state.signal.formatted_contacts if contact_match(c)]
+        results = [c for c in self._wcontacts.formatted_contacts_list if contact_match(c)]
         self.set_contacts(results)
 
     def keypress(self, size, key):
@@ -1718,6 +1731,11 @@ def main():
                         default=False,
                         action='store_true',
                         help='Show contact names even in message list even if it is one-to-one conversation. (Disabled by default.)')
+
+    parser.add_argument('--group-contacts',
+                        default=False,
+                        action='store_true',
+                        help='Show groups and contacts seperately under the left pane. (Disabled by default)')
 
     parser.add_argument('--contacts-autohide',
                         default=False,
