@@ -669,7 +669,11 @@ class Commands:
             number = self.state.current_contact.get('number')
             new_name = args
 
-        self.state.signal.rename_contact(number, new_name)
+        self.state.signal.rename_contact(
+            number,
+            new_name,
+            lambda *i: self.reload()
+        )
 
     def reload(self):
         self.state.reload()
@@ -751,11 +755,11 @@ class Signal:
                 # TODO: display error to user
                 continue
 
-    def rename_contact(self, number, new_name):
+    def rename_contact(self, number, new_name, cb=None):
         args = ["org.asamk.Signal.setContactName", "string:" + number, "string:" + new_name]
-        self.run_cmd('rename_contact', args)
+        self.run_cmd('rename_contact', args, cb=cb)
 
-    def send_message(self, contact, message="", attachments=None):
+    def send_message(self, contact, message="", attachments=None, cb=None):
         args = []
         if not attachments:
             attachments = []
@@ -792,23 +796,23 @@ class Signal:
                                     'attachments': attachments,
                                     'timestamp': ts}}
 
-        self.run_cmd('send_message', args, envelope)
+        self.run_cmd('send_message', args, envelope, cb=cb)
 
         logging.info('send_message:%s', envelope)
         urwid.emit_signal(self, 'send_message', envelope)
 
-    def run_cmd(self, cmd, args, data=None):
+    def run_cmd(self, cmd, args, data=None, cb=None):
         watchpipe_fd = self.loop.watch_pipe(self.watchpipe_handler)
         # Make all `dbus-send` output go to stderr, and write the process PID and exit status to the watch pipe.
 
         sh_command = " ".join(['dbus-send', '--session', '--type=method_call', '--print-reply', '--dest=org.asamk.Signal', '/org/asamk/Signal', *args]) + " 1>&2; echo $$ $?"
         send_proc = Popen(sh_command, shell=True, stdout=watchpipe_fd, stderr=PIPE, universal_newlines=True)
-        self.sending_procs[send_proc.pid] = (cmd, send_proc, watchpipe_fd, data)
+        self.sending_procs[send_proc.pid] = (cmd, send_proc, watchpipe_fd, data, cb)
 
     def watchpipe_handler(self, line):
         # The line printed to watch pipe is of the form "b'<PID> <RETURN_CODE>\n'"
         proc_pid, return_code = [int(i) for i in line.decode().split()]
-        cmd, send_proc, watchpipe_fd, data = self.sending_procs.pop(proc_pid)
+        cmd, send_proc, watchpipe_fd, data, cb = self.sending_procs.pop(proc_pid)
         send_proc.wait()  # reap the child process, to prevent zombies
 
         if cmd == "send_message":
@@ -821,6 +825,10 @@ class Signal:
             logging.error('%s: exit code=%d:err=%s', cmd, return_code, send_proc.stderr.read())
 
         os.close(watchpipe_fd) # Close the write end of urwid's watch pipe.
+
+        if cb:
+            cb(return_code, data)
+
         return False # Close the read end of urwid's watch pipe and remove the watch from event_loop.
 
     def get_contact(self, number_or_id):
