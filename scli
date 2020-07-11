@@ -756,7 +756,7 @@ class Signal:
                 continue
 
     def rename_contact(self, number, new_name, cb=None):
-        args = ["org.asamk.Signal.setContactName", "string:" + number, "string:" + new_name]
+        args = ["org.asamk.Signal.setContactName", "string:" + number, "string:" + shlex.quote(new_name)]
         self.run_cmd('rename_contact', args, cb=cb)
 
     def send_message(self, contact, message="", attachments=None, cb=None):
