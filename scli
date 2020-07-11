@@ -484,7 +484,7 @@ class clip:
 class Commands:
     def __init__(self, state):
         self.state = state
-        cmd_mapping = [(['attach', 'a'], self.attach),
+        self.cmd_mapping = [(['attach', 'a'], self.attach),
                     (['edit', 'e'], self.external_edit),
                     (['read', 'r'], self.read),
                     (['attachClip', 'c'], self.attach_clip),
@@ -495,7 +495,7 @@ class Commands:
                     (['renameContact'], self.rename_contact),
                     (['reload'], self.reload),
                     (['quit', 'q'], self.quit)]
-        self.map = {cmd.lower(): fn for cmds, fn in cmd_mapping for cmd in cmds}
+        self.map = {cmd.lower(): fn for cmds, fn in self.cmd_mapping for cmd in cmds}
 
     def exec(self, cmd, *args):
         fn = self.map.get(cmd.lower())
@@ -1200,7 +1200,7 @@ class ChatWindow(urwid.Frame):
             if completion != '':
                 self.set_edit_text(splitted_txt[0] + ' ' + completion, True)
         else:
-            all_commands = [x for x in self.state.commands.map if x.startswith(txt[1:]) and len(x) > 1]      # only show the long versions of the commands
+            all_commands = [cmd for cmd in [tupl[0][0] for tupl in self.state.commands.cmd_mapping] if cmd.lower().startswith(txt[1:].lower())]
             commonprefix = os.path.commonprefix(all_commands)
 
             self.state.set_notification('{' + '|'.join(all_commands) + '}')
