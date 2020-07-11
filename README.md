@@ -50,6 +50,8 @@ There are some basic commands that you can use. Hit `:` to enter command mode (o
 - `:toggleNotifications` or `:n` toggles desktop notifications.
 - `:edit` or `:e` lets you edit your message in your `$EDITOR`.
 - `:toggleAutohide` or `:h` toggles autohide property of the contacts pane.
+- `:renameContact [NUMBER] NEW_NAME` renames the `NUMBER`s name to `NEW_NAME`, if `NUMBER` is skipped, simply current contacts name is renamed to `NEW_NAME`.
+- `:reload` re-reads the `signal-cli`s data file. (Updates contacts list etc.)
 
 Examples:
 ```
