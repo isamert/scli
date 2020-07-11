@@ -102,6 +102,14 @@ def has_key(key, x):
         return key in x
     return False
 
+def get_nested(dct, *keys, default=None):
+    for key in keys:
+        try:
+            dct = dct[key]
+        except (KeyError, TypeError, IndexError):
+            return default
+    return dct
+
 def get_urls(txt):
     return re.findall(r'(https?://[^\s]+)', txt)
 
@@ -157,12 +165,8 @@ urwid.register_signal(ObservableConfig, ObservableConfig.signals)
 # #############################################################################
 
 def hash_contact(x):
-    h = ''
-    if 'number' in x:
-        h = x['number']
-    elif 'groupId' in x:
-        h = x['groupId']
-    else:
+    h = x.get('number') or x.get('groupId')
+    if h is None:
         logging.critical('hash_contact:No number or groupId')
     return h
 
@@ -202,84 +206,46 @@ def is_contact_group(contact):
     return has_key('groupId', contact)
 
 def is_envelope_outgoing(envelope):
-    try:
-        if 'target' in envelope:
-            return True
-
-        syncMessage = envelope['syncMessage']
-        if syncMessage is not None \
-        and syncMessage['sentMessage'] is not None:
-            return True
-    except KeyError:
-        return False
+    return ('target' in envelope
+            or
+            get_nested(envelope, 'syncMessage', 'sentMessage') is not None)
 
 def is_envelope_group_message(envelope):
-    try:
-        if envelope['dataMessage'] is not None:
-            return envelope['dataMessage'].get('groupInfo') is not None
-        if envelope['syncMessage'] is not None:
-            return envelope['syncMessage']['sentMessage'].get('groupInfo') is not None
-        else:
-            return False
-    except (KeyError, TypeError):
-        return False
+    return (get_nested(envelope, 'dataMessage', 'groupInfo') is not None
+            or
+            get_nested(envelope, 'syncMessage', 'sentMessage', 'groupInfo') is not None)
 
 def get_envelope_msg(envelope):
-    try:
-        if envelope['dataMessage'] is not None:
-            return envelope['dataMessage']['message'] or ''
-        if envelope['syncMessage'] is not None:
-            return envelope['syncMessage']['sentMessage']['message'] or ''
-        else:
-            return None
-    except (KeyError, TypeError):
-        return None
+    # If the `message` field is absent from the envelope: return None. If it is present but contains no text (since signal-cli v0.6.8, this is represented as `'message': null`): return ''. Otherwise: return the `message` field's value.
+    for msg in (
+            get_nested(envelope, 'dataMessage', 'message', default=0),
+            get_nested(envelope, 'syncMessage', 'sentMessage', 'message', default=0)):
+        if msg is None:
+            return ''
+        elif msg is not 0:
+            return msg
+    return None
 
 def get_envelope_time(envelope):
-    try:
-        if envelope['dataMessage'] is not None:
-            return envelope['dataMessage']['timestamp']
-        if envelope['syncMessage'] is not None:
-            return envelope['syncMessage']['sentMessage']['timestamp']
-        else:
-            return envelope['timestamp']
-    except (KeyError, TypeError):
-        return envelope['timestamp']
+    return (get_nested(envelope, 'dataMessage', 'timestamp')
+            or
+            get_nested(envelope, 'syncMessage', 'sentMessage', 'timestamp')
+            or
+            envelope['timestamp'])
 
-def get_envelope_contact(envelope, signal):
-    syncMessage = envelope.get('syncMessage')
-    x = None
-    if envelope.get('target'):
-        x = envelope['target']
-    elif is_envelope_group_message(envelope):
-        x = get_envelope_group_id(envelope)
-    elif syncMessage and syncMessage.get('sentMessage'):
-        x = syncMessage['sentMessage']['destination']
-    else:
-        x = envelope['source']
-
-    contact = signal.get_contact(x)
-    if not contact:
-        logging.critical('NULL_CONTACT:%s', envelope)
-
-    return contact
-
-def get_envelope_group_id(envelope):
-    try:
-        if envelope['dataMessage'] is not None:
-            return envelope['dataMessage']['groupInfo']['groupId']
-        if envelope['syncMessage'] is not None:
-            return envelope['syncMessage']['sentMessage']['groupInfo']['groupId']
-    except (KeyError, TypeError):
-        return None
+def get_envelope_contact_id(envelope):
+    return (envelope.get('target')
+            or get_nested(envelope, 'dataMessage', 'groupInfo', 'groupId')
+            or get_nested(envelope, 'syncMessage', 'sentMessage', 'groupInfo', 'groupId')
+            or get_nested(envelope, 'syncMessage', 'sentMessage', 'destination')
+            or envelope['source'])
 
 def get_envelope_attachments(envelope):
-    if envelope['dataMessage'] is not None:
-        return envelope['dataMessage']['attachments']
-    if envelope['syncMessage'] is not None:
-        return envelope['syncMessage']['sentMessage']['attachments']
-    else:
-        return []
+    return (get_nested(envelope, 'dataMessage', 'attachments')
+            or
+            get_nested(envelope, 'syncMessage', 'sentMessage', 'attachments')
+            or
+            [])
 
 def get_attachment_name(attachment):
     if isinstance(attachment, dict):
@@ -515,7 +481,7 @@ class clip:
 class Commands:
     def __init__(self, state):
         self.state = state
-        self.map = [(['attach', 'a'], self.attach),
+        cmd_mapping = [(['attach', 'a'], self.attach),
                     (['edit', 'e'], self.external_edit),
                     (['read', 'r'], self.read),
                     (['attachClip', 'c'], self.attach_clip),
@@ -524,24 +490,25 @@ class Commands:
                     (['toggleNotifications', 'n'], self.toggle_notifications),
                     (['toggleAutohide', 'h'], self.toggle_autohide),
                     (['quit', 'q'], self.quit)]
+        self.map = {cmd.lower(): fn for cmds, fn in cmd_mapping for cmd in cmds}
 
     def exec(self, cmd, *args):
-        for (abbrvs, fn) in self.map:
-            if cmd in [abbrv.lower() for abbrv in abbrvs]:
-                try:
-                    return fn(*args)
-                except TypeError as err:
-                    # Handle only the exceptions produced by giving the wrong number of arguments to `fn()`, not any exceptions produced inside executing `fn()` (i.e. deeper in the stack trace)
-                    if err.__traceback__.tb_next is not None:
-                        raise
-                    if re.search(r"missing \d+ required positional argument", str(err)):
-                        self.state.set_error(f':{cmd} missing arguments')
-                    elif re.search(r"takes \d+ positional arguments? but \d+ were given", str(err)):
-                        self.state.set_error(f':{cmd} extra arguments')
-                    else:
-                        raise
-                    return
-        self.state.set_error(f"Command `{cmd}` not found")
+        fn = self.map.get(cmd.lower())
+        if fn is None:
+            self.state.set_error(f"Command `{cmd}` not found")
+            return
+        try:
+            return fn(*args)
+        except TypeError as err:
+            # Handle only the exceptions produced by giving the wrong number of arguments to `fn()`, not any exceptions produced inside executing `fn()` (i.e. deeper in the stack trace)
+            if err.__traceback__.tb_next is not None:
+                raise
+            if re.search(r"missing \d+ required positional argument", str(err)):
+                self.state.set_error(f':{cmd} missing arguments')
+            elif re.search(r"takes \d+ positional arguments? but \d+ were given", str(err)):
+                self.state.set_error(f':{cmd} extra arguments')
+            else:
+                raise
 
     @staticmethod
     def split_path(string):
@@ -712,6 +679,18 @@ class Signal:
 
         self.reload_data()
 
+        self.contacts = sorted(
+            self._data['contactStore']['contacts'],
+            key = lambda i: get_contact_name(i))
+        self.groups = [g for g in self._data["groupStore"]['groups']
+                if g['name']
+                # Older versions of `signal-cli` use `active` key while newer ones use `archived`.
+                and (g.get('active') or not g.get('archived'))]
+        self.contacts_map = {c['number']: c for c in self.contacts}
+        self.contacts_map.update({g['groupId']: g for g in self.groups})
+
+        self.formatted_contacts = self.make_formatted_contacts_list()
+
     def reload_data(self):
         with open(self._path) as f:
             self._data = json.load(f)
@@ -738,11 +717,9 @@ class Signal:
                 e = json.loads(line.decode('utf-8'))
                 envelope = e['envelope']
 
-                syncMessage = envelope['syncMessage']
-                if syncMessage is not None \
-                and syncMessage['sentMessage'] is not None:
+                if get_nested(envelope, 'syncMessage', 'sentMessage') is not None:
                     urwid.emit_signal(self, 'send_message', envelope)
-                elif envelope['dataMessage'] is not None:
+                elif envelope.get('dataMessage') is not None:
                     urwid.emit_signal(self, 'receive_message', envelope)
                 else:
                     logging.info('NOT_A_MESSAGE:%s', envelope)
@@ -759,12 +736,13 @@ class Signal:
 
         args = ['dbus-send', '--session', '--type=method_call', '--print-reply', '--dest=org.asamk.Signal', '/org/asamk/Signal']
 
-        target = None
-        if contact.get('number'):
-            target = contact['number']
+        contact_number = contact.get('number')
+        if contact_number is not None:
+            target = contact_number
             args.append('org.asamk.Signal.sendMessage')
         else:
-            target = contact['groupId']
+            group_id = contact.get('groupId')
+            target = group_id
             args.append('org.asamk.Signal.sendGroupMessage')
 
         # If the send command is run with Popen(.., shell=True), shlex.quote is needed to escape special chars in the message.
@@ -777,11 +755,11 @@ class Signal:
             logging.warning('send_message: Attached file(s) does not exist.')
             return
 
-        if contact.get('number'):
-            args.append('string:' + shlex.quote(contact['number']))
+        if contact_number:
+            args.append('string:' + shlex.quote(contact_number))
         else:
             args.append('array:byte:' + ','.join(
-                str(i) for i in base64.b64decode(contact['groupId'].encode())))
+                str(i) for i in base64.b64decode(group_id.encode())))
 
         ts = int(datetime.now().timestamp() * 1000)
         envelope = {'source':self.user,
@@ -815,35 +793,25 @@ class Signal:
         os.close(watchpipe_fd)    # Close the write end of urwid's watch pipe.
         return False    # Close the read end of urwid's watch pipe and remove the watch from event_loop.
 
-    def contacts(self):
-        return sorted(
-            self._data['contactStore']['contacts'],
-            key = lambda i: get_contact_name(i))
-
-    def groups(self):
-        # Older versions of `signal-cli` use `active` key while newer ones use `archived`.
-        return list(filter(lambda a: not bool(a.get('archived', not bool(a.get('active', True)))),
-                    (filter(lambda n: bool(n['name']),
-                     self._data["groupStore"]['groups']))))
-
     def get_contact(self, number_or_id):
-        for contact in self.contacts():
-            if contact['number'] == number_or_id:
-                return contact
+        return self.contacts_map.get(number_or_id)
 
-        for group in self.groups():
-            if group['groupId'] == number_or_id:
-                return group
+    def get_envelope_contact(self, envelope):
+        contact_id = get_envelope_contact_id(envelope)
+        contact = self.get_contact(contact_id)
+        if not contact:
+            logging.critical('NULL_CONTACT:%s', envelope)
+        return contact
 
-    def get_all_contacts(self):
+    def make_formatted_contacts_list(self):
         xs = []
         xs.append('Groups')
         xs.append('---')
-        xs.extend(self.groups())
+        xs.extend(self.groups)
         xs.append('---')
         xs.append('Contacts')
         xs.append('---')
-        xs.extend(self.contacts())
+        xs.extend(self.contacts)
         return xs
 
 urwid.register_signal(Signal, Signal.signals)
@@ -861,7 +829,7 @@ class ContactsWindow(urwid.ListBox):
         self.notify_count = 0
 
         super().__init__(urwid.SimpleFocusListWalker(self._body))
-        self.set_contacts(self.state.signal.get_all_contacts())
+        self.set_contacts(self.state.signal.formatted_contacts)
 
         urwid.connect_signal(self.state.signal, 'receive_message', self.on_receive_message)
         urwid.connect_signal(self.state, 'current_contact_changed', self.on_current_contact_changed)
@@ -887,21 +855,16 @@ class ContactsWindow(urwid.ListBox):
         self.set_contact_notify_count(self.focus, 0)
 
     def on_receive_message(self, envelope):
-        contact = get_envelope_contact(envelope, self.state.signal)
-        if contact == self.state.current_contact or get_envelope_msg(envelope) is None:
+        contact_id = get_envelope_contact_id(envelope)
+        contact_widget = self.contact_widgets_map[contact_id]
+        if contact_widget.contact == self.state.current_contact or get_envelope_msg(envelope) is None:
             return
 
-        contact_widget = self.get_contact_widget(contact)
         self.set_contact_notify_count(contact_widget, contact_widget.notify_count + 1)
         self.move_contact_top(contact_widget, is_envelope_group_message(envelope))
 
-    def get_contact_widget(self, contact):
-        for w in self._body:
-            if w.contact == contact:
-                return w
-
     def move_contact_top(self, w, is_group):
-        offset = 2 + (0 if is_group else (3 + len(self.state.signal.groups())))
+        offset = 2 + (0 if is_group else (3 + len(self.state.signal.groups)))
         self._body.remove(w)
         self._body.insert(offset, w)
 
@@ -924,8 +887,9 @@ class ContactsWindow(urwid.ListBox):
             am.notify_count = 0
             return am
 
-        contacts = [mk_contact(x) for x in contacts]
-        self._body.extend(contacts)
+        contact_widgets = [mk_contact(x) for x in contacts]
+        self._body.extend(contact_widgets)
+        self.contact_widgets_map = {hash_contact(w.contact): w for w in contact_widgets if w.contact}
         try:
             self.focus_position = 2
         except IndexError:
@@ -1015,7 +979,7 @@ class LeftWindow(urwid.Frame):
                 return True
             return (txt.lower() in get_contact_name(contact).lower()) or (txt in get_contact_number(contact))
 
-        results = [c for c in self.state.signal.get_all_contacts() if contact_match(c)]
+        results = [c for c in self.state.signal.formatted_contacts if contact_match(c)]
         self.set_contacts(results)
 
     def keypress(self, size, key):
@@ -1203,7 +1167,7 @@ class ChatWindow(urwid.Frame):
             if completion != '':
                 self.set_edit_text(splitted_txt[0] + ' ' + completion, True)
         else:
-            all_commands = list(filter(lambda x: x.lower().startswith(txt[1:].lower()), [tupl[0][0] for tupl in self.state.commands.map]))
+            all_commands = [x for x in self.state.commands.map if x.startswith(txt[1:]) and len(x) > 1]      # only show the long versions of the commands
             commonprefix = os.path.commonprefix(all_commands)
 
             self.state.set_notification('{' + '|'.join(all_commands) + '}')
@@ -1469,7 +1433,7 @@ class State:
             self.chats[hash_contact(contact)] = [x for x in self.current_chat]
 
     def get_chat_for_envelope(self, envelope):
-        contact = get_envelope_contact(envelope, self.signal)
+        contact = self.signal.get_envelope_contact(envelope)
         if contact == self.current_contact:
             return self.current_chat
 
@@ -1484,7 +1448,7 @@ class State:
 
     def on_receive_message(self, envelope):
         msg = get_envelope_msg(envelope)
-        sender = get_envelope_contact(envelope, self.signal)
+        sender = self.signal.get_envelope_contact(envelope)
         contact_name = get_contact_name(sender)
 
         if msg is None:
