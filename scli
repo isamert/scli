@@ -861,7 +861,8 @@ class ContactsWindow(urwid.ListBox):
         self.load_contact_order()
         self.reload()
 
-        urwid.connect_signal(self.state.signal, 'receive_message', self.on_receive_message)
+        urwid.connect_signal(self.state.signal, 'receive_message', self.on_new_message)
+        urwid.connect_signal(self.state.signal, 'send_message', self.on_new_message)
         urwid.connect_signal(self.state, 'current_contact_changed', self.on_current_contact_changed)
 
         atexit.register(self.save_contact_order)
@@ -927,13 +928,16 @@ class ContactsWindow(urwid.ListBox):
     def on_current_contact_changed(self, _old, _current, _focus=False):
         self.set_contact_notify_count(self.focus, 0)
 
-    def on_receive_message(self, envelope):
+    def on_new_message(self, envelope):
         contact_id = get_envelope_contact_id(envelope)
         contact_widget = self.contact_widgets_map[contact_id]
-        if contact_widget.contact == self.state.current_contact or get_envelope_msg(envelope) is None:
+
+        if get_envelope_msg(envelope) is None and not get_envelope_attachments(envelope):
             return
 
-        self.set_contact_notify_count(contact_widget, contact_widget.notify_count + 1)
+        if contact_widget.contact != self.state.current_contact and not is_envelope_outgoing(envelope):
+            self.set_contact_notify_count(contact_widget, contact_widget.notify_count + 1)
+
         self.move_contact_top(contact_widget, is_envelope_group_message(envelope))
 
     def move_contact_top(self, w, is_group):
