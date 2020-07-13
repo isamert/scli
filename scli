@@ -44,6 +44,7 @@ SIGNALCLI_ATTACHMENT_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'attachments')
 
 SCLI_DATA_FOLDER = os.path.join(DATA_FOLDER, 'scli')
 SCLI_HISTORY_FILE = os.path.join(SCLI_DATA_FOLDER, 'history')
+SCLI_SORT_FILE = os.path.join(SCLI_DATA_FOLDER, 'sort')
 SCLI_CFG_FILE = os.path.join(CFG_FOLDER, 'sclirc')
 SCLI_LOG_FILE = os.path.join(SCLI_DATA_FOLDER, 'log')
 
@@ -853,31 +854,57 @@ class ContactsWindow(urwid.ListBox):
         self._body = []
         self.notify_count = 0
         self.formatted_contacts_list = []
+        self._order = {}
 
         super().__init__(urwid.SimpleFocusListWalker(self._body))
+
+        self.load_contact_order()
         self.reload()
 
         urwid.connect_signal(self.state.signal, 'receive_message', self.on_receive_message)
         urwid.connect_signal(self.state, 'current_contact_changed', self.on_current_contact_changed)
 
+        atexit.register(self.save_contact_order)
+
     def reload(self):
         self.formatted_contacts_list = self.make_formatted_contacts_list()
         self.set_contacts(self.formatted_contacts_list)
 
+    def load_contact_order(self):
+        if os.path.exists(SCLI_HISTORY_FILE):
+            return
+
+        with open(SCLI_SORT_FILE, 'r') as sort_file:
+            ordering = sort_file.readline().split(',')
+            self._order =  { ordering[i] : i for i in reversed(range(0, len(ordering))) }
+
+    def save_contact_order(self):
+        with open(SCLI_SORT_FILE, 'w') as sort_file:
+            sort_file.write(','.join([hash_contact(w.contact) for w in self._body if w.contact]))
+
     def make_formatted_contacts_list(self):
+        is_contact = lambda x: 'number' in x or 'groupId' in x
+        sorter = lambda x: self._order[hash_contact(x)] if is_contact(x) and hash_contact(x) in self._order else 0
+
         xs = []
         if self.state.cfg.group_contacts:
             xs.append('Groups')
             xs.append('---')
-
-        xs.extend(self.state.signal.groups)
+            xs.extend(sorted(self.state.signal.groups, key=sorter))
+        else:
+            xs.extend(self.state.signal.groups)
 
         if self.state.cfg.group_contacts:
             xs.append('---')
             xs.append('Contacts')
             xs.append('---')
+            xs.extend(sorted(self.state.signal.contacts, key=sorter))
+        else:
+            xs.extend(self.state.signal.contacts)
 
-        xs.extend(self.state.signal.contacts)
+        if not self.state.cfg.group_contacts:
+            xs.sort(key=sorter)
+
         return xs
 
     def set_contact_notify_count(self, w, count):
@@ -917,6 +944,8 @@ class ContactsWindow(urwid.ListBox):
 
         self._body.remove(w)
         self._body.insert(offset, w)
+
+        self._order[hash_contact(w.contact)] = 0
 
     def set_contacts(self, contacts):
         self._body.clear()
