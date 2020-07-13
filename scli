@@ -23,6 +23,7 @@ import urwid
 
 try:
     from urwid_readline import ReadlineEdit
+
     Edit = ReadlineEdit
 except ImportError:
     Edit = urwid.Edit
@@ -54,37 +55,44 @@ SCLI_LOG_FILE = os.path.join(SCLI_DATA_FOLDER, 'log')
 
 # TODO: make costumizable
 
-PALETTE = [('normal', '', ''),
-           ('box_normal', '', ''),
-           ('box_focused', 'dark blue', ''),
-           ('bold', 'bold', ''),
-           ('italic', 'italics', ''),
-           ('strikethrough', 'strikethrough', ''),
-           ('bolditalic', 'italics,bold', ''),
-           ('reversed', 'standout', '')]
+PALETTE = [
+    ('normal', '', ''),
+    ('box_normal', '', ''),
+    ('box_focused', 'dark blue', ''),
+    ('bold', 'bold', ''),
+    ('italic', 'italics', ''),
+    ('strikethrough', 'strikethrough', ''),
+    ('bolditalic', 'italics,bold', ''),
+    ('reversed', 'standout', ''),
+]
 
-LIST_FOCUS_MAP = { None: 'reversed',
-                   'normal': 'reversed',
-                   'bold'  : 'reversed',
-                   'italic': 'reversed',
-                   'strikethrough': 'reversed',
-                   'bolditalic': 'reversed'}
+LIST_FOCUS_MAP = {
+    None: 'reversed',
+    'normal': 'reversed',
+    'bold': 'reversed',
+    'italic': 'reversed',
+    'strikethrough': 'reversed',
+    'bolditalic': 'reversed',
+}
 
-FORMAT_MAP = {'_': 'italic',
-              '*': 'bold',
-              '~': 'strikethrough'}
+FORMAT_MAP = {'_': 'italic', '*': 'bold', '~': 'strikethrough'}
+
 
 def ibtxt(txt):
     return ('bolditalic', txt)
 
+
 def ntxt(txt):
     return ('normal', txt)
+
 
 def btxt(txt):
     return ('bold', txt)
 
+
 def itxt(txt):
     return ('italic', txt)
+
 
 def to_txt(txt):
     if isinstance(txt, str):
@@ -94,14 +102,17 @@ def to_txt(txt):
     else:
         return ''.join([to_txt(t) for t in txt])
 
+
 # #############################################################################
 # utility
 # #############################################################################
+
 
 def has_key(key, x):
     if x:
         return key in x
     return False
+
 
 def get_nested(dct, *keys, default=None):
     for key in keys:
@@ -111,8 +122,10 @@ def get_nested(dct, *keys, default=None):
             return default
     return dct
 
+
 def get_urls(txt):
     return re.findall(r'(https?://[^\s]+)', txt)
+
 
 def mk_call(cmd, rmap=None, disown=False, use_pipe=True):
     if not rmap:
@@ -142,6 +155,7 @@ def mk_call(cmd, rmap=None, disown=False, use_pipe=True):
 
         return out
 
+
 def is_number(number):
     return bool(re.match('^\+?[0-9]*$', number))
 
@@ -162,17 +176,20 @@ class ObservableConfig:
         else:
             super().__setattr__(name, value)
 
+
 urwid.register_signal(ObservableConfig, ObservableConfig.signals)
 
 # #############################################################################
 # signal utility
 # #############################################################################
 
+
 def hash_contact(x):
     h = x.get('number') or x.get('groupId')
     if h is None:
         logging.critical('hash_contact:No number or groupId')
     return h
+
 
 def get_contact_name(x):
     if not x:
@@ -188,6 +205,7 @@ def get_contact_name(x):
 
     return get_contact_number(x)
 
+
 def get_contact_number(x):
     if not x:
         logging.critical('get_contact_number:empty sender')
@@ -199,6 +217,7 @@ def get_contact_number(x):
 
     return "NULL"
 
+
 def get_contact_color(x):
     color = x.get('color')
     if color or color.strip(' ') != '':
@@ -206,50 +225,60 @@ def get_contact_color(x):
 
     return 'white'
 
+
 def is_contact_group(contact):
     return has_key('groupId', contact)
 
+
 def is_envelope_outgoing(envelope):
-    return ('target' in envelope
-            or
-            get_nested(envelope, 'syncMessage', 'sentMessage') is not None)
+    return 'target' in envelope or get_nested(envelope, 'syncMessage', 'sentMessage') is not None
+
 
 def is_envelope_group_message(envelope):
-    return (get_nested(envelope, 'dataMessage', 'groupInfo') is not None
-            or
-            get_nested(envelope, 'syncMessage', 'sentMessage', 'groupInfo') is not None)
+    return (
+        get_nested(envelope, 'dataMessage', 'groupInfo') is not None
+        or get_nested(envelope, 'syncMessage', 'sentMessage', 'groupInfo') is not None
+    )
+
 
 def get_envelope_msg(envelope):
     # If the `message` field is absent from the envelope: return None. If it is present but contains no text (since signal-cli v0.6.8, this is represented as `'message': null`): return ''. Otherwise: return the `message` field's value.
     for msg in (
-            get_nested(envelope, 'dataMessage', 'message', default=0),
-            get_nested(envelope, 'syncMessage', 'sentMessage', 'message', default=0)):
+        get_nested(envelope, 'dataMessage', 'message', default=0),
+        get_nested(envelope, 'syncMessage', 'sentMessage', 'message', default=0),
+    ):
         if msg is None:
             return ''
         elif msg != 0:
             return msg
     return None
 
+
 def get_envelope_time(envelope):
-    return (get_nested(envelope, 'dataMessage', 'timestamp')
-            or
-            get_nested(envelope, 'syncMessage', 'sentMessage', 'timestamp')
-            or
-            envelope['timestamp'])
+    return (
+        get_nested(envelope, 'dataMessage', 'timestamp')
+        or get_nested(envelope, 'syncMessage', 'sentMessage', 'timestamp')
+        or envelope['timestamp']
+    )
+
 
 def get_envelope_contact_id(envelope):
-    return (envelope.get('target')
-            or get_nested(envelope, 'dataMessage', 'groupInfo', 'groupId')
-            or get_nested(envelope, 'syncMessage', 'sentMessage', 'groupInfo', 'groupId')
-            or get_nested(envelope, 'syncMessage', 'sentMessage', 'destination')
-            or envelope['source'])
+    return (
+        envelope.get('target')
+        or get_nested(envelope, 'dataMessage', 'groupInfo', 'groupId')
+        or get_nested(envelope, 'syncMessage', 'sentMessage', 'groupInfo', 'groupId')
+        or get_nested(envelope, 'syncMessage', 'sentMessage', 'destination')
+        or envelope['source']
+    )
+
 
 def get_envelope_attachments(envelope):
-    return (get_nested(envelope, 'dataMessage', 'attachments')
-            or
-            get_nested(envelope, 'syncMessage', 'sentMessage', 'attachments')
-            or
-            [])
+    return (
+        get_nested(envelope, 'dataMessage', 'attachments')
+        or get_nested(envelope, 'syncMessage', 'sentMessage', 'attachments')
+        or []
+    )
+
 
 def get_attachment_name(attachment):
     if isinstance(attachment, dict):
@@ -257,6 +286,7 @@ def get_attachment_name(attachment):
         return filename if filename is not None else attachment['contentType']
     else:
         return os.path.basename(attachment)
+
 
 def get_attachment_path(attachment):
     if isinstance(attachment, dict):
@@ -267,17 +297,24 @@ def get_attachment_path(attachment):
     elif isinstance(attachment, str) and os.path.exists(attachment):
         return attachment
 
+
 # #############################################################################
 # ui utility
 # #############################################################################
 
+
 def listbox_focus_prev(listbox):
-    try: listbox.focus_position = listbox.focus_position - 1
-    except IndexError: pass
+    try:
+        listbox.focus_position = listbox.focus_position - 1
+    except IndexError:
+        pass
+
 
 def listbox_focus_next(listbox):
-    try: listbox.focus_position = listbox.focus_position + 1
-    except IndexError: pass
+    try:
+        listbox.focus_position = listbox.focus_position + 1
+    except IndexError:
+        pass
 
 
 class FocusableText(urwid.AttrMap):
@@ -287,10 +324,11 @@ class FocusableText(urwid.AttrMap):
     def __lt__(self, wtxt):
         return get_envelope_time(self.envelope) < get_envelope_time(wtxt.envelope)
 
+
 class NiceBox(urwid.AttrMap):
     def __init__(self, w, title=''):
         box = urwid.AttrMap(urwid.LineBox(urwid.AttrMap(w, 'normal'), title_align='center', title=title), 'box_normal')
-        super().__init__(box, None, focus_map={'box_normal':'box_focused'})
+        super().__init__(box, None, focus_map={'box_normal': 'box_focused'})
 
 
 class PopUpWrapper(urwid.LineBox):
@@ -304,9 +342,7 @@ class PopUpWrapper(urwid.LineBox):
         if buttons:
             btn_ok = urwid.Button('OK')
             btn_cancel = urwid.Button('Cancel')
-            self.buttons_grid = urwid.GridFlow([btn_ok, btn_cancel],
-                                                10, 1, 1,
-                                                ('relative', 100))
+            self.buttons_grid = urwid.GridFlow([btn_ok, btn_cancel], 10, 1, 1, ('relative', 100))
             super().__init__(urwid.Frame(widget, footer=self.buttons_grid))
         else:
             super().__init__(widget)
@@ -350,14 +386,10 @@ class MessageInfo(urwid.ListBox):
             date = datetime.utcfromtimestamp(timestamp / 1000)
         date = date.strftime('%H:%M (%Y-%m-%d)')
 
-        txt_name = FocusableText([btxt('Name   : '),
-                                  ntxt(get_contact_name(state.signal.get_contact(source)))])
-        txt_source = FocusableText([btxt('Number : '),
-                                    ntxt(source)])
-        txt_date = FocusableText([btxt('Date   : '),
-                                  ntxt(date)])
-        txt_msg = FocusableText([btxt('Message: '),
-                                 ntxt(msg)])
+        txt_name = FocusableText([btxt('Name   : '), ntxt(get_contact_name(state.signal.get_contact(source)))])
+        txt_source = FocusableText([btxt('Number : '), ntxt(source)])
+        txt_date = FocusableText([btxt('Date   : '), ntxt(date)])
+        txt_msg = FocusableText([btxt('Message: '), ntxt(msg)])
         txt_urls = FocusableText([btxt('Links')], align='center')
 
         urls = []
@@ -373,7 +405,6 @@ class MessageInfo(urwid.ListBox):
             txt_atch = FocusableText(ntxt(get_attachment_name(atch)))
             txt_atch.original_widget.full_path = get_attachment_path(atch)
             atchs.append(txt_atch)
-
 
         items = [txt_name, txt_source, txt_date, txt_msg, txt_urls, *urls, txt_atchs, *atchs]
         super().__init__(urwid.SimpleFocusListWalker(items))
@@ -408,9 +439,11 @@ class HelpDialog(urwid.ListBox):
         items.append(urwid.Text(btxt("Commands")))
         super().__init__(urwid.SimpleFocusListWalker(items))
 
+
 # #############################################################################
 # clipboard
 # #############################################################################
+
 
 class clip:
     mime_order = ['image/png', 'image/jpeg', 'image/jpg', 'text/uri-list']
@@ -441,7 +474,9 @@ class clip:
                     if mtype.startswith('image/'):
                         content = clip.xrun(mtype)
                         suffix = '.' + mtype.split('/')[1]
-                        tmp = tempfile.NamedTemporaryFile(mode='w+b', prefix=clip.tempfile_prefix, suffix=suffix, delete=False)
+                        tmp = tempfile.NamedTemporaryFile(
+                            mode='w+b', prefix=clip.tempfile_prefix, suffix=suffix, delete=False
+                        )
                         tmp.write(content)
                         tmp.flush()
                         tmp.close()
@@ -478,24 +513,28 @@ class clip:
 
         return mk_call(cmd).split('\n')
 
+
 # #############################################################################
 # commands
 # #############################################################################
 
+
 class Commands:
     def __init__(self, state):
         self.state = state
-        self.cmd_mapping = [(['attach', 'a'], self.attach),
-                    (['edit', 'e'], self.external_edit),
-                    (['read', 'r'], self.read),
-                    (['attachClip', 'c'], self.attach_clip),
-                    (['openAttach', 'o'], self.open_last_attach),
-                    (['openUrl', 'u'], self.open_last_url),
-                    (['toggleNotifications', 'n'], self.toggle_notifications),
-                    (['toggleAutohide', 'h'], self.toggle_autohide),
-                    (['renameContact'], self.rename_contact),
-                    (['reload'], self.reload),
-                    (['quit', 'q'], self.quit)]
+        self.cmd_mapping = [
+            (['attach', 'a'], self.attach),
+            (['edit', 'e'], self.external_edit),
+            (['read', 'r'], self.read),
+            (['attachClip', 'c'], self.attach_clip),
+            (['openAttach', 'o'], self.open_last_attach),
+            (['openUrl', 'u'], self.open_last_url),
+            (['toggleNotifications', 'n'], self.toggle_notifications),
+            (['toggleAutohide', 'h'], self.toggle_autohide),
+            (['renameContact'], self.rename_contact),
+            (['reload'], self.reload),
+            (['quit', 'q'], self.quit),
+        ]
         self.map = {cmd.lower(): fn for cmds, fn in self.cmd_mapping for cmd in cmds}
 
     def exec(self, cmd, *args):
@@ -521,7 +560,8 @@ class Commands:
         string = string.strip()
         if not string:
             return ['', '']
-        PATH_RE = re.compile(r"""
+        PATH_RE = re.compile(
+            r"""
                 # Matches a path-like string, with whitespaces escaped or with the whole path in quotes.
                 (
                     (
@@ -535,16 +575,18 @@ class Commands:
                     .+?                 # anything, non-greedily
                     (?P=quote)          # matching quote
                 )
-                """, re.VERBOSE)
+                """,
+            re.VERBOSE,
+        )
         re_match = PATH_RE.match(string)
         if not re_match:
             return ['', string]
         path = re_match.group()
-        if re_match.group(1):           # unquoted path
+        if re_match.group(1):  # unquoted path
             path = path.replace(r'\ ', ' ')
-        else:                           # path in quotes
+        else:  # path in quotes
             path = path.strip('\'"')
-        rest = string[re_match.end():].strip()
+        rest = string[re_match.end() :].strip()
         return [path, rest] if rest else [path]
 
     @staticmethod
@@ -670,11 +712,7 @@ class Commands:
             number = self.state.current_contact.get('number')
             new_name = args
 
-        self.state.signal.rename_contact(
-            number,
-            new_name,
-            lambda *i: self.reload()
-        )
+        self.state.signal.rename_contact(number, new_name, lambda *i: self.reload())
 
     def reload(self):
         self.state.reload()
@@ -682,9 +720,11 @@ class Commands:
     def quit(self):
         raise urwid.ExitMainLoop()
 
+
 # #############################################################################
 # signal
 # #############################################################################
+
 
 class Signal:
     signals = ['receive_message', 'send_message']
@@ -709,13 +749,14 @@ class Signal:
         with open(self._path) as f:
             self._data = json.load(f)
 
-        self.contacts = sorted(
-            self._data['contactStore']['contacts'],
-            key = lambda i: get_contact_name(i))
-        self.groups = [g for g in self._data["groupStore"]['groups']
-                       if g['name']
-                       # Older versions of `signal-cli` use `active` key while newer ones use `archived`.
-                       and (g.get('active') or not g.get('archived'))]
+        self.contacts = sorted(self._data['contactStore']['contacts'], key=lambda i: get_contact_name(i))
+        self.groups = [
+            g
+            for g in self._data["groupStore"]['groups']
+            if g['name']
+            # Older versions of `signal-cli` use `active` key while newer ones use `archived`.
+            and (g.get('active') or not g.get('archived'))
+        ]
         self.contacts_map = {c['number']: c for c in self.contacts}
         self.contacts_map.update({g['groupId']: g for g in self.groups})
 
@@ -788,12 +829,12 @@ class Signal:
             args.append('array:byte:' + ','.join(str(i) for i in base64.b64decode(group_id.encode())))
 
         ts = int(datetime.now().timestamp() * 1000)
-        envelope = {'source':self.user,
-                    'target': target,
-                    'timestamp': ts,
-                    'dataMessage': {'message': message,
-                                    'attachments': attachments,
-                                    'timestamp': ts}}
+        envelope = {
+            'source': self.user,
+            'target': target,
+            'timestamp': ts,
+            'dataMessage': {'message': message, 'attachments': attachments, 'timestamp': ts},
+        }
 
         self.run_cmd('send_message', args, envelope, cb=cb)
 
@@ -804,7 +845,20 @@ class Signal:
         watchpipe_fd = self.loop.watch_pipe(self.watchpipe_handler)
         # Make all `dbus-send` output go to stderr, and write the process PID and exit status to the watch pipe.
 
-        sh_command = " ".join(['dbus-send', '--session', '--type=method_call', '--print-reply', '--dest=org.asamk.Signal', '/org/asamk/Signal', *args]) + " 1>&2; echo $$ $?"
+        sh_command = (
+            " ".join(
+                [
+                    'dbus-send',
+                    '--session',
+                    '--type=method_call',
+                    '--print-reply',
+                    '--dest=org.asamk.Signal',
+                    '/org/asamk/Signal',
+                    *args,
+                ]
+            )
+            + " 1>&2; echo $$ $?"
+        )
         send_proc = Popen(sh_command, shell=True, stdout=watchpipe_fd, stderr=PIPE, universal_newlines=True)
         self.sending_procs[send_proc.pid] = (cmd, send_proc, watchpipe_fd, data, cb)
 
@@ -823,12 +877,12 @@ class Signal:
         if return_code != 0:
             logging.error('%s: exit code=%d:err=%s', cmd, return_code, send_proc.stderr.read())
 
-        os.close(watchpipe_fd) # Close the write end of urwid's watch pipe.
+        os.close(watchpipe_fd)  # Close the write end of urwid's watch pipe.
 
         if cb:
             cb(return_code, data)
 
-        return False # Close the read end of urwid's watch pipe and remove the watch from event_loop.
+        return False  # Close the read end of urwid's watch pipe and remove the watch from event_loop.
 
     def get_contact(self, number_or_id):
         return self.contacts_map.get(number_or_id)
@@ -840,11 +894,13 @@ class Signal:
             logging.critical('NULL_CONTACT:%s', envelope)
         return contact
 
+
 urwid.register_signal(Signal, Signal.signals)
 
 # #############################################################################
 # ContactsWindow
 # #############################################################################
+
 
 class ContactsWindow(urwid.ListBox):
     signals = ['notify_count_changed']
@@ -877,7 +933,7 @@ class ContactsWindow(urwid.ListBox):
 
         with open(SCLI_SORT_FILE, 'r') as sort_file:
             ordering = sort_file.readline().split(',')
-            self._order =  { ordering[i] : i for i in reversed(range(0, len(ordering))) }
+            self._order = {ordering[i]: i for i in reversed(range(0, len(ordering)))}
 
     def save_contact_order(self):
         with open(SCLI_SORT_FILE, 'w') as sort_file:
@@ -1085,6 +1141,7 @@ class LeftWindow(urwid.Frame):
 # ChatWindow
 # #############################################################################
 
+
 class ChatWindow(urwid.Frame):
     def __init__(self, state):
         self.state = state
@@ -1100,14 +1157,10 @@ class ChatWindow(urwid.Frame):
         self._wlist = urwid.ListBox(self.state.current_chat)
 
         self._w = urwid.WidgetPlaceholder(self._wlist)
-        wcontext = urwid.Frame(self._w,
-                              header=urwid.Divider('-'))
-        self._wcontext = urwid.Frame(wcontext,
-                                     header=self._wtitle,
-                                     footer=self._wdiv)
+        wcontext = urwid.Frame(self._w, header=urwid.Divider('-'))
+        self._wcontext = urwid.Frame(wcontext, header=self._wtitle, footer=self._wdiv)
 
-        super().__init__(self._wcontext,
-                         footer=self._wline)
+        super().__init__(self._wcontext, footer=self._wline)
 
         urwid.connect_signal(self._wline, 'postchange', self.on_edit_text_changed)
         urwid.connect_signal(self.state, 'current_contact_changed', self.on_current_contact_changed)
@@ -1123,12 +1176,14 @@ class ChatWindow(urwid.Frame):
         wrapper = PopUpWrapper(widget)
         urwid.connect_signal(wrapper, 'closed', on_pop_up_closed)
 
-        popup = urwid.Overlay(wrapper,
-                              self._w.original_widget,
-                              align='center',
-                              valign='middle',
-                              width=('relative', 85),
-                              height=('relative', 75))
+        popup = urwid.Overlay(
+            wrapper,
+            self._w.original_widget,
+            align='center',
+            valign='middle',
+            width=('relative', 85),
+            height=('relative', 75),
+        )
 
         self._w.original_widget = popup
         return wrapper
@@ -1155,10 +1210,14 @@ class ChatWindow(urwid.Frame):
             return
 
         search_txt = self.get_edit_text()[1:]
+
         def setx(i, txt):
             txt.real_index = i
             return txt
-        found = [setx(i, txt) for i, txt in enumerate(self.state.current_chat) if search_txt in txt.original_widget.text]
+
+        found = [
+            setx(i, txt) for i, txt in enumerate(self.state.current_chat) if search_txt in txt.original_widget.text
+        ]
         self.search_list.clear()
         self.search_list.extend(found)
 
@@ -1201,7 +1260,10 @@ class ChatWindow(urwid.Frame):
         num = contact.get("number")
         if not num:
             # see this: https://github.com/isamert/scli/issues/53#issuecomment-612571462
-            contacts = [self.state.signal.get_contact(contact if isinstance(contact, str) else contact['number']) or contact for contact in contact['members']]
+            contacts = [
+                self.state.signal.get_contact(contact if isinstance(contact, str) else contact['number']) or contact
+                for contact in contact['members']
+            ]
             num = ', '.join([get_contact_name(contact) for contact in contacts])
 
         self._wtitle.set_text([('bold', get_contact_name(contact)), ' (', num, ')'])
@@ -1212,7 +1274,8 @@ class ChatWindow(urwid.Frame):
         self.set_title(current)
 
         chat = self.state.chats.get(hash_contact(current))
-        if chat: self.state.current_chat.extend(chat)
+        if chat:
+            self.state.current_chat.extend(chat)
 
         self.focus_chatlast()
 
@@ -1254,7 +1317,11 @@ class ChatWindow(urwid.Frame):
             if completion != '':
                 self.set_edit_text(splitted_txt[0] + ' ' + completion, True)
         else:
-            all_commands = [cmd for cmd in [tupl[0][0] for tupl in self.state.commands.cmd_mapping] if cmd.lower().startswith(txt[1:].lower())]
+            all_commands = [
+                cmd
+                for cmd in [tupl[0][0] for tupl in self.state.commands.cmd_mapping]
+                if cmd.lower().startswith(txt[1:].lower())
+            ]
             commonprefix = os.path.commonprefix(all_commands)
 
             self.state.set_notification('{' + '|'.join(all_commands) + '}')
@@ -1263,7 +1330,6 @@ class ChatWindow(urwid.Frame):
                 self.set_edit_text(':' + all_commands[0] + ' ', True)
             elif commonprefix != '':
                 self.set_edit_text(':' + commonprefix, True)
-
 
     def keypress(self, size, key):
         key = super().keypress(size, key)
@@ -1325,9 +1391,11 @@ class ChatWindow(urwid.Frame):
                 pass
         return key
 
+
 # #############################################################################
 # MainWindow
 # #############################################################################
+
 
 class MainWindow(urwid.Frame):
     def __init__(self, state):
@@ -1471,12 +1539,22 @@ class MainWindow(urwid.Frame):
 
         return key
 
+
 # #############################################################################
 # state
 # #############################################################################
 
+
 class State:
-    signals = ['current_contact_changed', 'status_changed', 'notification_changed', 'error_changed', 'dialog_requested', 'dialog_finished', 'reload_request']
+    signals = [
+        'current_contact_changed',
+        'status_changed',
+        'notification_changed',
+        'error_changed',
+        'dialog_requested',
+        'dialog_finished',
+        'reload_request',
+    ]
 
     def __init__(self, cfg):
         self.signal = Signal(cfg.username)
@@ -1569,8 +1647,8 @@ class State:
             c = message[i]
             if c in ('_', '*', '~'):
                 try:
-                    end = message[i+1:].index(c)
-                    sub = message[i+1:i+1+end]
+                    end = message[i + 1 :].index(c)
+                    sub = message[i + 1 : i + 1 + end]
                     m.append(c)
                     m.append((FORMAT_MAP[c], sub))
                     m.append(c)
@@ -1604,7 +1682,9 @@ class State:
         attachments = get_envelope_attachments(envelope)
 
         if attachments != []:
-            attachments_txt = ', '.join([get_attachment_name(attachment) + ' (' + str(i) + ')' for i, attachment in enumerate(attachments)])
+            attachments_txt = ', '.join(
+                [get_attachment_name(attachment) + ' (' + str(i) + ')' for i, attachment in enumerate(attachments)]
+            )
             txt.append(ntxt('[attached: ' + attachments_txt + '] '))
 
         txt.append(message)
@@ -1667,11 +1747,13 @@ class State:
                 else:
                     self.print_received_message(envelope)
 
+
 urwid.register_signal(State, State.signals)
 
 # #############################################################################
 # main
 # #############################################################################
+
 
 def parse_cfg_file(cfg_file_path):
     vars = {}
@@ -1688,100 +1770,118 @@ def parse_cfg_file(cfg_file_path):
 
     return vars
 
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-c',
-                        '--config-file',
-                        type=str,
-                        default=SCLI_CFG_FILE,
-                        help='Config file. Configs in this file overrides every other config supplied by command line. (Default: ' + SCLI_CFG_FILE + ')')
+    parser.add_argument(
+        '-c',
+        '--config-file',
+        type=str,
+        default=SCLI_CFG_FILE,
+        help='Config file. Configs in this file overrides every other config supplied by command line. (Default: '
+        + SCLI_CFG_FILE
+        + ')',
+    )
 
-    parser.add_argument('-u',
-                        '--username',
-                        type=str,
-                        help='Phone number starting with "+" followed by country code.')
+    parser.add_argument('-u', '--username', type=str, help='Phone number starting with "+" followed by country code.')
 
-    parser.add_argument('-n',
-                        '--enable-notifications',
-                        default=False,
-                        action='store_true',
-                        help='Enable desktop notifications. (Also see --notification-command)')
+    parser.add_argument(
+        '-n',
+        '--enable-notifications',
+        default=False,
+        action='store_true',
+        help='Enable desktop notifications. (Also see --notification-command)',
+    )
 
-    parser.add_argument('-N',
-                        '--notification-command',
-                        type=str,
-                        default="notify-send scli '%s - %m'",
-                        help='The command to run when a new message arrives. %%m is replaced with the message, %%s is replaced with the sender. (Default is "notify-send scli \'%%s - %%m\'')
+    parser.add_argument(
+        '-N',
+        '--notification-command',
+        type=str,
+        default="notify-send scli '%s - %m'",
+        help='The command to run when a new message arrives. %%m is replaced with the message, %%s is replaced with the sender. (Default is "notify-send scli \'%%s - %%m\'',
+    )
 
-    parser.add_argument('-o',
-                        '--open-command',
-                        type=str,
-                        default='xdg-open "%u"',
-                        help='File/URL opener command. %%u is replaced with the path. (Default is "xdg-open %%u")')
+    parser.add_argument(
+        '-o',
+        '--open-command',
+        type=str,
+        default='xdg-open "%u"',
+        help='File/URL opener command. %%u is replaced with the path. (Default is "xdg-open %%u")',
+    )
 
-    parser.add_argument('-e',
-                        '--editor-command',
-                        type=str,
-                        default='$EDITOR',
-                        help='A text editor command to edit your messages externally.')
+    parser.add_argument(
+        '-e',
+        '--editor-command',
+        type=str,
+        default='$EDITOR',
+        help='A text editor command to edit your messages externally.',
+    )
 
-    parser.add_argument('-G',
-                        '--clipboard-get-command',
-                        type=str,
-                        default="",
-                        help='A command that returns a valid file path(s). When user calls `:attachClip` or `:c`, this command is executed and the returned file(s) will be added as attachment(s). The command should return one absolute file path per each line. (Default uses `xclip`)')
+    parser.add_argument(
+        '-G',
+        '--clipboard-get-command',
+        type=str,
+        default="",
+        help='A command that returns a valid file path(s). When user calls `:attachClip` or `:c`, this command is executed and the returned file(s) will be added as attachment(s). The command should return one absolute file path per each line. (Default uses `xclip`)',
+    )
 
-    parser.add_argument('-P',
-                        '--clipboard-put-command',
-                        type=str,
-                        default="",
-                        help='A command that puts given text to clipboard. %%s will be replaced with the text. (Default uses `xclip`.')
+    parser.add_argument(
+        '-P',
+        '--clipboard-put-command',
+        type=str,
+        default="",
+        help='A command that puts given text to clipboard. %%s will be replaced with the text. (Default uses `xclip`.',
+    )
 
-    parser.add_argument('-s',
-                        '--save-history',
-                        default=False,
-                        action='store_true',
-                        help='Enable saving history. History is saved as plain text. (Disabled by default.)')
+    parser.add_argument(
+        '-s',
+        '--save-history',
+        default=False,
+        action='store_true',
+        help='Enable saving history. History is saved as plain text. (Disabled by default.)',
+    )
 
-    parser.add_argument('-f',
-                        '--use-formatting',
-                        default=False,
-                        action='store_true',
-                        help='Use _italic_, *bold*, ~strikethrough~ formatting in messages. (Disabled by default.)')
+    parser.add_argument(
+        '-f',
+        '--use-formatting',
+        default=False,
+        action='store_true',
+        help='Use _italic_, *bold*, ~strikethrough~ formatting in messages. (Disabled by default.)',
+    )
 
-    parser.add_argument('-w',
-                        '--wrap-at',
-                        type=int,
-                        default=300,
-                        help='Wrap messages at given column.')
+    parser.add_argument('-w', '--wrap-at', type=int, default=300, help='Wrap messages at given column.')
 
-    parser.add_argument('--one-sided',
-                        default=False,
-                        action='store_true',
-                        help='Show messages aligned to one side in message list. (Disabled by default.)')
+    parser.add_argument(
+        '--one-sided',
+        default=False,
+        action='store_true',
+        help='Show messages aligned to one side in message list. (Disabled by default.)',
+    )
 
-    parser.add_argument('--show-names',
-                        default=False,
-                        action='store_true',
-                        help='Show contact names even in message list even if it is one-to-one conversation. (Disabled by default.)')
+    parser.add_argument(
+        '--show-names',
+        default=False,
+        action='store_true',
+        help='Show contact names even in message list even if it is one-to-one conversation. (Disabled by default.)',
+    )
 
-    parser.add_argument('--group-contacts',
-                        default=False,
-                        action='store_true',
-                        help='Show groups and contacts seperately under the left pane. (Disabled by default)')
+    parser.add_argument(
+        '--group-contacts',
+        default=False,
+        action='store_true',
+        help='Show groups and contacts seperately under the left pane. (Disabled by default)',
+    )
 
-    parser.add_argument('--contacts-autohide',
-                        default=False,
-                        action='store_true',
-                        help='Autohide the contacts pane when it loses focus. (Disabled by default)')
+    parser.add_argument(
+        '--contacts-autohide',
+        default=False,
+        action='store_true',
+        help='Autohide the contacts pane when it loses focus. (Disabled by default)',
+    )
 
-    parser.add_argument('--no-daemon',
-                        action='store_true',
-                        help='Not really useful.')
+    parser.add_argument('--no-daemon', action='store_true', help='Not really useful.')
 
-    parser.add_argument('--debug',
-                        default=False,
-                        action='store_true')
+    parser.add_argument('--debug', default=False, action='store_true')
 
     cfg = parser.parse_args()
     file_cfg = parse_cfg_file(cfg.config_file)
@@ -1811,8 +1911,7 @@ def main():
         ulist = []
         for folder in [SIGNALCLI_DATA_FOLDER, SIGNALCLI_LEGACY_DATA_FOLDER]:
             try:
-                users = [x for x in os.listdir(folder)
-                         if os.path.isfile(os.path.join(folder, x))]
+                users = [x for x in os.listdir(folder) if os.path.isfile(os.path.join(folder, x))]
                 ulist.extend(users)
             except FileNotFoundError:
                 pass
@@ -1844,6 +1943,7 @@ def main():
 
     loop.run()
     proc.kill()
+
 
 if __name__ == "__main__":
     main()
