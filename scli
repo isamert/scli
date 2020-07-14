@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-# pylint: disable=invalid-name, ungrouped-imports, too-many-lines, missing-docstring, line-too-long
-
 import os
 import re
 import sys
@@ -157,7 +155,7 @@ def mk_call(cmd, rmap=None, disown=False, use_pipe=True):
 
 
 def is_number(number):
-    return bool(re.match('^\+?[0-9]*$', number))
+    return bool(re.match('^\\+?[0-9]*$', number))
 
 
 class ObservableConfig:
@@ -586,7 +584,7 @@ class Commands:
             path = path.replace(r'\ ', ' ')
         else:  # path in quotes
             path = path.strip('\'"')
-        rest = string[re_match.end() :].strip()
+        rest = string[re_match.end():].strip()
         return [path, rest] if rest else [path]
 
     @staticmethod
@@ -940,8 +938,11 @@ class ContactsWindow(urwid.ListBox):
             sort_file.write(','.join([hash_contact(w.contact) for w in self._body if w.contact]))
 
     def make_formatted_contacts_list(self):
-        is_contact = lambda x: 'number' in x or 'groupId' in x
-        sorter = lambda x: self._order[hash_contact(x)] if is_contact(x) and hash_contact(x) in self._order else 0
+        def is_contact(x):
+            return 'number' in x or 'groupId' in x
+
+        def sorter(x):
+            return self._order[hash_contact(x)] if is_contact(x) and hash_contact(x) in self._order else 0
 
         xs = []
         if self.state.cfg.group_contacts:
@@ -1647,8 +1648,8 @@ class State:
             c = message[i]
             if c in ('_', '*', '~'):
                 try:
-                    end = message[i + 1 :].index(c)
-                    sub = message[i + 1 : i + 1 + end]
+                    end = message[i+1:].index(c)
+                    sub = message[i+1:i+1+end]
                     m.append(c)
                     m.append((FORMAT_MAP[c], sub))
                     m.append(c)
