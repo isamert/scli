@@ -62,6 +62,8 @@ PALETTE = [
     ('strikethrough', 'strikethrough', ''),
     ('bolditalic', 'italics,bold', ''),
     ('reversed', 'standout', ''),
+    ('completion-normal', 'white', 'light gray'),
+    ('completion-selected', 'white', 'dark blue')
 ]
 
 LIST_FOCUS_MAP = {
@@ -356,9 +358,6 @@ class PopUpWrapper(urwid.LineBox):
                 else:
                     self.buttons_grid.focus_position = 0
                     self.original_widget.focus_position = 'footer'
-            # I'm not sure why I need to do this:
-            elif self.original_widget.focus_position == 'body':
-                self.original_widget.keypress(size, key)
             elif key == 'enter':
                 if self.buttons_grid.focus_position == 0:
                     self._emit('closed', True, self._widget.result)
@@ -368,6 +367,8 @@ class PopUpWrapper(urwid.LineBox):
 
         if key == 'q':
             self._emit('closed', False, None)
+        elif self.original_widget.focus_position == 'body':
+            self.original_widget.keypress(size, key)
 
 
 class MessageInfo(urwid.ListBox):
@@ -428,6 +429,51 @@ class MessageInfo(urwid.ListBox):
                 self.state.commands.open_file(item.full_path)
             except (AttributeError, TypeError):
                 pass
+
+
+class TabCompletionList(urwid.AttrMap):
+    signals = ['closed', 'selected']
+
+    def __init__(self, completion_list, line):
+        self.line = line
+        self.old_text = line.get_edit_text()
+        self.completion_list = completion_list
+        self.should_wrap_around = False
+        self.last_index = len(self.completion_list) - 1
+
+        self.list = urwid.ListBox(urwid.SimpleFocusListWalker([urwid.AttrMap(urwid.Text(x), 'completion-normal', focus_map='completion-selected') for x in completion_list]))
+        super().__init__(self.list, 'cbg')
+
+
+        self.line.set_edit_text(self.old_text + completion_list[0])
+
+    def get_current_text(self):
+        return self.list.body[self.list.focus_position].original_widget.get_text()[0]
+
+    def focus(self, prev=False):
+        if self.should_wrap_around:
+            self.list.focus_position = self.last_index if prev else 0
+            self.line.set_edit_text(self.old_text + self.get_current_text())
+            self.should_wrap_around = False
+        elif (prev and self.list.focus_position == 0) or (not prev and self.list.focus_position == self.last_index):
+            self.line.set_edit_text(self.old_text)
+            self.should_wrap_around = True
+        else:
+            if prev:
+                listbox_focus_prev(self.list)
+            else:
+                listbox_focus_next(self.list)
+            self.line.set_edit_text(self.old_text + self.get_current_text())
+
+    def keypress(self, size, key):
+        if key in ('down', 'tab'):
+            self.focus()
+        elif key in ('up', 'shift tab'):
+            self.focus(True)
+        elif key in ('enter', 'esc'):
+            self._emit('closed', False, None)
+        else:
+            self.line.keypress(size, key)
 
 
 class HelpDialog(urwid.ListBox):
@@ -1169,25 +1215,28 @@ class ChatWindow(urwid.Frame):
         urwid.connect_signal(self.state.signal, 'receive_message', self.on_new_message)
         urwid.connect_signal(self.state.signal, 'send_message', self.on_new_message)
 
-    def show_pop_up(self, widget):
+    def show_pop_up(self, widget, align='center', valign='middle', width=('relative', 85), height=('relative', 75), buttons=True, wrap=True):
         def on_pop_up_closed(sender, accepted, result):
             self.remove_pop_up()
             urwid.emit_signal(self.state, 'dialog_finished', accepted, result)
 
-        wrapper = PopUpWrapper(widget)
-        urwid.connect_signal(wrapper, 'closed', on_pop_up_closed)
+        if wrap:
+            wrapper = PopUpWrapper(widget, buttons=buttons)
+            urwid.connect_signal(wrapper, 'closed', on_pop_up_closed)
+        else:
+            urwid.connect_signal(widget, 'closed', on_pop_up_closed)
+
 
         popup = urwid.Overlay(
-            wrapper,
+            wrapper if wrap else widget,
             self._w.original_widget,
-            align='center',
-            valign='middle',
-            width=('relative', 85),
-            height=('relative', 75),
+            align=align,
+            valign=valign,
+            width=width,
+            height=height,
         )
 
         self._w.original_widget = popup
-        return wrapper
 
     def remove_pop_up(self, _sender=None):
         if self.search_mode:
@@ -1387,6 +1436,16 @@ class ChatWindow(urwid.Frame):
                     del self.state.current_chat[self._wlist.focus_position]
             elif key == 'i':
                 self.show_pop_up(MessageInfo(self.state, envelope))
+            elif key == 'z':
+                clist = ["qweqwe", "qweqwe2", "another", "thing", "coming"]
+                self.show_pop_up(
+                    TabCompletionList(clist, self._wline),
+                    align='left',
+                    valign='bottom',
+                    width=30,
+                    height=len(clist),
+                    wrap=False
+                )
             elif key == 'q':
                 # TODO: quote (https://github.com/AsamK/signal-cli/issues/151)
                 pass
