@@ -532,6 +532,7 @@ class Commands:
             (['toggleNotifications', 'n'], self.toggle_notifications),
             (['toggleAutohide', 'h'], self.toggle_autohide),
             (['renameContact'], self.rename_contact),
+            (['addContact'], self.add_contact),
             (['reload'], self.reload),
             (['quit', 'q'], self.quit),
         ]
@@ -708,11 +709,26 @@ class Commands:
             number, new_name = args.split(' ', 1)
             if not is_number(number):
                 raise ValueError
+            if self.state.signal.get_contact(number) is None:
+                self.state.set_error(f":renameContact Error: no current contact with number {number} found")
+                return
         except ValueError:
             number = self.state.current_contact.get('number')
             new_name = args
 
         self.state.signal.rename_contact(number, new_name, lambda *i: self.reload())
+
+    def add_contact(self, args):
+        # :addContact +NUMBER [Contact Name]
+        try:
+            number, name = args.split(maxsplit=1)
+        except ValueError:
+            number, name = args, ""
+        if not is_number(number):
+            self.state.set_error(f':addContact "{number}": not a valid number')
+            return
+        self.state.signal.rename_contact(number, name, lambda *i: self.reload())
+
 
     def reload(self):
         self.state.reload()
