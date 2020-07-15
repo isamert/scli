@@ -812,8 +812,9 @@ class Signal:
         self.contacts_map.update({g['groupId']: g for g in self.groups})
 
     def start_daemon(self):
-        fd = self.loop.watch_pipe(self.daemon_handler)
-        return Popen(['signal-cli', '-u', self.user, 'daemon', '--json'], stdout=fd, stderr=fd, close_fds=True)
+        stdout_fd = self.loop.watch_pipe(self.daemon_handler)
+        stderr_fd = self.loop.watch_pipe(self.daemon_stderr_handler)
+        return Popen(['signal-cli', '-u', self.user, 'daemon', '--json'], stdout=stdout_fd, stderr=stderr_fd, close_fds=True)
 
     def daemon_handler(self, line):
         line = self._buffer + line
@@ -845,6 +846,16 @@ class Signal:
                 logging.exception(e)
                 # TODO: display error to user
                 continue
+
+    def daemon_stderr_handler(self, line):
+        line = line.decode().strip()
+        if not line:
+            return
+        if line.startswith(('Updating contact', 'Add contact')):
+            # https://github.com/AsamK/signal-cli/issues/334
+            logging.info(line)
+            return
+        logging.error('stderr: %s', line)
 
     def rename_contact(self, contact_id, new_name, is_group=False, cb=None):
         """Rename a contact or group.
