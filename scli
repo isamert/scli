@@ -1417,7 +1417,7 @@ class ChatWindow(urwid.Frame):
                         self.state.set_error('Command missing after `:`')
                         return key
                     cmd, *args = txt[1:].split(maxsplit=1)
-                    self.state.commands.exec(cmd.lower(), *args)
+                    self.state.commands.exec(cmd, *args)
                 elif txt.startswith('/'):
                     pass
                 elif txt.strip(' ') != '' and self.state.current_contact:
