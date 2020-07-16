@@ -1440,7 +1440,6 @@ class MainWindow(urwid.Frame):
         urwid.connect_signal(self._wleft._wcontacts, 'notify_count_changed', self.on_notify_count_changed)
 
     def reload(self):
-        self.state.signal.reload()
         self._wleft._wcontacts.reload()
 
     def set_status(self, txt):
@@ -1590,6 +1589,10 @@ class State:
         urwid.connect_signal(self.signal, 'send_message', self.on_send_message)
 
     def reload(self):
+        self.signal.reload()
+        if self.current_contact is not None:
+            current_contact_reloaded = self.signal.get_contact(get_contact_number(self.current_contact))
+            self.set_current_contact(current_contact_reloaded)
         urwid.emit_signal(self, 'reload_request')
 
     def set_current_contact(self, contact, focus=False):
