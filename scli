@@ -724,16 +724,23 @@ class Commands:
 
     def rename_contact(self, args):
         # :renameContact +NUMBER new name here  -> use +NUMBER number
+        # :renameContact "Old Name" new name here  -> use contact named "Old Name"
         # :renameContact new name here          -> rename current contact or group
         try:
-            number, new_name = args.split(' ', 1)
+            number, new_name = Commands.split_path(args)
             if not is_number(number):
-                raise ValueError
-            if self.state.signal.get_contact(number) is None:
-                self.state.set_error(f":renameContact Error: no current contact with number {number} found")
-                return
-            is_group = False
-            contact_id = number
+                for contact_id, contact in self.state.signal.contacts_map.items():
+                    if contact["name"] == number:
+                        is_group = is_contact_group(contact)
+                        break
+                else:  # contact with name `number` not found
+                    raise ValueError
+            elif self.state.signal.get_contact(number) is None:
+                    self.state.set_error(f":renameContact Error: no contact with number {number} found")
+                    return
+            else:
+                is_group = False
+                contact_id = number
         except ValueError:
             if self.state.current_contact is None:
                 self.state.set_error(":renameContact Error: no contact currently selected")
