@@ -595,6 +595,10 @@ class Commands:
         return path.startswith(("/", "~/", "./"))
 
     def external_edit(self, *args):
+        if self.state.current_contact is None:
+            self.state.set_error(":edit Error: no contact currently selected")
+            return
+
         filename = ''
         if args:
             filename, *message = Commands.split_path(*args)
@@ -624,6 +628,10 @@ class Commands:
             pass
 
     def read(self, path_or_cmd):
+        if self.state.current_contact is None:
+            self.state.set_error(":read Error: no contact currently selected")
+            return
+
         message = ''
         if Commands.is_path(path_or_cmd):
             with open(os.path.expanduser(path_or_cmd), 'r') as file:
@@ -641,6 +649,10 @@ class Commands:
             mk_call(self.state.cfg.open_command, {'%u': path}, True)
 
     def attach(self, args):
+        if self.state.current_contact is None:
+            self.state.set_error(":attach Error: no contact currently selected")
+            return
+
         attachment, *message = Commands.split_path(args)
         attachment = os.path.expanduser(attachment)
         if not os.path.isfile(attachment):
@@ -649,6 +661,10 @@ class Commands:
         self.state.signal.send_message(self.state.current_contact, *message, attachments=[attachment])
 
     def attach_clip(self, *message):
+        if self.state.current_contact is None:
+            self.state.set_error(":attachClip Error: no contact currently selected")
+            return
+
         files = clip.files(self.state)
 
         if files:
@@ -713,6 +729,9 @@ class Commands:
                 self.state.set_error(f":renameContact Error: no current contact with number {number} found")
                 return
         except ValueError:
+            if self.state.current_contact is None:
+                self.state.set_error(":renameContact Error: no contact currently selected")
+                return
             number = self.state.current_contact.get('number')
             new_name = args
 
