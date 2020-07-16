@@ -297,6 +297,9 @@ def get_attachment_path(attachment):
     elif isinstance(attachment, str) and os.path.exists(attachment):
         return attachment
 
+def b64_to_bytearray(group_id):
+    return ','.join(str(i) for i in base64.b64decode(group_id.encode()))
+
 
 # #############################################################################
 # ui utility
@@ -719,8 +722,8 @@ class Commands:
             mk_call(self.state.cfg.notification_command, {'%s': sender, '%m': message})
 
     def rename_contact(self, args):
-        # :renameNumber +NUMBER new name here  -> use +NUMBER number
-        # :renameNumber new name here          -> use current contacts number
+        # :renameContact +NUMBER new name here  -> use +NUMBER number
+        # :renameContact new name here          -> rename current contact or group
         try:
             number, new_name = args.split(' ', 1)
             if not is_number(number):
@@ -728,14 +731,19 @@ class Commands:
             if self.state.signal.get_contact(number) is None:
                 self.state.set_error(f":renameContact Error: no current contact with number {number} found")
                 return
+            is_group = False
+            contact_id = number
         except ValueError:
             if self.state.current_contact is None:
                 self.state.set_error(":renameContact Error: no contact currently selected")
                 return
-            number = self.state.current_contact.get('number')
+            contact_id = self.state.current_contact.get('number')
+            is_group = contact_id is None
+            if is_group:
+                contact_id = self.state.current_contact.get('groupId')
             new_name = args
 
-        self.state.signal.rename_contact(number, new_name, lambda *i: self.reload())
+        self.state.signal.rename_contact(contact_id, new_name, is_group, lambda *i: self.reload())
 
     def add_contact(self, args):
         # :addContact +NUMBER [Contact Name]
@@ -746,7 +754,7 @@ class Commands:
         if not is_number(number):
             self.state.set_error(f':addContact "{number}": not a valid number')
             return
-        self.state.signal.rename_contact(number, name, lambda *i: self.reload())
+        self.state.signal.rename_contact(number, name, False, lambda *i: self.reload())
 
 
     def reload(self):
@@ -830,8 +838,21 @@ class Signal:
                 # TODO: display error to user
                 continue
 
-    def rename_contact(self, number, new_name, cb=None):
-        args = ["org.asamk.Signal.setContactName", "string:" + number, "string:" + shlex.quote(new_name)]
+    def rename_contact(self, contact_id, new_name, is_group=False, cb=None):
+        """Rename a contact or group.
+
+        If a contact does not exist, it will be created. Changes to groups are sent to the server, changes to individual contacts are local.
+        """
+        if not is_group:
+            args = ["org.asamk.Signal.setContactName",
+                    "string:" + contact_id,
+                    "string:" + shlex.quote(new_name)]
+        else:
+            args = ["org.asamk.Signal.updateGroup",
+                    "array:byte:" + b64_to_bytearray(contact_id),
+                    "string:" + shlex.quote(new_name),
+                    "array:string:" + '',   # members
+                    "string:" + '']         # avatar
         self.run_cmd('rename_contact', args, cb=cb)
 
     def send_message(self, contact, message="", attachments=None, cb=None):
@@ -861,7 +882,7 @@ class Signal:
         if contact_number:
             args.append('string:' + shlex.quote(contact_number))
         else:
-            args.append('array:byte:' + ','.join(str(i) for i in base64.b64decode(group_id.encode())))
+            args.append('array:byte:' + b64_to_bytearray(group_id))
 
         ts = int(datetime.now().timestamp() * 1000)
         envelope = {
@@ -1610,7 +1631,8 @@ class State:
     def reload(self):
         self.signal.reload()
         if self.current_contact is not None:
-            current_contact_reloaded = self.signal.get_contact(get_contact_number(self.current_contact))
+            contact_id = self.current_contact.get("number") or self.current_contact.get("groupId")
+            current_contact_reloaded = self.signal.get_contact(contact_id)
             self.set_current_contact(current_contact_reloaded)
         urwid.emit_signal(self, 'reload_request')
 
