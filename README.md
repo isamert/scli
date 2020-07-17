@@ -50,7 +50,8 @@ There are some basic commands that you can use. Hit `:` to enter command mode (o
 - `:toggleNotifications` or `:n` toggles desktop notifications.
 - `:edit` or `:e` lets you edit your message in your `$EDITOR`.
 - `:toggleAutohide` or `:h` toggles autohide property of the contacts pane.
-- `:renameContact [NUMBER] NEW_NAME` renames the `NUMBER`s name to `NEW_NAME`, if `NUMBER` is skipped, simply current contacts name is renamed to `NEW_NAME`.
+- `:renameContact [ID] NEW_NAME` renames contact `ID` to `NEW_NAME`. `ID` can be either contact's phone number or contact's current name. If `ID` is skipped, the contact from the currently opened conversation is used. If `ID` is a name that contains spaces, they need to be escaped or the whole name put in quotes. `NEW_NAME` can contain spaces without quotes or escaping. 'Contact' can be a group as well as an individual. Individual contacts' renames are local (not synced with the signal servers).
+- `:addContact NUMBER [NAME]` adds a new contact to the contact list. Added contacts' names are local (not synced with signal servers).
 - `:reload` re-reads the `signal-cli`s data file. (Updates contacts list etc.)
 
 Examples:
