@@ -2021,7 +2021,6 @@ def main():
         atexit.register(proc.kill)
 
     loop.run()
-    proc.kill()
 
 
 if __name__ == "__main__":
