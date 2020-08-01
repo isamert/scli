@@ -1005,6 +1005,8 @@ class ContactsWindow(urwid.ListBox):
         self._body.remove(w)
         self._body.insert(offset, w)
 
+        self.focus_position = offset
+
         self._order[hash_contact(w.contact)] = 0
 
     def set_contacts(self, contacts):
