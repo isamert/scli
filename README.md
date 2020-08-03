@@ -49,6 +49,7 @@ There are some basic commands that you can use. Hit `:` to enter command mode (o
 - `:attachClip` or `:c` attaches clipboard content to message. This command tries to detect clipboard content. If clipboard contains something with the mime-type `image/png` or `image/jpg`, simply attaches the image to message. If clipboard contains `text/uri-list` it attaches all the files in that URI list to your message. This command needs `xclip` installed.
 - `:toggleNotifications` or `:n` toggles desktop notifications.
 - `:edit` or `:e` lets you edit your message in your `$EDITOR`.
+- `:toggleContactsSort` or `:s` toggles between sorting contacts alphabetically and by the most recent message. 
 - `:toggleAutohide` or `:h` toggles autohide property of the contacts pane.
 - `:renameContact [NUMBER] NEW_NAME` renames the `NUMBER`s name to `NEW_NAME`, if `NUMBER` is skipped, simply current contacts name is renamed to `NEW_NAME`.
 - `:reload` re-reads the `signal-cli`s data file. (Updates contacts list etc.)

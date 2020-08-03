@@ -532,6 +532,7 @@ class Commands:
             (['openUrl', 'u'], self.open_last_url),
             (['toggleNotifications', 'n'], self.toggle_notifications),
             (['toggleAutohide', 'h'], self.toggle_autohide),
+            (['toggleContactsSort', 's'], self.toggle_sort_contacts),
             (['renameContact'], self.rename_contact),
             (['reload'], self.reload),
             (['quit', 'q'], self.quit),
@@ -697,6 +698,10 @@ class Commands:
 
     def toggle_autohide(self):
         self.state.cfg.contacts_autohide = not self.state.cfg.contacts_autohide
+
+    def toggle_sort_contacts(self):
+        self.state.cfg.contacts_sort_alpha = not self.state.cfg.contacts_sort_alpha
+        self.reload()
 
     def send_notification(self, sender, message):
         if self.state.cfg.enable_notifications:
@@ -925,6 +930,8 @@ class ContactsWindow(urwid.ListBox):
     def make_formatted_contacts_list(self):
         def sorter(contact):
             contact_name = get_contact_name(contact)
+            if self.state.cfg.contacts_sort_alpha:
+                return contact_name.lower()
             try:
                 chat = self.state.chats[hash_contact(contact)]
                 last_envelope = chat[-1].envelope
@@ -980,7 +987,8 @@ class ContactsWindow(urwid.ListBox):
         if contact_widget.contact != self.state.current_contact and not is_envelope_outgoing(envelope):
             self.set_contact_notify_count(contact_widget, contact_widget.notify_count + 1)
 
-        self.move_contact_top(contact_widget)
+        if not self.state.cfg.contacts_sort_alpha:
+            self.move_contact_top(contact_widget)
 
     def move_contact_top(self, w):
         if self.state.cfg.group_contacts:
@@ -1869,6 +1877,13 @@ def main():
         default=False,
         action='store_true',
         help='Autohide the contacts pane when it loses focus. (Disabled by default)',
+    )
+
+    parser.add_argument(
+        '--contacts-sort-alpha',
+        default=False,
+        action='store_true',
+        help='Sort contacts alphabetically. (Default: sort by the most recent message)',
     )
 
     parser.add_argument('--no-daemon', action='store_true', help='Not really useful.')
