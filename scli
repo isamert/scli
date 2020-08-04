@@ -1002,8 +1002,10 @@ class ContactsWindow(urwid.ListBox):
         else:
             offset = 0
 
-        self._body.remove(w)
-        self._body.insert(offset, w)
+        ind = self._body.index(w)
+        if ind == offset:
+            return
+        self._body.insert(offset, self._body.pop(ind))
 
         self.focus_position = offset
 
