@@ -238,6 +238,7 @@ def is_envelope_group_message(envelope):
     return (
         get_nested(envelope, 'dataMessage', 'groupInfo') is not None
         or get_nested(envelope, 'syncMessage', 'sentMessage', 'groupInfo') is not None
+        or (is_envelope_outgoing(envelope) and not is_number(envelope.get('target')))
     )
 
 
