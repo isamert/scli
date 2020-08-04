@@ -995,10 +995,11 @@ class ContactsWindow(urwid.ListBox):
         if contact_widget.contact != self.state.current_contact and not is_envelope_outgoing(envelope):
             self.set_contact_notify_count(contact_widget, contact_widget.notify_count + 1)
 
-        self.move_contact_top(contact_widget, is_envelope_group_message(envelope))
+        self.move_contact_top(contact_widget)
 
-    def move_contact_top(self, w, is_group):
+    def move_contact_top(self, w):
         if self.state.cfg.group_contacts:
+            is_group = is_contact_group(w.contact)
             offset = 2 + (0 if is_group else (3 + len(self.state.signal.groups)))
         else:
             offset = 0
