@@ -957,22 +957,26 @@ class ContactsWindow(urwid.ListBox):
                     *conts
                 ]
 
+    def contact_widget_markup(self, contact):
+        notify_count = self.state.notify_counts.get(hash_contact(contact), 0)
+        markup = [] if notify_count == 0 else [('bold', '({}) '.format(notify_count))]
+        markup.append(get_contact_name(contact))
+        return markup
+
     def set_contact_notify_count(self, w, count):
         if not w:
             return
 
-        if hasattr(w, 'notify_count'):
-            self.notify_count += count - w.notify_count
-        else:
-            self.notify_count += count
+        contact_count = self.state.notify_counts.get(hash_contact(w.contact), 0)
+        if count == '+1':
+            count = contact_count + 1
+
+        self.notify_count += count - contact_count
 
         urwid.emit_signal(self, 'notify_count_changed', self.notify_count)
 
-        w.notify_count = count
-        if count > 0:
-            w.original_widget.set_text([('bold', '({}) '.format(w.notify_count)), get_contact_name(w.contact)])
-        else:
-            w.original_widget.set_text(get_contact_name(w.contact))
+        self.state.notify_counts[hash_contact(w.contact)] = count
+        w.original_widget.set_text(self.contact_widget_markup(w.contact))
 
     def on_current_contact_changed(self, _old, _current, _focus=False):
         self.set_contact_notify_count(self.focus, 0)
@@ -985,7 +989,7 @@ class ContactsWindow(urwid.ListBox):
             return
 
         if contact_widget.contact != self.state.current_contact and not is_envelope_outgoing(envelope):
-            self.set_contact_notify_count(contact_widget, contact_widget.notify_count + 1)
+            self.set_contact_notify_count(contact_widget, '+1')
 
         if not self.state.cfg.contacts_sort_alpha:
             self.move_contact_top(contact_widget)
@@ -1015,12 +1019,11 @@ class ContactsWindow(urwid.ListBox):
             elif isinstance(x, str):
                 widget = urwid.Text(('bold', '~~ ' + x + ' ~~'), align='center')
             else:
-                widget = urwid.Text(get_contact_name(x))
+                widget = urwid.Text(self.contact_widget_markup(x))
                 contact = x
 
             am = urwid.AttrMap(widget, None, focus_map='reversed')
             am.contact = contact
-            am.notify_count = 0
             return am
 
         contact_widgets = [mk_contact(x) for x in contacts]
@@ -1564,6 +1567,7 @@ class State:
         self.current_contact = None
         self.loop = None
         self.current_chat = urwid.SimpleFocusListWalker([])
+        self.notify_counts = {}
 
         self.commands = Commands(self)
 
