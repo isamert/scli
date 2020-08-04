@@ -1435,9 +1435,6 @@ class MainWindow(urwid.Frame):
     def set_status(self, txt):
         self._wstatus.set_text(txt)
 
-    def set_contacts(self, contacts):
-        self._wleft.set_contacts(contacts)
-
     def toggle_contacts(self):
         if len(self._wcontext.contents) == 2:
             if self.current_focus == 'contacts':
