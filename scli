@@ -750,7 +750,7 @@ class Signal:
         with open(self._path) as f:
             self._data = json.load(f)
 
-        self.contacts = sorted(self._data['contactStore']['contacts'], key=lambda i: get_contact_name(i))
+        self.contacts = self._data['contactStore']['contacts']
         self.groups = [
             g
             for g in self._data["groupStore"]['groups']
@@ -910,58 +910,45 @@ class ContactsWindow(urwid.ListBox):
         self.state = state
         self._body = []
         self.notify_count = 0
-        self._order = {}
 
         super().__init__(urwid.SimpleFocusListWalker(self._body))
 
-        self.load_contact_order()
         self.reload()
 
         urwid.connect_signal(self.state.signal, 'receive_message', self.on_new_message)
         urwid.connect_signal(self.state.signal, 'send_message', self.on_new_message)
         urwid.connect_signal(self.state, 'current_contact_changed', self.on_current_contact_changed)
 
-        atexit.register(self.save_contact_order)
-
     def reload(self):
         self.set_contacts(self.make_formatted_contacts_list())
 
-    def load_contact_order(self):
-        if os.path.exists(SCLI_HISTORY_FILE):
-            return
-
-        with open(SCLI_SORT_FILE, 'r') as sort_file:
-            ordering = sort_file.readline().split(',')
-            self._order = {ordering[i]: i for i in reversed(range(0, len(ordering)))}
-
-    def save_contact_order(self):
-        with open(SCLI_SORT_FILE, 'w') as sort_file:
-            sort_file.write(','.join([hash_contact(w.contact) for w in self._body if w.contact]))
-
     def make_formatted_contacts_list(self):
-        is_contact = lambda x: 'number' in x or 'groupId' in x
-        sorter = lambda x: self._order[hash_contact(x)] if is_contact(x) and hash_contact(x) in self._order else 0
+        def sorter(contact):
+            contact_name = get_contact_name(contact)
+            try:
+                chat = self.state.chats[hash_contact(contact)]
+                last_envelope = chat[-1].envelope
+            except (KeyError, IndexError):
+                return (0, contact_name.lower())
+            return (-get_envelope_time(last_envelope), contact_name.lower())
 
-        xs = []
-        if self.state.cfg.group_contacts:
-            xs.append('Groups')
-            xs.append('---')
-            xs.extend(sorted(self.state.signal.groups, key=sorter))
-        else:
-            xs.extend(self.state.signal.groups)
-
-        if self.state.cfg.group_contacts:
-            xs.append('---')
-            xs.append('Contacts')
-            xs.append('---')
-            xs.extend(sorted(self.state.signal.contacts, key=sorter))
-        else:
-            xs.extend(self.state.signal.contacts)
+        if self.state.current_contact is not None:
+            self.state.backup_chat(self.state.current_contact)
 
         if not self.state.cfg.group_contacts:
-            xs.sort(key=sorter)
-
-        return xs
+            return sorted(self.state.signal.contacts_map.values(), key=sorter)
+        else:
+            grps = sorted(self.state.signal.groups, key=sorter)
+            conts = sorted(self.state.signal.contacts, key=sorter)
+            return [
+                    'Groups',
+                    '---',
+                    *grps,
+                    '---',
+                    'Contacts',
+                    '---',
+                    *conts
+                ]
 
     def set_contact_notify_count(self, w, count):
         if not w:
@@ -1008,8 +995,6 @@ class ContactsWindow(urwid.ListBox):
         self._body.insert(offset, self._body.pop(ind))
 
         self.focus_position = offset
-
-        self._order[hash_contact(w.contact)] = 0
 
     def set_contacts(self, contacts):
         self._body.clear()
@@ -1574,6 +1559,9 @@ class State:
 
         self.commands = Commands(self)
 
+        self.load_history()
+        atexit.register(self.save_history)
+
         urwid.connect_signal(self.signal, 'receive_message', self.on_receive_message)
         urwid.connect_signal(self.signal, 'send_message', self.on_send_message)
 
@@ -1938,8 +1926,6 @@ def main():
 
     state.loop = loop
     state.signal.loop = loop
-    state.load_history()
-    atexit.register(state.save_history)
 
     if not cfg.no_daemon:
         proc = state.signal.start_daemon()
