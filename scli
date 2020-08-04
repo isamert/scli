@@ -920,6 +920,10 @@ class ContactsWindow(urwid.ListBox):
 
         self.reload()
 
+        for contact_id, notify_count in self.state.notify_counts.items():
+            contact_widget = self.contact_widgets_map[contact_id]
+            self.set_contact_notify_count(contact_widget, notify_count)
+
         urwid.connect_signal(self.state.signal, 'receive_message', self.on_new_message)
         urwid.connect_signal(self.state.signal, 'send_message', self.on_new_message)
         urwid.connect_signal(self.state, 'current_contact_changed', self.on_current_contact_changed)
@@ -1734,10 +1738,12 @@ class State:
             return
 
         self.backup_chat(self.current_contact)
+        envelopes = [x.envelope for vals in self.chats.values() for x in vals]
+        notify_counts = {contact_id: count for (contact_id, count) in self.notify_counts.items() if count != 0}
+        items = {'envelopes': envelopes, 'notify_counts': notify_counts}
+
         with open(SCLI_HISTORY_FILE, 'w') as history_file:
-            envelopes = [x.envelope for vals in self.chats.values() for x in vals]
-            items = {'envelopes': envelopes}
-            history_file.write(json.dumps(items))
+            json.dump(items, history_file)
 
     def load_history(self):
         if not self.cfg.save_history or not os.path.exists(SCLI_HISTORY_FILE):
@@ -1745,11 +1751,14 @@ class State:
 
         with open(SCLI_HISTORY_FILE, 'r') as history_file:
             history = json.load(history_file)
-            for envelope in history['envelopes']:
-                if is_envelope_outgoing(envelope):
-                    self.print_sent_message(envelope)
-                else:
-                    self.print_received_message(envelope)
+
+        for envelope in history['envelopes']:
+            if is_envelope_outgoing(envelope):
+                self.print_sent_message(envelope)
+            else:
+                self.print_received_message(envelope)
+
+        self.notify_counts = history.get('notify_counts', {})
 
 
 urwid.register_signal(State, State.signals)
