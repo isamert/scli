@@ -910,7 +910,6 @@ class ContactsWindow(urwid.ListBox):
         self.state = state
         self._body = []
         self.notify_count = 0
-        self.formatted_contacts_list = []
         self._order = {}
 
         super().__init__(urwid.SimpleFocusListWalker(self._body))
@@ -925,8 +924,7 @@ class ContactsWindow(urwid.ListBox):
         atexit.register(self.save_contact_order)
 
     def reload(self):
-        self.formatted_contacts_list = self.make_formatted_contacts_list()
-        self.set_contacts(self.formatted_contacts_list)
+        self.set_contacts(self.make_formatted_contacts_list())
 
     def load_contact_order(self):
         if os.path.exists(SCLI_HISTORY_FILE):
@@ -1108,25 +1106,28 @@ class LeftWindow(urwid.Frame):
     def start_search(self):
         self.footer = self._wsearch
         self.focus_position = 'footer'
+        self._formatted_contacts = self._wcontacts.make_formatted_contacts_list()
 
     def hide_search(self):
         self.focus_position = 'body'
         self.footer = None
 
     def clear_search(self):
+        self._formatted_contacts = self._wcontacts.make_formatted_contacts_list()
         self._wsearch.set_edit_text('')
 
     def set_contacts(self, contacts):
         self._wcontacts.set_contacts(contacts)
 
     def on_search_text_changed(self, _sender, _old_text):
+        txt = self._wsearch.get_edit_text()
+
         def contact_match(contact):
-            txt = self._wsearch.get_edit_text()
             if isinstance(contact, str):
                 return True
             return (txt.lower() in get_contact_name(contact).lower()) or (txt in get_contact_number(contact))
 
-        results = [c for c in self._wcontacts.formatted_contacts_list if contact_match(c)]
+        results = [c for c in self._formatted_contacts if contact_match(c)]
         self.set_contacts(results)
 
     def keypress(self, size, key):
