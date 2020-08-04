@@ -64,6 +64,7 @@ PALETTE = [
     ('strikethrough', 'strikethrough', ''),
     ('bolditalic', 'italics,bold', ''),
     ('reversed', 'standout', ''),
+    ('reverseditalic', 'standout,italics', ''),
 ]
 
 LIST_FOCUS_MAP = {
@@ -965,6 +966,8 @@ class ContactsWindow(urwid.ListBox):
         notify_count = self.state.notify_counts.get(hash_contact(contact), 0)
         markup = [] if notify_count == 0 else [('bold', '({}) '.format(notify_count))]
         markup.append(get_contact_name(contact))
+        if is_contact_group(contact) and not self.state.cfg.group_contacts:
+            markup.append(('italic', ' [GRP]'))
         return markup
 
     def set_contact_notify_count(self, w, count):
@@ -1026,7 +1029,7 @@ class ContactsWindow(urwid.ListBox):
                 widget = urwid.Text(self.contact_widget_markup(x))
                 contact = x
 
-            am = urwid.AttrMap(widget, None, focus_map='reversed')
+            am = urwid.AttrMap(widget, None, focus_map={None: 'reversed', 'italic': 'reverseditalic'})
             am.contact = contact
             return am
 
