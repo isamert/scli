@@ -915,7 +915,6 @@ class ContactsWindow(urwid.ListBox):
     def __init__(self, state):
         self.state = state
         self._body = []
-        self.notify_count = 0
 
         super().__init__(urwid.SimpleFocusListWalker(self._body))
 
@@ -923,7 +922,7 @@ class ContactsWindow(urwid.ListBox):
 
         for contact_id, notify_count in self.state.notify_counts.items():
             contact_widget = self.contact_widgets_map[contact_id]
-            self.set_contact_notify_count(contact_widget, notify_count)
+            self.set_contact_widget_notify_count(contact_widget, notify_count)
 
         urwid.connect_signal(self.state.signal, 'receive_message', self.on_new_message)
         urwid.connect_signal(self.state.signal, 'send_message', self.on_new_message)
@@ -970,35 +969,35 @@ class ContactsWindow(urwid.ListBox):
             markup.append(('italic', ' [GRP]'))
         return markup
 
-    def set_contact_notify_count(self, w, count):
+    def set_contact_notify_count(self, contact, count):
+        self.state.set_contact_notify_count(hash_contact(contact), count)
+        total_notify_count = sum(self.state.notify_counts.values())
+        urwid.emit_signal(self, 'notify_count_changed', total_notify_count)
+
+    def set_contact_widget_notify_count(self, w, count):
         if not w:
             return
-
-        contact_count = self.state.notify_counts.get(hash_contact(w.contact), 0)
-        if count == '+1':
-            count = contact_count + 1
-
-        self.notify_count += count - contact_count
-
-        urwid.emit_signal(self, 'notify_count_changed', self.notify_count)
-
-        self.state.notify_counts[hash_contact(w.contact)] = count
+        self.set_contact_notify_count(w.contact, count)
         w.original_widget.set_text(self.contact_widget_markup(w.contact))
 
     def on_current_contact_changed(self, _old, _current, _focus=False):
-        self.set_contact_notify_count(self.focus, 0)
+        self.set_contact_widget_notify_count(self.focus, 0)
 
     def on_new_message(self, envelope):
-        contact_id = get_envelope_contact_id(envelope)
-        contact_widget = self.contact_widgets_map[contact_id]
-
         if get_envelope_msg(envelope) is None and not get_envelope_attachments(envelope):
             return
 
-        if contact_widget.contact != self.state.current_contact and not is_envelope_outgoing(envelope):
-            self.set_contact_notify_count(contact_widget, '+1')
+        contact_id = get_envelope_contact_id(envelope)
+        contact = self.state.signal.get_contact(contact_id)
+        contact_widget = self.contact_widgets_map.get(contact_id)
 
-        if not self.state.cfg.contacts_sort_alpha:
+        if contact != self.state.current_contact and not is_envelope_outgoing(envelope):
+            if contact_widget is None:
+                self.set_contact_notify_count(contact, '+1')
+            else:
+                self.set_contact_widget_notify_count(contact_widget, '+1')
+
+        if not self.state.cfg.contacts_sort_alpha and contact_widget is not None:
             self.move_contact_top(contact_widget)
 
     def move_contact_top(self, w):
@@ -1605,6 +1604,11 @@ class State:
     def set_error(self, err):
         self.error = err
         urwid.emit_signal(self, 'error_changed', err)
+
+    def set_contact_notify_count(self, contact_id, count):
+        if count == '+1':
+            count = self.notify_counts.get(contact_id, 0) + 1
+        self.notify_counts[contact_id] = count
 
     def show_dialog(self, w):
         urwid.emit_signal(self, 'dialog_requested', w)
