@@ -64,6 +64,7 @@ PALETTE = [
     ('strikethrough', 'strikethrough', ''),
     ('bolditalic', 'italics,bold', ''),
     ('reversed', 'standout', ''),
+    ('reverseditalic', 'standout,italics', ''),
 ]
 
 LIST_FOCUS_MAP = {
@@ -239,6 +240,7 @@ def is_envelope_group_message(envelope):
     return (
         get_nested(envelope, 'dataMessage', 'groupInfo') is not None
         or get_nested(envelope, 'syncMessage', 'sentMessage', 'groupInfo') is not None
+        or (is_envelope_outgoing(envelope) and not is_number(envelope.get('target')))
     )
 
 
@@ -670,6 +672,7 @@ class Commands:
             (['openUrl', 'u'], self.open_last_url),
             (['toggleNotifications', 'n'], self.toggle_notifications),
             (['toggleAutohide', 'h'], self.toggle_autohide),
+            (['toggleContactsSort', 's'], self.toggle_sort_contacts),
             (['renameContact'], self.rename_contact),
             (['addContact'], self.add_contact),
             (['reload'], self.reload),
@@ -853,6 +856,10 @@ class Commands:
     def toggle_autohide(self):
         self.state.cfg.contacts_autohide = not self.state.cfg.contacts_autohide
 
+    def toggle_sort_contacts(self):
+        self.state.cfg.contacts_sort_alpha = not self.state.cfg.contacts_sort_alpha
+        self.reload()
+
     def send_notification(self, sender, message):
         if self.state.cfg.enable_notifications:
             mk_call(self.state.cfg.notification_command, {'%s': sender, '%m': message})
@@ -944,7 +951,7 @@ class Signal:
         with open(self._path) as f:
             self._data = json.load(f)
 
-        self.contacts = sorted(self._data['contactStore']['contacts'], key=lambda i: get_contact_name(i))
+        self.contacts = self._data['contactStore']['contacts']
         self.groups = [
             g
             for g in self._data["groupStore"]['groups']
@@ -1009,20 +1016,18 @@ class ContactsWindow(urwid.ListBox):
     def __init__(self, state):
         self.state = state
         self._body = []
-        self.notify_count = 0
-        self.formatted_contacts_list = []
-        self._order = {}
 
         super().__init__(urwid.SimpleFocusListWalker(self._body))
 
-        self.load_contact_order()
         self.reload()
+
+        for contact_id, notify_count in self.state.notify_counts.items():
+            contact_widget = self.contact_widgets_map[contact_id]
+            self.set_contact_widget_notify_count(contact_widget, notify_count)
 
         urwid.connect_signal(self.state.signal, 'receive_message', self.on_new_message)
         urwid.connect_signal(self.state.signal, 'send_message', self.on_new_message)
         urwid.connect_signal(self.state, 'current_contact_changed', self.on_current_contact_changed)
-
-        atexit.register(self.save_contact_order)
 
     def reload(self):
         self.formatted_contacts_list = self.make_formatted_contacts_list()
@@ -1041,72 +1046,87 @@ class ContactsWindow(urwid.ListBox):
             sort_file.write(','.join([hash_contact(w.contact) for w in self._body if w.contact]))
 
     def make_formatted_contacts_list(self):
-        is_contact = lambda x: 'number' in x or 'groupId' in x
-        sorter = lambda x: self._order[hash_contact(x)] if is_contact(x) and hash_contact(x) in self._order else 0
+        def sorter(contact):
+            contact_name = get_contact_name(contact)
+            if self.state.cfg.contacts_sort_alpha:
+                return contact_name.lower()
+            try:
+                chat = self.state.chats[hash_contact(contact)]
+                last_envelope = chat[-1].envelope
+            except (KeyError, IndexError):
+                return (0, contact_name.lower())
+            return (-get_envelope_time(last_envelope), contact_name.lower())
 
-        xs = []
-        if self.state.cfg.group_contacts:
-            xs.append('Groups')
-            xs.append('---')
-            xs.extend(sorted(self.state.signal.groups, key=sorter))
-        else:
-            xs.extend(self.state.signal.groups)
-
-        if self.state.cfg.group_contacts:
-            xs.append('---')
-            xs.append('Contacts')
-            xs.append('---')
-            xs.extend(sorted(self.state.signal.contacts, key=sorter))
-        else:
-            xs.extend(self.state.signal.contacts)
+        if self.state.current_contact is not None:
+            self.state.backup_chat(self.state.current_contact)
 
         if not self.state.cfg.group_contacts:
-            xs.sort(key=sorter)
+            return sorted(self.state.signal.contacts_map.values(), key=sorter)
+        else:
+            grps = sorted(self.state.signal.groups, key=sorter)
+            conts = sorted(self.state.signal.contacts, key=sorter)
+            return [
+                    'Groups',
+                    '---',
+                    *grps,
+                    '---',
+                    'Contacts',
+                    '---',
+                    *conts
+                ]
 
-        return xs
+    def contact_widget_markup(self, contact):
+        notify_count = self.state.notify_counts.get(hash_contact(contact), 0)
+        markup = [] if notify_count == 0 else [('bold', '({}) '.format(notify_count))]
+        markup.append(get_contact_name(contact))
+        if is_contact_group(contact) and not self.state.cfg.group_contacts:
+            markup.append(('italic', ' [GRP]'))
+        return markup
 
-    def set_contact_notify_count(self, w, count):
+    def set_contact_notify_count(self, contact, count):
+        self.state.set_contact_notify_count(hash_contact(contact), count)
+        total_notify_count = sum(self.state.notify_counts.values())
+        urwid.emit_signal(self, 'notify_count_changed', total_notify_count)
+
+    def set_contact_widget_notify_count(self, w, count):
         if not w:
             return
-
-        if hasattr(w, 'notify_count'):
-            self.notify_count += count - w.notify_count
-        else:
-            self.notify_count += count
-
-        urwid.emit_signal(self, 'notify_count_changed', self.notify_count)
-
-        w.notify_count = count
-        if count > 0:
-            w.original_widget.set_text([('bold', '({}) '.format(w.notify_count)), get_contact_name(w.contact)])
-        else:
-            w.original_widget.set_text(get_contact_name(w.contact))
+        self.set_contact_notify_count(w.contact, count)
+        w.original_widget.set_text(self.contact_widget_markup(w.contact))
 
     def on_current_contact_changed(self, _old, _current, _focus=False):
-        self.set_contact_notify_count(self.focus, 0)
+        self.set_contact_widget_notify_count(self.focus, 0)
 
     def on_new_message(self, envelope):
-        contact_id = get_envelope_contact_id(envelope)
-        contact_widget = self.contact_widgets_map[contact_id]
-
         if get_envelope_msg(envelope) is None and not get_envelope_attachments(envelope):
             return
 
-        if contact_widget.contact != self.state.current_contact and not is_envelope_outgoing(envelope):
-            self.set_contact_notify_count(contact_widget, contact_widget.notify_count + 1)
+        contact_id = get_envelope_contact_id(envelope)
+        contact = self.state.signal.get_contact(contact_id)
+        contact_widget = self.contact_widgets_map.get(contact_id)
 
-        self.move_contact_top(contact_widget, is_envelope_group_message(envelope))
+        if contact != self.state.current_contact and not is_envelope_outgoing(envelope):
+            if contact_widget is None:
+                self.set_contact_notify_count(contact, '+1')
+            else:
+                self.set_contact_widget_notify_count(contact_widget, '+1')
 
-    def move_contact_top(self, w, is_group):
+        if not self.state.cfg.contacts_sort_alpha and contact_widget is not None:
+            self.move_contact_top(contact_widget)
+
+    def move_contact_top(self, w):
         if self.state.cfg.group_contacts:
+            is_group = is_contact_group(w.contact)
             offset = 2 + (0 if is_group else (3 + len(self.state.signal.groups)))
         else:
             offset = 0
 
-        self._body.remove(w)
-        self._body.insert(offset, w)
+        ind = self._body.index(w)
+        if ind == offset:
+            return
+        self._body.insert(offset, self._body.pop(ind))
 
-        self._order[hash_contact(w.contact)] = 0
+        self.focus_position = offset
 
     def set_contacts(self, contacts):
         self._body.clear()
@@ -1119,12 +1139,11 @@ class ContactsWindow(urwid.ListBox):
             elif isinstance(x, str):
                 widget = urwid.Text(('bold', '~~ ' + x + ' ~~'), align='center')
             else:
-                widget = urwid.Text(get_contact_name(x))
+                widget = urwid.Text(self.contact_widget_markup(x))
                 contact = x
 
-            am = urwid.AttrMap(widget, None, focus_map='reversed')
+            am = urwid.AttrMap(widget, None, focus_map={None: 'reversed', 'italic': 'reverseditalic'})
             am.contact = contact
-            am.notify_count = 0
             return am
 
         contact_widgets = [mk_contact(x) for x in contacts]
@@ -1205,25 +1224,28 @@ class LeftWindow(urwid.Frame):
     def start_search(self):
         self.footer = self._wsearch
         self.focus_position = 'footer'
+        self._formatted_contacts = self._wcontacts.make_formatted_contacts_list()
 
     def hide_search(self):
         self.focus_position = 'body'
         self.footer = None
 
     def clear_search(self):
+        self._formatted_contacts = self._wcontacts.make_formatted_contacts_list()
         self._wsearch.set_edit_text('')
 
     def set_contacts(self, contacts):
         self._wcontacts.set_contacts(contacts)
 
     def on_search_text_changed(self, _sender, _old_text):
+        txt = self._wsearch.get_edit_text()
+
         def contact_match(contact):
-            txt = self._wsearch.get_edit_text()
             if isinstance(contact, str):
                 return True
             return (txt.lower() in get_contact_name(contact).lower()) or (txt in get_contact_number(contact))
 
-        results = [c for c in self._wcontacts.formatted_contacts_list if contact_match(c)]
+        results = [c for c in self._formatted_contacts if contact_match(c)]
         self.set_contacts(results)
 
     def keypress(self, size, key):
@@ -1530,9 +1552,6 @@ class MainWindow(urwid.Frame):
     def set_status(self, txt):
         self._wstatus.set_text(txt)
 
-    def set_contacts(self, contacts):
-        self._wleft.set_contacts(contacts)
-
     def toggle_contacts(self):
         if len(self._wcontext.contents) == 2:
             if self.current_focus == 'contacts':
@@ -1667,8 +1686,12 @@ class State:
         self.current_contact = None
         self.loop = None
         self.current_chat = urwid.SimpleFocusListWalker([])
+        self.notify_counts = {}
 
         self.commands = Commands(self)
+
+        self.load_history()
+        atexit.register(self.save_history)
 
         urwid.connect_signal(self.signal, 'receive_message', self.on_receive_message)
         urwid.connect_signal(self.signal, 'send_message', self.on_send_message)
@@ -1699,6 +1722,11 @@ class State:
     def set_error(self, err):
         self.error = err
         urwid.emit_signal(self, 'error_changed', err)
+
+    def set_contact_notify_count(self, contact_id, count):
+        if count == '+1':
+            count = self.notify_counts.get(contact_id, 0) + 1
+        self.notify_counts[contact_id] = count
 
     def show_dialog(self, w):
         urwid.emit_signal(self, 'dialog_requested', w)
@@ -1835,10 +1863,12 @@ class State:
             return
 
         self.backup_chat(self.current_contact)
+        envelopes = [x.envelope for vals in self.chats.values() for x in vals]
+        notify_counts = {contact_id: count for (contact_id, count) in self.notify_counts.items() if count != 0}
+        items = {'envelopes': envelopes, 'notify_counts': notify_counts}
+
         with open(SCLI_HISTORY_FILE, 'w') as history_file:
-            envelopes = [x.envelope for vals in self.chats.values() for x in vals]
-            items = {'envelopes': envelopes}
-            history_file.write(json.dumps(items))
+            json.dump(items, history_file)
 
     def load_history(self):
         if not self.cfg.save_history or not os.path.exists(SCLI_HISTORY_FILE):
@@ -1846,11 +1876,14 @@ class State:
 
         with open(SCLI_HISTORY_FILE, 'r') as history_file:
             history = json.load(history_file)
-            for envelope in history['envelopes']:
-                if is_envelope_outgoing(envelope):
-                    self.print_sent_message(envelope)
-                else:
-                    self.print_received_message(envelope)
+
+        for envelope in history['envelopes']:
+            if is_envelope_outgoing(envelope):
+                self.print_sent_message(envelope)
+            else:
+                self.print_received_message(envelope)
+
+        self.notify_counts = history.get('notify_counts', {})
 
 
 urwid.register_signal(State, State.signals)
@@ -1982,6 +2015,13 @@ def main():
         default=False,
         action='store_true',
         help='Autohide the contacts pane when it loses focus. (Disabled by default)',
+    )
+
+    parser.add_argument(
+        '--contacts-sort-alpha',
+        default=False,
+        action='store_true',
+        help='Sort contacts alphabetically. (Default: sort by the most recent message)',
     )
 
     parser.add_argument('--no-daemon', action='store_true', help='Not really useful.')
