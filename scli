@@ -157,7 +157,8 @@ def mk_call(cmd, rmap=None, disown=False, use_pipe=True):
 
 
 def is_number(number):
-    return bool(re.match('^\+?[0-9]*$', number))
+    # https://github.com/signalapp/libsignal-service-java/blob/master/java/src/main/java/org/whispersystems/signalservice/api/util/PhoneNumberFormatter.java
+    return bool(re.match('^\\+[1-9][0-9]{6,14}$', number))
 
 
 class ObservableConfig:
@@ -296,6 +297,9 @@ def get_attachment_path(attachment):
         return received_attachment
     elif isinstance(attachment, str) and os.path.exists(attachment):
         return attachment
+
+def b64_to_bytearray(group_id):
+    return ','.join(str(i) for i in base64.b64decode(group_id.encode()))
 
 
 # #############################################################################
@@ -532,6 +536,7 @@ class Commands:
             (['toggleNotifications', 'n'], self.toggle_notifications),
             (['toggleAutohide', 'h'], self.toggle_autohide),
             (['renameContact'], self.rename_contact),
+            (['addContact'], self.add_contact),
             (['reload'], self.reload),
             (['quit', 'q'], self.quit),
         ]
@@ -594,6 +599,10 @@ class Commands:
         return path.startswith(("/", "~/", "./"))
 
     def external_edit(self, *args):
+        if self.state.current_contact is None:
+            self.state.set_error(":edit Error: no contact currently selected")
+            return
+
         filename = ''
         if args:
             filename, *message = Commands.split_path(*args)
@@ -623,6 +632,10 @@ class Commands:
             pass
 
     def read(self, path_or_cmd):
+        if self.state.current_contact is None:
+            self.state.set_error(":read Error: no contact currently selected")
+            return
+
         message = ''
         if Commands.is_path(path_or_cmd):
             with open(os.path.expanduser(path_or_cmd), 'r') as file:
@@ -640,6 +653,10 @@ class Commands:
             mk_call(self.state.cfg.open_command, {'%u': path}, True)
 
     def attach(self, args):
+        if self.state.current_contact is None:
+            self.state.set_error(":attach Error: no contact currently selected")
+            return
+
         attachment, *message = Commands.split_path(args)
         attachment = os.path.expanduser(attachment)
         if not os.path.isfile(attachment):
@@ -648,6 +665,10 @@ class Commands:
         self.state.signal.send_message(self.state.current_contact, *message, attachments=[attachment])
 
     def attach_clip(self, *message):
+        if self.state.current_contact is None:
+            self.state.set_error(":attachClip Error: no contact currently selected")
+            return
+
         files = clip.files(self.state)
 
         if files:
@@ -702,17 +723,47 @@ class Commands:
             mk_call(self.state.cfg.notification_command, {'%s': sender, '%m': message})
 
     def rename_contact(self, args):
-        # :renameNumber +NUMBER new name here  -> use +NUMBER number
-        # :renameNumber new name here          -> use current contacts number
+        # :renameContact +NUMBER new name here  -> use +NUMBER number
+        # :renameContact "Old Name" new name here  -> use contact named "Old Name"
+        # :renameContact new name here          -> rename current contact or group
         try:
-            number, new_name = args.split(' ', 1)
+            number, new_name = Commands.split_path(args)
             if not is_number(number):
-                raise ValueError
+                for contact_id, contact in self.state.signal.contacts_map.items():
+                    if contact["name"] == number:
+                        is_group = is_contact_group(contact)
+                        break
+                else:  # contact with name `number` not found
+                    raise ValueError
+            elif self.state.signal.get_contact(number) is None:
+                    self.state.set_error(f":renameContact Error: no contact with number {number} found")
+                    return
+            else:
+                is_group = False
+                contact_id = number
         except ValueError:
-            number = self.state.current_contact.get('number')
+            if self.state.current_contact is None:
+                self.state.set_error(":renameContact Error: no contact currently selected")
+                return
+            contact_id = self.state.current_contact.get('number')
+            is_group = contact_id is None
+            if is_group:
+                contact_id = self.state.current_contact.get('groupId')
             new_name = args
 
-        self.state.signal.rename_contact(number, new_name, lambda *i: self.reload())
+        self.state.signal.rename_contact(contact_id, new_name, is_group, lambda *i: self.reload())
+
+    def add_contact(self, args):
+        # :addContact +NUMBER [Contact Name]
+        try:
+            number, name = args.split(maxsplit=1)
+        except ValueError:
+            number, name = args, ""
+        if not is_number(number):
+            self.state.set_error(f':addContact "{number}": not a valid number')
+            return
+        self.state.signal.rename_contact(number, name, False, lambda *i: self.reload())
+
 
     def reload(self):
         self.state.reload()
@@ -795,8 +846,21 @@ class Signal:
                 # TODO: display error to user
                 continue
 
-    def rename_contact(self, number, new_name, cb=None):
-        args = ["org.asamk.Signal.setContactName", "string:" + number, "string:" + shlex.quote(new_name)]
+    def rename_contact(self, contact_id, new_name, is_group=False, cb=None):
+        """Rename a contact or group.
+
+        If a contact does not exist, it will be created. Changes to groups are sent to the server, changes to individual contacts are local.
+        """
+        if not is_group:
+            args = ["org.asamk.Signal.setContactName",
+                    "string:" + contact_id,
+                    "string:" + shlex.quote(new_name)]
+        else:
+            args = ["org.asamk.Signal.updateGroup",
+                    "array:byte:" + b64_to_bytearray(contact_id),
+                    "string:" + shlex.quote(new_name),
+                    "array:string:" + '',   # members
+                    "string:" + '']         # avatar
         self.run_cmd('rename_contact', args, cb=cb)
 
     def send_message(self, contact, message="", attachments=None, cb=None):
@@ -826,7 +890,7 @@ class Signal:
         if contact_number:
             args.append('string:' + shlex.quote(contact_number))
         else:
-            args.append('array:byte:' + ','.join(str(i) for i in base64.b64decode(group_id.encode())))
+            args.append('array:byte:' + b64_to_bytearray(group_id))
 
         ts = int(datetime.now().timestamp() * 1000)
         envelope = {
@@ -1424,7 +1488,6 @@ class MainWindow(urwid.Frame):
         urwid.connect_signal(self._wleft._wcontacts, 'notify_count_changed', self.on_notify_count_changed)
 
     def reload(self):
-        self.state.signal.reload()
         self._wleft._wcontacts.reload()
 
     def set_status(self, txt):
@@ -1574,6 +1637,11 @@ class State:
         urwid.connect_signal(self.signal, 'send_message', self.on_send_message)
 
     def reload(self):
+        self.signal.reload()
+        if self.current_contact is not None:
+            contact_id = self.current_contact.get("number") or self.current_contact.get("groupId")
+            current_contact_reloaded = self.signal.get_contact(contact_id)
+            self.set_current_contact(current_contact_reloaded)
         urwid.emit_signal(self, 'reload_request')
 
     def set_current_contact(self, contact, focus=False):
