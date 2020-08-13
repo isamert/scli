@@ -158,7 +158,8 @@ def mk_call(cmd, rmap=None, disown=False, use_pipe=True):
 
 
 def is_number(number):
-    return bool(re.match('^\+?[0-9]*$', number))
+    # https://github.com/signalapp/libsignal-service-java/blob/master/java/src/main/java/org/whispersystems/signalservice/api/util/PhoneNumberFormatter.java
+    return bool(re.match('^\\+[1-9][0-9]{6,14}$', number))
 
 
 class ObservableConfig:
@@ -298,6 +299,9 @@ def get_attachment_path(attachment):
         return received_attachment
     elif isinstance(attachment, str) and os.path.exists(attachment):
         return attachment
+
+def b64_to_bytearray(group_id):
+    return ','.join(str(i) for i in base64.b64decode(group_id.encode()))
 
 
 # #############################################################################
@@ -517,6 +521,141 @@ class clip:
 
 
 # #############################################################################
+# AsyncProc & Daemon
+# #############################################################################
+
+
+class AsyncProc:
+
+    def __init__(self, urwid_loop):
+        self._urwid_loop = urwid_loop
+
+    def run(self, args, callback=None, *callback_args, shell=False, **callback_kwargs):
+        """ Run the command composed of `args` in the background (asynchronously); run the `callback` function when it finishes """
+
+        def watchpipe_handler(line):
+            # This function is run when the shell process returns (finishes execution).
+            # The `line` printed to watch pipe is of the form "b'<PID> <RETURN_CODE>\n'"
+            _proc_pid, return_code = [int(i) for i in line.decode().split()]
+            proc.wait()  # reap the child process, to prevent zombies
+
+            proc.returncode = return_code   # overwrite the 'wrapper' command return code (always 0) with the actual command return code
+            proc.output = proc.stderr.read().rstrip('\n')   # stderr stream is not seekable, so can be read only once
+
+            if return_code != 0:
+                logging.error('proc: cmd:`%s`; return_code:%d; output:"%s"', proc.args, return_code, proc.output)
+
+            if callback is not None:
+                callback(proc, *callback_args, **callback_kwargs)
+
+            os.close(watchpipe_fd) # Close the write end of urwid's watch pipe.
+            return False # Close the read end of urwid's watch pipe and remove the watch from event_loop.
+
+        watchpipe_fd = self._urwid_loop.watch_pipe(watchpipe_handler)
+
+        # If the command is run with Popen(.., shell=True), shlex.quote is needed to escape special chars in args.
+        sh_command = " ".join([shlex.quote(arg) for arg in args] if not shell else ['{', args, ';', '}'])
+        # Redirect all the process's output to stderr, and write the process PID and exit status to the watch pipe.
+        sh_command += " 1>&2; echo $$ $?"
+
+        proc = Popen(sh_command, shell=True, stdout=watchpipe_fd, stderr=PIPE, universal_newlines=True)
+        atexit.register(proc.kill)   # prevent orphaned processes surviving after the main program is stopped
+        return proc
+
+
+class Daemon(AsyncProc):
+
+    def start(self, username, envelope_handler):
+        self._envelope_handler = envelope_handler
+        self._buffer = b''
+
+        stdout_fd = self._urwid_loop.watch_pipe(self._daemon_handler)
+        stderr_fd = self._urwid_loop.watch_pipe(self._daemon_stderr_handler)
+        return Popen(['signal-cli', '-u', username, 'daemon', '--json'], stdout=stdout_fd, stderr=stderr_fd, close_fds=True)
+
+    def _daemon_handler(self, line):
+        line = self._buffer + line
+        lines = line.split(b'\n')
+        if lines[-1] != b'':
+            # Not a complete message. Store in buffer
+            self._buffer = lines[-1]
+        else:
+            self._buffer = b''
+
+        # The last item is either empty or an incomplete message, so we don't process it
+        for line in lines[:-1]:
+            if not line.strip():
+                continue
+            try:
+                e = json.loads(line.decode('utf-8'))
+                envelope = e['envelope']
+                self._envelope_handler(envelope)
+            except Exception as e:
+                logging.error('input: %s', line)
+                logging.exception(e)
+                # TODO: display error to user
+                continue
+
+    def _daemon_stderr_handler(self, line):
+        line = line.decode().strip()
+        if not line:
+            return
+        if line.startswith(('Updating contact', 'Add contact')):
+            # https://github.com/AsamK/signal-cli/issues/334
+            logging.info(line)
+            return
+        logging.error('stderr: %s', line)
+
+    def dbus_send(self, args, *proc_args, async_proc=True, **proc_kwargs):
+        """ Send a command to signal-cli daemon through dbus """
+        args = [
+                    'dbus-send',
+                    '--session',
+                    '--type=method_call',
+                    '--print-reply',
+                    '--dest=org.asamk.Signal',
+                    '/org/asamk/Signal',
+                    *args
+                ]
+        if async_proc:
+            proc = self.run(args, *proc_args, **proc_kwargs)
+        else:
+            proc = subprocess.run(args, *proc_args, **proc_kwargs)
+        return proc
+
+    def send_message(self, message, attachments, recipient, is_group=False, *proc_args, **proc_kwargs):
+        args = [
+                ('org.asamk.Signal.sendMessage'
+                    if not is_group else
+                    'org.asamk.Signal.sendGroupMessage'),
+                'string:' + message,
+                'array:string:' + ','.join(attachments),
+                ('string:' + recipient
+                    if not is_group else
+                    'array:byte:' + b64_to_bytearray(recipient))
+                ]
+
+        self.dbus_send(args, *proc_args, **proc_kwargs)
+
+    def rename_contact(self, contact_id, new_name, is_group=False, *proc_args, **proc_kwargs):
+        """Rename a contact or group.
+
+        If a contact does not exist, it will be created. Changes to groups are sent to the server, changes to individual contacts are local.
+        """
+        if not is_group:
+            args = ["org.asamk.Signal.setContactName",
+                    "string:" + contact_id,
+                    "string:" + new_name]
+        else:
+            args = ["org.asamk.Signal.updateGroup",
+                    "array:byte:" + b64_to_bytearray(contact_id),
+                    "string:" + new_name,
+                    "array:string:" + '',   # members
+                    "string:" + '']         # avatar
+        self.dbus_send(args, *proc_args, **proc_kwargs)
+
+
+# #############################################################################
 # commands
 # #############################################################################
 
@@ -535,6 +674,7 @@ class Commands:
             (['toggleAutohide', 'h'], self.toggle_autohide),
             (['toggleContactsSort', 's'], self.toggle_sort_contacts),
             (['renameContact'], self.rename_contact),
+            (['addContact'], self.add_contact),
             (['reload'], self.reload),
             (['quit', 'q'], self.quit),
         ]
@@ -597,6 +737,10 @@ class Commands:
         return path.startswith(("/", "~/", "./"))
 
     def external_edit(self, *args):
+        if self.state.current_contact is None:
+            self.state.set_error(":edit Error: no contact currently selected")
+            return
+
         filename = ''
         if args:
             filename, *message = Commands.split_path(*args)
@@ -626,6 +770,10 @@ class Commands:
             pass
 
     def read(self, path_or_cmd):
+        if self.state.current_contact is None:
+            self.state.set_error(":read Error: no contact currently selected")
+            return
+
         message = ''
         if Commands.is_path(path_or_cmd):
             with open(os.path.expanduser(path_or_cmd), 'r') as file:
@@ -643,6 +791,10 @@ class Commands:
             mk_call(self.state.cfg.open_command, {'%u': path}, True)
 
     def attach(self, args):
+        if self.state.current_contact is None:
+            self.state.set_error(":attach Error: no contact currently selected")
+            return
+
         attachment, *message = Commands.split_path(args)
         attachment = os.path.expanduser(attachment)
         if not os.path.isfile(attachment):
@@ -651,6 +803,10 @@ class Commands:
         self.state.signal.send_message(self.state.current_contact, *message, attachments=[attachment])
 
     def attach_clip(self, *message):
+        if self.state.current_contact is None:
+            self.state.set_error(":attachClip Error: no contact currently selected")
+            return
+
         files = clip.files(self.state)
 
         if files:
@@ -709,17 +865,47 @@ class Commands:
             mk_call(self.state.cfg.notification_command, {'%s': sender, '%m': message})
 
     def rename_contact(self, args):
-        # :renameNumber +NUMBER new name here  -> use +NUMBER number
-        # :renameNumber new name here          -> use current contacts number
+        # :renameContact +NUMBER new name here  -> use +NUMBER number
+        # :renameContact "Old Name" new name here  -> use contact named "Old Name"
+        # :renameContact new name here          -> rename current contact or group
         try:
-            number, new_name = args.split(' ', 1)
+            number, new_name = Commands.split_path(args)
             if not is_number(number):
-                raise ValueError
+                for contact_id, contact in self.state.signal.contacts_map.items():
+                    if contact["name"] == number:
+                        is_group = is_contact_group(contact)
+                        break
+                else:  # contact with name `number` not found
+                    raise ValueError
+            elif self.state.signal.get_contact(number) is None:
+                    self.state.set_error(f":renameContact Error: no contact with number {number} found")
+                    return
+            else:
+                is_group = False
+                contact_id = number
         except ValueError:
-            number = self.state.current_contact.get('number')
+            if self.state.current_contact is None:
+                self.state.set_error(":renameContact Error: no contact currently selected")
+                return
+            contact_id = self.state.current_contact.get('number')
+            is_group = contact_id is None
+            if is_group:
+                contact_id = self.state.current_contact.get('groupId')
             new_name = args
 
-        self.state.signal.rename_contact(number, new_name, lambda *i: self.reload())
+        self.state.signal.daemon.rename_contact(contact_id, new_name, is_group, lambda *i: self.reload())
+
+    def add_contact(self, args):
+        # :addContact +NUMBER [Contact Name]
+        try:
+            number, name = args.split(maxsplit=1)
+        except ValueError:
+            number, name = args, ""
+        if not is_number(number):
+            self.state.set_error(f':addContact "{number}": not a valid number')
+            return
+        self.state.signal.daemon.rename_contact(number, name, is_group=False, callback=lambda *i: self.reload())
+
 
     def reload(self):
         self.state.reload()
@@ -739,7 +925,6 @@ class Signal:
     def __init__(self, user):
         self.user = user
         self._data = None
-        self._buffer = b''
         self._path = os.path.join(SIGNALCLI_DATA_FOLDER, user)
 
         if not os.path.exists(self._path):
@@ -747,10 +932,20 @@ class Signal:
             if not os.path.exists(self._path):
                 raise Exception(self.user + " does not exist!")
 
-        self.loop = None
-        self.sending_procs = {}
+        self.daemon = Daemon(None)
 
         self.reload()
+
+    def start_daemon(self):
+        return self.daemon.start(self.user, self.envelope_handler)
+
+    def envelope_handler(self, envelope):
+        if get_nested(envelope, 'syncMessage', 'sentMessage') is not None:
+            urwid.emit_signal(self, 'send_message', envelope)
+        elif envelope.get('dataMessage') is not None:
+            urwid.emit_signal(self, 'receive_message', envelope)
+        else:
+            logging.info('NOT_A_MESSAGE:%s', envelope)
 
     def reload(self):
         with open(self._path) as f:
@@ -767,73 +962,16 @@ class Signal:
         self.contacts_map = {c['number']: c for c in self.contacts}
         self.contacts_map.update({g['groupId']: g for g in self.groups})
 
-    def start_daemon(self):
-        fd = self.loop.watch_pipe(self.daemon_handler)
-        return Popen(['signal-cli', '-u', self.user, 'daemon', '--json'], stdout=fd, stderr=fd, close_fds=True)
-
-    def daemon_handler(self, line):
-        line = self._buffer + line
-        lines = line.split(b'\n')
-        if lines[-1] != b'':
-            # Not a complete message. Store in buffer
-            self._buffer = lines[-1]
-        else:
-            self._buffer = b''
-
-        # The last item is either empty or an incomplete message, so we don't process it
-        for line in lines[:-1]:
-            if not line.strip():
-                continue
-
-            try:
-                e = json.loads(line.decode('utf-8'))
-                envelope = e['envelope']
-
-                if get_nested(envelope, 'syncMessage', 'sentMessage') is not None:
-                    urwid.emit_signal(self, 'send_message', envelope)
-                elif envelope.get('dataMessage') is not None:
-                    urwid.emit_signal(self, 'receive_message', envelope)
-                else:
-                    logging.info('NOT_A_MESSAGE:%s', envelope)
-
-            except Exception as e:
-                logging.error('input: %s', line)
-                logging.exception(e)
-                # TODO: display error to user
-                continue
-
-    def rename_contact(self, number, new_name, cb=None):
-        args = ["org.asamk.Signal.setContactName", "string:" + number, "string:" + shlex.quote(new_name)]
-        self.run_cmd('rename_contact', args, cb=cb)
-
-    def send_message(self, contact, message="", attachments=None, cb=None):
-        args = []
-        if not attachments:
-            attachments = []
-
-        contact_number = contact.get('number')
-        if contact_number is not None:
-            target = contact_number
-            args.append('org.asamk.Signal.sendMessage')
-        else:
-            group_id = contact.get('groupId')
-            target = group_id
-            args.append('org.asamk.Signal.sendGroupMessage')
-
-        # If the send command is run with Popen(.., shell=True), shlex.quote is needed to escape special chars in the message.
-        args.append('string:' + shlex.quote(message))
+    def send_message(self, contact, message="", attachments=[]):
+        target = contact.get('number')
+        is_group = target is None
+        if is_group:
+            target = contact.get('groupId')
 
         attachment_paths = [os.path.expanduser(attachment) for attachment in attachments]
-        if all([os.path.exists(attachment_path) for attachment_path in attachment_paths]):
-            args.append('array:string:' + ','.join(shlex.quote(a) for a in attachment_paths))
-        else:
+        if not all([os.path.exists(attachment_path) for attachment_path in attachment_paths]):
             logging.warning('send_message: Attached file(s) does not exist.')
             return
-
-        if contact_number:
-            args.append('string:' + shlex.quote(contact_number))
-        else:
-            args.append('array:byte:' + ','.join(str(i) for i in base64.b64decode(group_id.encode())))
 
         ts = int(datetime.now().timestamp() * 1000)
         envelope = {
@@ -843,53 +981,16 @@ class Signal:
             'dataMessage': {'message': message, 'attachments': attachments, 'timestamp': ts},
         }
 
-        self.run_cmd('send_message', args, envelope, cb=cb)
-
-        logging.info('send_message:%s', envelope)
-        urwid.emit_signal(self, 'send_message', envelope)
-
-    def run_cmd(self, cmd, args, data=None, cb=None):
-        watchpipe_fd = self.loop.watch_pipe(self.watchpipe_handler)
-        # Make all `dbus-send` output go to stderr, and write the process PID and exit status to the watch pipe.
-
-        sh_command = (
-            " ".join(
-                [
-                    'dbus-send',
-                    '--session',
-                    '--type=method_call',
-                    '--print-reply',
-                    '--dest=org.asamk.Signal',
-                    '/org/asamk/Signal',
-                    *args,
-                ]
-            )
-            + " 1>&2; echo $$ $?"
-        )
-        send_proc = Popen(sh_command, shell=True, stdout=watchpipe_fd, stderr=PIPE, universal_newlines=True)
-        self.sending_procs[send_proc.pid] = (cmd, send_proc, watchpipe_fd, data, cb)
-
-    def watchpipe_handler(self, line):
-        # The line printed to watch pipe is of the form "b'<PID> <RETURN_CODE>\n'"
-        proc_pid, return_code = [int(i) for i in line.decode().split()]
-        cmd, send_proc, watchpipe_fd, data, cb = self.sending_procs.pop(proc_pid)
-        send_proc.wait()  # reap the child process, to prevent zombies
-
-        if cmd == "send_message":
+        def after_send_proc_returns(_proc):
             # Remove temproary attachments
-            for attachment in data['dataMessage']['attachments']:
+            for attachment in envelope['dataMessage']['attachments']:
                 if attachment.startswith(os.path.join(tempfile.gettempdir(), clip.tempfile_prefix)):
                     os.remove(attachment)
 
-        if return_code != 0:
-            logging.error('%s: exit code=%d:err=%s', cmd, return_code, send_proc.stderr.read())
+        self.daemon.send_message(message, attachment_paths, target, is_group, callback=after_send_proc_returns)
 
-        os.close(watchpipe_fd)  # Close the write end of urwid's watch pipe.
-
-        if cb:
-            cb(return_code, data)
-
-        return False  # Close the read end of urwid's watch pipe and remove the watch from event_loop.
+        logging.info('send_message:%s', envelope)
+        urwid.emit_signal(self, 'send_message', envelope)
 
     def get_contact(self, number_or_id):
         return self.contacts_map.get(number_or_id)
@@ -929,7 +1030,20 @@ class ContactsWindow(urwid.ListBox):
         urwid.connect_signal(self.state, 'current_contact_changed', self.on_current_contact_changed)
 
     def reload(self):
-        self.set_contacts(self.make_formatted_contacts_list())
+        self.formatted_contacts_list = self.make_formatted_contacts_list()
+        self.set_contacts(self.formatted_contacts_list)
+
+    def load_contact_order(self):
+        if not os.path.exists(SCLI_SORT_FILE):
+            return
+
+        with open(SCLI_SORT_FILE, 'r') as sort_file:
+            ordering = sort_file.readline().split(',')
+            self._order = {ordering[i]: i for i in reversed(range(0, len(ordering)))}
+
+    def save_contact_order(self):
+        with open(SCLI_SORT_FILE, 'w') as sort_file:
+            sort_file.write(','.join([hash_contact(w.contact) for w in self._body if w.contact]))
 
     def make_formatted_contacts_list(self):
         def sorter(contact):
@@ -1351,7 +1465,7 @@ class ChatWindow(urwid.Frame):
                         self.state.set_error('Command missing after `:`')
                         return key
                     cmd, *args = txt[1:].split(maxsplit=1)
-                    self.state.commands.exec(cmd.lower(), *args)
+                    self.state.commands.exec(cmd, *args)
                 elif txt.startswith('/'):
                     pass
                 elif txt.strip(' ') != '' and self.state.current_contact:
@@ -1433,7 +1547,6 @@ class MainWindow(urwid.Frame):
         urwid.connect_signal(self._wleft._wcontacts, 'notify_count_changed', self.on_notify_count_changed)
 
     def reload(self):
-        self.state.signal.reload()
         self._wleft._wcontacts.reload()
 
     def set_status(self, txt):
@@ -1584,6 +1697,11 @@ class State:
         urwid.connect_signal(self.signal, 'send_message', self.on_send_message)
 
     def reload(self):
+        self.signal.reload()
+        if self.current_contact is not None:
+            contact_id = self.current_contact.get("number") or self.current_contact.get("groupId")
+            current_contact_reloaded = self.signal.get_contact(contact_id)
+            self.set_current_contact(current_contact_reloaded)
         urwid.emit_signal(self, 'reload_request')
 
     def set_current_contact(self, contact, focus=False):
@@ -1958,16 +2076,16 @@ def main():
     window = MainWindow(state)
 
     loop = urwid.MainLoop(window, palette=PALETTE)
+    state.loop = state.signal.daemon._urwid_loop = loop
 
-    state.loop = loop
-    state.signal.loop = loop
+    state.load_history()
+    atexit.register(state.save_history)
 
     if not cfg.no_daemon:
         proc = state.signal.start_daemon()
         atexit.register(proc.kill)
 
     loop.run()
-    proc.kill()
 
 
 if __name__ == "__main__":
