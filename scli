@@ -928,7 +928,7 @@ class ContactsWindow(urwid.ListBox):
         self.set_contacts(self.formatted_contacts_list)
 
     def load_contact_order(self):
-        if os.path.exists(SCLI_HISTORY_FILE):
+        if not os.path.exists(SCLI_SORT_FILE):
             return
 
         with open(SCLI_SORT_FILE, 'r') as sort_file:
