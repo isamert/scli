@@ -2078,9 +2078,6 @@ def main():
     loop = urwid.MainLoop(window, palette=PALETTE)
     state.loop = state.signal.daemon._urwid_loop = loop
 
-    state.load_history()
-    atexit.register(state.save_history)
-
     if not cfg.no_daemon:
         proc = state.signal.start_daemon()
         atexit.register(proc.kill)
