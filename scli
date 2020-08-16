@@ -45,7 +45,6 @@ SIGNALCLI_ATTACHMENT_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'attachments')
 
 SCLI_DATA_FOLDER = os.path.join(DATA_FOLDER, 'scli')
 SCLI_HISTORY_FILE = os.path.join(SCLI_DATA_FOLDER, 'history')
-SCLI_SORT_FILE = os.path.join(SCLI_DATA_FOLDER, 'sort')
 SCLI_CFG_FILE = os.path.join(CFG_FOLDER, 'sclirc')
 SCLI_LOG_FILE = os.path.join(SCLI_DATA_FOLDER, 'log')
 
@@ -1030,20 +1029,7 @@ class ContactsWindow(urwid.ListBox):
         urwid.connect_signal(self.state, 'current_contact_changed', self.on_current_contact_changed)
 
     def reload(self):
-        self.formatted_contacts_list = self.make_formatted_contacts_list()
-        self.set_contacts(self.formatted_contacts_list)
-
-    def load_contact_order(self):
-        if not os.path.exists(SCLI_SORT_FILE):
-            return
-
-        with open(SCLI_SORT_FILE, 'r') as sort_file:
-            ordering = sort_file.readline().split(',')
-            self._order = {ordering[i]: i for i in reversed(range(0, len(ordering)))}
-
-    def save_contact_order(self):
-        with open(SCLI_SORT_FILE, 'w') as sort_file:
-            sort_file.write(','.join([hash_contact(w.contact) for w in self._body if w.contact]))
+        self.set_contacts(self.make_formatted_contacts_list())
 
     def make_formatted_contacts_list(self):
         def sorter(contact):
