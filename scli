@@ -608,10 +608,6 @@ class Daemon(AsyncProc):
         line = line.decode().strip()
         if not line:
             return
-        if line.startswith(('Updating contact', 'Add contact')):
-            # https://github.com/AsamK/signal-cli/issues/334
-            logging.info(line)
-            return
         logging.error('stderr: %s', line)
 
     def dbus_send(self, args, *proc_args, async_proc=True, **proc_kwargs):
