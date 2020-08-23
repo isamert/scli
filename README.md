@@ -2,9 +2,16 @@
 `scli` is a simple terminal user interface for [Signal](https://signal.org). It uses [signal-cli](https://github.com/AsamK/signal-cli) and [urwid](http://urwid.org/).
 
 # Installation
+## Manual
 - Firstly, you need to install [signal-cli](https://github.com/AsamK/signal-cli). Follow the guide provided in the README.
 - Install `urwid`. You can install it trough your distributions package manager (search for `python3-urwid` or `python-urwid`) or you can use `pip` to install: `pip3 install urwid`.
 - (Optional) Install `urwid_readline` if you want readline keybinds while typing. It may be available through your distribution's package manager as `python3-urwid_readline` or `python-urwid_readline`, or you can install it through `pip` with `pip install urwid_readline`
+
+## Automatic
+The following methods are supported by community and may be outdated.
+
+- [AUR](https://aur.archlinux.org/packages/scli-git/)
+- [FreshPorts](https://www.freshports.org/net-im/scli/)
 
 ## Linking your device and using
 `scli` does not provide anything for registering/linking, you need to do this using `signal-cli`.
