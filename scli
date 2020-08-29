@@ -322,6 +322,14 @@ def listbox_focus_next(listbox):
         pass
 
 
+def listbox_set_body(listbox, body_new):
+    # Can't just do `listbox.body = body_new`:
+    # https://github.com/urwid/urwid/issues/428
+    urwid.disconnect_signal(listbox.body, "modified", listbox._invalidate)
+    listbox.body = body_new
+    urwid.connect_signal(listbox.body, "modified", listbox._invalidate)
+
+
 class FocusableText(urwid.AttrMap):
     def __init__(self, markup, **kwargs):
         super().__init__(urwid.Text(markup, **kwargs), None, focus_map=LIST_FOCUS_MAP)
@@ -1043,9 +1051,6 @@ class ContactsWindow(urwid.ListBox):
                 return (0, contact_name.lower())
             return (-get_envelope_time(last_envelope), contact_name.lower())
 
-        if self.state.current_contact is not None:
-            self.state.backup_chat(self.state.current_contact)
-
         if not self.state.cfg.group_contacts:
             return sorted(self.state.signal.contacts_map.values(), key=sorter)
         else:
@@ -1263,7 +1268,7 @@ class ChatWindow(urwid.Frame):
         self._wtitle = urwid.Text('')
         self._wline = Edit(('bold', '> '))
         self._wdiv = urwid.Divider('-')
-        self._wlist = urwid.ListBox(self.state.current_chat)
+        self._wlist = urwid.ListBox([])
 
         self._w = urwid.WidgetPlaceholder(self._wlist)
         wcontext = urwid.Frame(self._w, header=urwid.Divider('-'))
@@ -1378,14 +1383,8 @@ class ChatWindow(urwid.Frame):
         self._wtitle.set_text([('bold', get_contact_name(contact)), ' (', num, ')'])
 
     def on_current_contact_changed(self, old, current, focus=False):
-        self.state.backup_chat(old)
-        self.state.clear_current_chat()
         self.set_title(current)
-
-        chat = self.state.chats.get(hash_contact(current))
-        if chat:
-            self.state.current_chat.extend(chat)
-
+        listbox_set_body(self._wlist, self.state.current_chat)
         self.focus_chatlast()
 
     def get_current_envelope(self):
@@ -1670,8 +1669,8 @@ class State:
         self.notification = ''
         self.status_data = None
         self.current_contact = None
+        self.current_chat = None
         self.loop = None
-        self.current_chat = urwid.SimpleFocusListWalker([])
         self.notify_counts = {}
 
         self.commands = Commands(self)
@@ -1693,6 +1692,12 @@ class State:
     def set_current_contact(self, contact, focus=False):
         old = self.current_contact
         self.current_contact = contact
+
+        contact_hash = hash_contact(contact)
+        if contact_hash not in self.chats:
+            self.chats[contact_hash] = urwid.SimpleFocusListWalker([])
+        self.current_chat = self.chats[contact_hash]
+
         urwid.emit_signal(self, 'current_contact_changed', old, contact, focus)
 
     def set_status(self, status, data=None):
@@ -1717,21 +1722,12 @@ class State:
     def show_dialog(self, w):
         urwid.emit_signal(self, 'dialog_requested', w)
 
-    def clear_current_chat(self):
-        self.current_chat.clear()
-
-    def backup_chat(self, contact):
-        if contact:
-            self.chats[hash_contact(contact)] = [x for x in self.current_chat]
-
     def get_chat_for_envelope(self, envelope):
         contact = self.signal.get_envelope_contact(envelope)
-        if contact == self.current_contact:
-            return self.current_chat
 
         contact_hash = hash_contact(contact)
         if contact_hash not in self.chats:
-            self.chats[contact_hash] = []
+            self.chats[contact_hash] = urwid.SimpleFocusListWalker([])
 
         return self.chats[contact_hash]
 
@@ -1848,7 +1844,6 @@ class State:
         if not self.cfg.save_history:
             return
 
-        self.backup_chat(self.current_contact)
         envelopes = [x.envelope for vals in self.chats.values() for x in vals]
         notify_counts = {contact_id: count for (contact_id, count) in self.notify_counts.items() if count != 0}
         items = {'envelopes': envelopes, 'notify_counts': notify_counts}
