@@ -825,7 +825,7 @@ class Commands:
         return result
 
     def open_last_attach(self):
-        for txt in self.state.current_chat[::-1]:
+        for txt in reversed(self.state.current_chat):
             if self.open_attach(txt.envelope):
                 return
 
@@ -839,7 +839,7 @@ class Commands:
         return False
 
     def open_last_url(self):
-        for txt in self.state.current_chat[::-1]:
+        for txt in reversed(self.state.current_chat):
             if self.open_url(txt.envelope):
                 return
 
