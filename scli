@@ -18,6 +18,7 @@ import shlex
 from subprocess import PIPE, Popen
 from datetime import datetime
 import base64
+import collections
 
 import urwid
 
@@ -1663,7 +1664,7 @@ class State:
     def __init__(self, cfg):
         self.signal = Signal(cfg.username)
         self.cfg = cfg
-        self.chats = {}
+        self.chats = collections.defaultdict(lambda: urwid.SimpleFocusListWalker([]))
         self.error = ''
         self.status = ''
         self.notification = ''
@@ -1692,12 +1693,7 @@ class State:
     def set_current_contact(self, contact, focus=False):
         old = self.current_contact
         self.current_contact = contact
-
-        contact_hash = hash_contact(contact)
-        if contact_hash not in self.chats:
-            self.chats[contact_hash] = urwid.SimpleFocusListWalker([])
-        self.current_chat = self.chats[contact_hash]
-
+        self.current_chat = self.chats[hash_contact(contact)]
         urwid.emit_signal(self, 'current_contact_changed', old, contact, focus)
 
     def set_status(self, status, data=None):
@@ -1724,12 +1720,7 @@ class State:
 
     def get_chat_for_envelope(self, envelope):
         contact = self.signal.get_envelope_contact(envelope)
-
-        contact_hash = hash_contact(contact)
-        if contact_hash not in self.chats:
-            self.chats[contact_hash] = urwid.SimpleFocusListWalker([])
-
-        return self.chats[contact_hash]
+        return self.chats[hash_contact(contact)]
 
     def on_send_message(self, envelope):
         self.print_sent_message(envelope)
