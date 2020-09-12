@@ -1006,6 +1006,17 @@ class Signal:
             logging.critical('NULL_CONTACT:%s', envelope)
         return contact
 
+    def get_contact_profile_name(self, contact):
+        try:
+            profiles = self._data['profileStore']['profiles']
+            profiles_map = {p['name']: p for p in profiles}
+            contact_id = hash_contact(contact)
+            return profiles_map[contact_id]['profile']['name']
+        except KeyError:
+            return None
+
+
+
 
 urwid.register_signal(Signal, Signal.signals)
 
@@ -1063,12 +1074,23 @@ class ContactsWindow(urwid.ListBox):
                     *conts
                 ]
 
-    def contact_widget_markup(self, contact):
+    def mk_contact_widget_markup(self, contact):
         notify_count = self.state.notify_counts.get(hash_contact(contact), 0)
         markup = [] if notify_count == 0 else [('bold', '({}) '.format(notify_count))]
-        markup.append(get_contact_name(contact))
+
+        name = get_contact_name(contact)
+        markup.append(name)
+        if is_number(name):
+            if name == self.state.cfg.username:
+                markup.append(('italic', ' (Self)'))
+            else:
+                profile_name = self.state.signal.get_contact_profile_name(contact)
+                if profile_name:
+                    markup.append(('italic', ' ~' + profile_name))
+
         if is_contact_group(contact) and not self.state.cfg.group_contacts:
             markup.append(('italic', ' [GRP]'))
+
         return markup
 
     def set_contact_notify_count(self, contact, count):
@@ -1080,7 +1102,7 @@ class ContactsWindow(urwid.ListBox):
         if not w:
             return
         self.set_contact_notify_count(w.contact, count)
-        w.original_widget.set_text(self.contact_widget_markup(w.contact))
+        w.original_widget.set_text(self.mk_contact_widget_markup(w.contact))
 
     def on_current_contact_changed(self, _old, _current, _focus=False):
         self.set_contact_widget_notify_count(self.focus, 0)
@@ -1127,7 +1149,7 @@ class ContactsWindow(urwid.ListBox):
             elif isinstance(x, str):
                 widget = urwid.Text(('bold', '~~ ' + x + ' ~~'), align='center')
             else:
-                widget = urwid.Text(self.contact_widget_markup(x))
+                widget = urwid.Text(self.mk_contact_widget_markup(x))
                 contact = x
 
             am = urwid.AttrMap(widget, None, focus_map={None: 'reversed', 'italic': 'reverseditalic'})
