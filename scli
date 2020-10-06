@@ -348,8 +348,17 @@ def get_attachment_path(attachment):
     elif isinstance(attachment, str) and os.path.exists(attachment):
         return attachment
 
+
 def b64_to_bytearray(group_id):
     return ','.join(str(i) for i in base64.b64decode(group_id.encode()))
+
+
+def strftimestamp(timestamp, strformat='%H:%M:%S (%Y-%m-%d)'):
+    try:
+        date = datetime.utcfromtimestamp(timestamp)
+    except ValueError:
+        date = datetime.utcfromtimestamp(timestamp / 1000)
+    return date.strftime(strformat)
 
 
 # #############################################################################
@@ -459,16 +468,21 @@ class MessageInfo(urwid.ListBox):
         msg = get_envelope_msg(envelope)
         date = None
         timestamp = get_envelope_time(envelope)
-        try:
-            date = datetime.utcfromtimestamp(timestamp)
-        except ValueError:
-            date = datetime.utcfromtimestamp(timestamp / 1000)
-        date = date.strftime('%H:%M (%Y-%m-%d)')
+        date = strftimestamp(timestamp)
+        status_detailed = self.state.delivery_status.get_detailed(envelope)
 
         txt_name = FocusableText([btxt('Name   : '), ntxt(get_contact_name(state.signal.get_contact(source)))])
         txt_source = FocusableText([btxt('Number : '), ntxt(source)])
         txt_date = FocusableText([btxt('Date   : '), ntxt(date)])
         txt_msg = FocusableText([btxt('Message: '), ntxt(msg)])
+
+        status_str = status_detailed.str
+        if status_str:
+            status_when = f': {strftimestamp(status_detailed.when)}' if status_detailed.when else ''
+            txt_status = FocusableText([btxt('Status : '), ntxt(status_str), status_when])
+        else:
+            txt_status = FocusableText('')
+
         txt_urls = FocusableText([btxt('Links')], align='center')
 
         urls = []
@@ -485,7 +499,7 @@ class MessageInfo(urwid.ListBox):
             txt_atch.original_widget.full_path = get_attachment_path(atch)
             atchs.append(txt_atch)
 
-        items = [txt_name, txt_source, txt_date, txt_msg, txt_urls, *urls, txt_atchs, *atchs]
+        items = [txt_name, txt_source, txt_date, txt_msg, txt_status, txt_urls, *urls, txt_atchs, *atchs]
         super().__init__(urwid.SimpleFocusListWalker(items))
 
     def keypress(self, size, key):
