@@ -1557,9 +1557,9 @@ class ChatWindow(urwid.Frame):
                     item = self.search_list[self._wsearch.focus_position]
                     real_index = item.real_index
                     del self.search_list[self._wsearch.focus_position]
-                    del self.state.current_chat[real_index]
+                    self.state.delete_message(envelope, real_index)
                 else:
-                    del self.state.current_chat[self._wlist.focus_position]
+                    self.state.delete_message(envelope, self._wlist.focus_position)
             elif key == 'i':
                 self.show_pop_up(MessageInfo(self.state, envelope))
             elif key == 'q':
@@ -1800,6 +1800,17 @@ class State:
             return index
         raise ValueError
 
+    def delete_message(self, envelope, index=None):
+        self.delivery_status.delete(envelope)
+
+        chat = self.get_chat_for_envelope(envelope)
+        try:
+            if index is None:
+                index = self.get_chat_index_for_envelope(chat, envelope)
+            del chat[index]
+        except (ValueError, IndexError):
+            pass
+
     def on_send_message(self, envelope):
         msg_widget = self.print_sent_message(envelope)
         self.delivery_status.set(msg_widget, 'sending')
@@ -2027,6 +2038,12 @@ class DeliveryStatus:
 
         curr_status_detailed.str = status
         self._set_widget_status_markup(msg_widget, status)
+
+    def delete(self, envelope):
+        try:
+            del self._status_map[get_envelope_time(envelope)]
+        except KeyError:
+            pass
 
 
 # #############################################################################
