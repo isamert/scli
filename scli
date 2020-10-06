@@ -1022,7 +1022,15 @@ class Signal:
                 urwid.emit_signal(self, 'sending_done', envelope, 'send_failed')
                 return
 
-            urwid.emit_signal(self, 'sending_done', envelope)
+            # Set envelope timestamp to that returned by signal-cli
+            try:
+                timestamp_adj = int(proc.output.rsplit(maxsplit=1)[1])
+            except Exception as e:
+                logging.error("send_message: Failed to get adjusted envelope timestamp")
+                logging.exception(e)
+                urwid.emit_signal(self, 'sending_done', envelope)
+            else:
+                urwid.emit_signal(self, 'sending_done', envelope, 'sent', timestamp_adj)
 
 
         self.daemon.send_message(message, attachment_paths, target, is_group, callback=after_send_proc_returns)
@@ -1160,7 +1168,7 @@ class ContactsWindow(urwid.ListBox):
         if not self.state.cfg.contacts_sort_alpha and contact_widget is not None:
             self.move_contact_top(contact_widget)
 
-    def on_sending_done(self, envelope, status='sent'):
+    def on_sending_done(self, envelope, status='sent', _timestamp_adj=None):
         if status != 'send_failed':
             return
         contact_id = get_envelope_contact_id(envelope)
@@ -1852,7 +1860,7 @@ class State:
         formatted_message = self.print_received_message(envelope)
         self.commands.send_notification(contact_name, to_txt(formatted_message))
 
-    def on_sending_done(self, envelope, status='sent'):
+    def on_sending_done(self, envelope, status='sent', timestamp_adj=None):
         try:
             chat = self.get_chat_for_envelope(envelope)
             index = self.get_chat_index_for_envelope(chat, envelope)
@@ -1867,6 +1875,10 @@ class State:
         if status == 'send_failed':
             self.set_error(f'Message "{get_envelope_msg(envelope)[:20]}…" failed to send. Press `r` on message to re-send.')
             return
+
+        if timestamp_adj is not None:
+            self.delivery_status.adjust_timestamp(get_envelope_time(envelope), timestamp_adj)
+            msg_widget.envelope['timestamp'] = msg_widget.envelope['dataMessage']['timestamp'] = timestamp_adj
 
     def format_msg(self, message):
         message = '\n'.join(textwrap.wrap(message, width=self.cfg.wrap_at))
@@ -2040,6 +2052,9 @@ class DeliveryStatus:
 
     def get_str(self, envelope):
         return self.get_detailed(envelope).str
+
+    def adjust_timestamp(self, timestamp_orig, timestamp_adj):
+        self._status_map[timestamp_adj] = self._status_map.pop(timestamp_orig)
 
     def _set_widget_status_markup(self, msg_widget, status):
         status_markup = self._markup_map[status]
