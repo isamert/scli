@@ -370,6 +370,23 @@ def listbox_focus_next(listbox):
         pass
 
 
+def get_text_markup(text_widget):
+    """Get urwid.Text widget text, in markup format.
+
+    Like urwid.Text.get_text(), but returns a text markup that can be passed on to urwid.Text.set_text() or to urwid.Text() for creating a new text object"""
+
+    text, display_attributes = text_widget.get_text()
+    if not display_attributes:
+        return text
+    markup = []
+    run_len_pos = 0
+    for attr, attr_run_len in display_attributes:
+        attr_run_end = run_len_pos + attr_run_len
+        markup.append((attr, text[run_len_pos: attr_run_end]))
+        run_len_pos = attr_run_end
+    return markup
+
+
 def listbox_set_body(listbox, body_new):
     # Can't just do `listbox.body = body_new`:
     # https://github.com/urwid/urwid/issues/428
