@@ -157,9 +157,48 @@ def mk_call(cmd, rmap=None, disown=False, use_pipe=True):
         return out
 
 
+PHONE_NUM_REGEX = re.compile('^\\+[1-9][0-9]{6,14}$')
+# https://github.com/signalapp/libsignal-service-java/blob/master/java/src/main/java/org/whispersystems/signalservice/api/util/PhoneNumberFormatter.java
 def is_number(number):
-    # https://github.com/signalapp/libsignal-service-java/blob/master/java/src/main/java/org/whispersystems/signalservice/api/util/PhoneNumberFormatter.java
-    return bool(re.match('^\\+[1-9][0-9]{6,14}$', number))
+    return bool(PHONE_NUM_REGEX.match(number))
+
+
+def is_path(path):
+    return path.startswith(("/", "~/", "./"))
+
+
+PATH_RE = re.compile(
+    r"""
+        # Matches a path-like string, with whitespaces escaped or with the whole path in quotes.
+        (
+            (
+                \\\ |           # escaped whitespace OR ..
+                [^'" ]          # .. not a quote or space
+            )+
+        )                       # Path with escaped whitespace ..
+        |                       # .. OR ..
+        (                       # .. path in quotes.
+            (?P<quote>['"])     # a quote char; name the capture
+            .+?                 # anything, non-greedily
+            (?P=quote)          # matching quote
+        )
+        """,
+    re.VERBOSE,
+)
+def split_path(string):
+    string = string.strip()
+    if not string:
+        return ['', '']
+    re_match = PATH_RE.match(string)
+    if not re_match:
+        return ['', string]
+    path = re_match.group()
+    if re_match.group(1):  # unquoted path
+        path = path.replace(r'\ ', ' ')
+    else:  # path in quotes
+        path = path.strip('\'"')
+    rest = string[re_match.end() :].strip()
+    return [path, rest] if rest else [path]
 
 
 class ObservableConfig:
@@ -702,44 +741,6 @@ class Commands:
             else:
                 raise
 
-    @staticmethod
-    def split_path(string):
-        string = string.strip()
-        if not string:
-            return ['', '']
-        PATH_RE = re.compile(
-            r"""
-                # Matches a path-like string, with whitespaces escaped or with the whole path in quotes.
-                (
-                    (
-                        \\\ |           # escaped whitespace OR ..
-                        [^'" ]          # .. not a quote or space
-                    )+
-                )                       # Path with escaped whitespace ..
-                |                       # .. OR ..
-                (                       # .. path in quotes.
-                    (?P<quote>['"])     # a quote char; name the capture
-                    .+?                 # anything, non-greedily
-                    (?P=quote)          # matching quote
-                )
-                """,
-            re.VERBOSE,
-        )
-        re_match = PATH_RE.match(string)
-        if not re_match:
-            return ['', string]
-        path = re_match.group()
-        if re_match.group(1):  # unquoted path
-            path = path.replace(r'\ ', ' ')
-        else:  # path in quotes
-            path = path.strip('\'"')
-        rest = string[re_match.end() :].strip()
-        return [path, rest] if rest else [path]
-
-    @staticmethod
-    def is_path(path):
-        return path.startswith(("/", "~/", "./"))
-
     def external_edit(self, *args):
         if self.state.current_contact is None:
             self.state.set_error(":edit Error: no contact currently selected")
@@ -747,9 +748,9 @@ class Commands:
 
         filename = ''
         if args:
-            filename, *message = Commands.split_path(*args)
+            filename, *message = split_path(*args)
 
-        if Commands.is_path(filename):
+        if is_path(filename):
             msg_file_path = os.path.expanduser(filename)
         else:
             msg_file_path = tmpfile = tempfile.NamedTemporaryFile(suffix='.md', delete=False).name
@@ -779,7 +780,7 @@ class Commands:
             return
 
         message = ''
-        if Commands.is_path(path_or_cmd):
+        if is_path(path_or_cmd):
             with open(os.path.expanduser(path_or_cmd), 'r') as file:
                 message = file.read()
         elif path_or_cmd.startswith('!'):
@@ -799,7 +800,7 @@ class Commands:
             self.state.set_error(":attach Error: no contact currently selected")
             return
 
-        attachment, *message = Commands.split_path(args)
+        attachment, *message = split_path(args)
         attachment = os.path.expanduser(attachment)
         if not os.path.isfile(attachment):
             self.state.set_error('File does not exist: ' + attachment)
@@ -873,7 +874,7 @@ class Commands:
         # :renameContact "Old Name" new name here  -> use contact named "Old Name"
         # :renameContact new name here          -> rename current contact or group
         try:
-            number, new_name = Commands.split_path(args)
+            number, new_name = split_path(args)
             if not is_number(number):
                 for contact_id, contact in self.state.signal.contacts_map.items():
                     if contact["name"] == number:
@@ -909,7 +910,6 @@ class Commands:
             self.state.set_error(f':addContact "{number}": not a valid number')
             return
         self.state.signal.daemon.rename_contact(number, name, is_group=False, callback=lambda *i: self.reload())
-
 
     def reload(self):
         self.state.reload()
@@ -1014,8 +1014,6 @@ class Signal:
             return profiles_map[contact_id]['profile']['name']
         except KeyError:
             return None
-
-
 
 
 urwid.register_signal(Signal, Signal.signals)
@@ -1417,10 +1415,10 @@ class ChatWindow(urwid.Frame):
     def auto_complete_commands(self, txt):
         splitted_txt = txt.split(' ')
         if len(splitted_txt) > 1:
-            path, *messages = Commands.split_path(' '.join(splitted_txt[1:]))
+            path, *messages = split_path(' '.join(splitted_txt[1:]))
 
             # Check we are trying to complete a path
-            if len(messages) > 0 or not Commands.is_path(path):
+            if len(messages) > 0 or not is_path(path):
                 return
 
             fullpath = os.path.expanduser(path)
