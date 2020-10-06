@@ -1720,6 +1720,8 @@ class State:
 
         self.commands = Commands(self)
 
+        self.delivery_status = DeliveryStatus(self.cfg.one_sided)
+
         self.load_history()
         atexit.register(self.save_history)
 
@@ -1903,6 +1905,77 @@ class State:
 
 
 urwid.register_signal(State, State.signals)
+
+
+# #############################################################################
+# DeliveryStatus
+# #############################################################################
+
+
+class DeliveryStatus:
+
+    class DetailedStatus:
+
+        __slots__ = ("str", )
+
+        def __init__(self, status=''):
+            self.str = status
+
+
+    def __init__(self, one_sided):
+        self._one_sided = one_sided
+        self._status_map = {}
+        self._init_markup_text()
+
+    def _init_markup_text(self):
+        status_text = {
+                # Order matters: 'higher' status can't be 're-set' to a 'lower' one.
+                '':                 '>>' if self._one_sided else '<<',
+                'sending':          '',
+                'send_failed':      '✖',
+                'sent':             '✓',
+                }
+        status_text_len = max([len(text) for text in status_text.values()])
+
+        self._markup_map = {}
+        for status, text in status_text.items():
+            padding = ' ' * (status_text_len - len(text))
+            text = (text + padding) if self._one_sided else (padding + text)
+            self._markup_map[status] = ('bold', text)
+
+        self._markup_index = {key: ind for ind, key in enumerate(status_text.keys())}
+
+    def get_markup(self, status_str):
+        return self._markup_map[status_str]
+
+    def get_markup_for_envelope(self, envelope):
+        status_str = self.get_str(envelope)
+        return self._markup_map[status_str]
+
+    def get_detailed(self, envelope):
+        return self._status_map.get(get_envelope_time(envelope), self.DetailedStatus())
+
+    def get_str(self, envelope):
+        return self.get_detailed(envelope).str
+
+    def _set_widget_status_markup(self, msg_widget, status):
+        status_markup = self._markup_map[status]
+        markup = get_text_markup(msg_widget.original_widget)
+        markup[0 if self._one_sided else -1] = status_markup
+        msg_widget.original_widget.set_text(markup)
+
+    def set(self, msg_widget, status):
+        envelope = msg_widget.envelope
+        timestamp = get_envelope_time(envelope)
+        curr_status_detailed = self._status_map.setdefault(timestamp, self.DetailedStatus())
+        curr_status = curr_status_detailed.str
+
+        if self._markup_index[status] <= self._markup_index[curr_status]:
+            return
+
+        curr_status_detailed.str = status
+        self._set_widget_status_markup(msg_widget, status)
+
 
 # #############################################################################
 # main
