@@ -949,7 +949,7 @@ class Commands:
 
 
 class Signal:
-    signals = ['receive_message', 'send_message']
+    signals = ['receive_message', 'send_message', 'sending_done']
 
     def __init__(self, user):
         self.user = user
@@ -971,6 +971,7 @@ class Signal:
     def envelope_handler(self, envelope):
         if get_nested(envelope, 'syncMessage', 'sentMessage') is not None:
             urwid.emit_signal(self, 'send_message', envelope)
+            urwid.emit_signal(self, 'sending_done', envelope)
         elif envelope.get('dataMessage') is not None:
             urwid.emit_signal(self, 'receive_message', envelope)
         else:
@@ -1010,11 +1011,19 @@ class Signal:
             'dataMessage': {'message': message, 'attachments': attachments, 'timestamp': ts},
         }
 
-        def after_send_proc_returns(_proc):
+        def after_send_proc_returns(proc):
             # Remove temproary attachments
             for attachment in envelope['dataMessage']['attachments']:
                 if attachment.startswith(os.path.join(tempfile.gettempdir(), clip.tempfile_prefix)):
                     os.remove(attachment)
+
+            # Check if send command succeeded
+            if proc.returncode != 0:
+                urwid.emit_signal(self, 'sending_done', envelope, 'send_failed')
+                return
+
+            urwid.emit_signal(self, 'sending_done', envelope)
+
 
         self.daemon.send_message(message, attachment_paths, target, is_group, callback=after_send_proc_returns)
 
@@ -1068,6 +1077,7 @@ class ContactsWindow(urwid.ListBox):
 
         urwid.connect_signal(self.state.signal, 'receive_message', self.on_new_message)
         urwid.connect_signal(self.state.signal, 'send_message', self.on_new_message)
+        urwid.connect_signal(self.state.signal, 'sending_done', self.on_sending_done)
         urwid.connect_signal(self.state, 'current_contact_changed', self.on_current_contact_changed)
 
     def reload(self):
@@ -1149,6 +1159,19 @@ class ContactsWindow(urwid.ListBox):
 
         if not self.state.cfg.contacts_sort_alpha and contact_widget is not None:
             self.move_contact_top(contact_widget)
+
+    def on_sending_done(self, envelope, status='sent'):
+        if status != 'send_failed':
+            return
+        contact_id = get_envelope_contact_id(envelope)
+        if contact_id == get_contact_id(self.state.current_contact):
+            return
+        contact_widget = self.contact_widgets_map[contact_id]
+        contact_widget_markup = get_text_markup(contact_widget.original_widget)
+        if isinstance(contact_widget_markup, str):
+            contact_widget_markup = [contact_widget_markup]
+        contact_widget_markup = [self.state.delivery_status.get_markup('send_failed'), ' ', contact_widget_markup]
+        contact_widget.original_widget.set_text(contact_widget_markup)
 
     def move_contact_top(self, w):
         if self.state.cfg.group_contacts:
@@ -1727,6 +1750,7 @@ class State:
 
         urwid.connect_signal(self.signal, 'receive_message', self.on_receive_message)
         urwid.connect_signal(self.signal, 'send_message', self.on_send_message)
+        urwid.connect_signal(self.signal, 'sending_done', self.on_sending_done)
 
     def reload(self):
         self.signal.reload()
@@ -1768,8 +1792,17 @@ class State:
         contact = self.signal.get_envelope_contact(envelope)
         return self.chats[hash_contact(contact)]
 
+    def get_chat_index_for_envelope(self, chat, envelope):
+        dummy_widget = FocusableText('')
+        dummy_widget.envelope = envelope
+        index = bisect.bisect_left(chat, dummy_widget)
+        if index != len(chat) and chat[index].envelope == envelope:
+            return index
+        raise ValueError
+
     def on_send_message(self, envelope):
-        self.print_sent_message(envelope)
+        msg_widget = self.print_sent_message(envelope)
+        self.delivery_status.set(msg_widget, 'sending')
 
     def on_receive_message(self, envelope):
         msg = get_envelope_msg(envelope)
@@ -1787,6 +1820,22 @@ class State:
 
         formatted_message = self.print_received_message(envelope)
         self.commands.send_notification(contact_name, to_txt(formatted_message))
+
+    def on_sending_done(self, envelope, status='sent'):
+        try:
+            chat = self.get_chat_for_envelope(envelope)
+            index = self.get_chat_index_for_envelope(chat, envelope)
+            msg_widget = chat[index]
+        except (KeyError, ValueError, IndexError) as e:
+            logging.error("on_sending_done(): envelope = %s", envelope)
+            logging.exception(e)
+            return
+
+        self.delivery_status.set(msg_widget, status)
+
+        if status == 'send_failed':
+            self.set_error(f'Message "{get_envelope_msg(envelope)[:20]}…" failed to send. Press `r` on message to re-send.')
+            return
 
     def format_msg(self, message):
         message = '\n'.join(textwrap.wrap(message, width=self.cfg.wrap_at))
@@ -1850,32 +1899,35 @@ class State:
         message = self.format_msg(get_envelope_msg(envelope))
         attachments = get_envelope_attachments(envelope)
 
-        txt = []
-        if len(attachments) > 0:
-            anames = ', '.join([get_attachment_name(attachment) for attachment in attachments])
-            txt.append(ntxt('[attached: '))
-            txt.append(itxt(anames))
-            txt.append(ntxt('] '))
-            txt.append(ntxt(message))
+        if not attachments:
+            txt = [message]
         else:
-            txt.append(message)
+            anames = ', '.join([get_attachment_name(attachment) for attachment in attachments])
+            txt = [ntxt('[attached: '),
+                    itxt(anames),
+                    ntxt('] '),
+                    ntxt(message)]
+
+        status_markup = self.delivery_status.get_markup_for_envelope(envelope)
 
         if self.cfg.one_sided:
             align = 'left'
-            txt.insert(0, btxt('>> '))
-            if self.cfg.show_names:
-                txt.insert(1, btxt('You | '))
+            markup = [status_markup,
+                    ' ',
+                    btxt('You | ') if self.cfg.show_names else '',
+                    txt]
         else:
             align = 'right'
-            if self.cfg.show_names:
-                txt.append(btxt(' | You'))
-            txt.append(btxt(" <<"))
+            markup = [txt,
+                    btxt(' | You') if self.cfg.show_names else '',
+                    ' ',
+                    status_markup]
 
-        wtxt = FocusableText(txt, align=align)
+        wtxt = FocusableText(markup, align=align)
         wtxt.envelope = envelope
         bisect.insort(self.get_chat_for_envelope(envelope), wtxt)
 
-        return txt[:-1]
+        return wtxt
 
     def save_history(self):
         if not self.cfg.save_history:
