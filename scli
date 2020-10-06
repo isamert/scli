@@ -1560,6 +1560,18 @@ class ChatWindow(urwid.Frame):
                     self.state.delete_message(envelope, real_index)
                 else:
                     self.state.delete_message(envelope, self._wlist.focus_position)
+            elif key == 'r':
+                if self.state.delivery_status.get_str(envelope) != 'send_failed':
+                    # Only allow re-sending failed messages this way
+                    return
+                self.state.set_error('') # remove 'send-failed' status line
+                if self.search_mode:
+                    real_index = self.search_list[self._wsearch.focus_position].real_index
+                    del self.search_list[self._wsearch.focus_position]
+                    self.state.resend_message(envelope, real_index)
+                    self.search_list.append(self.state.current_chat[-1])
+                else:
+                    self.state.resend_message(envelope, self._wlist.focus_position)
             elif key == 'i':
                 self.show_pop_up(MessageInfo(self.state, envelope))
             elif key == 'q':
@@ -1810,6 +1822,14 @@ class State:
             del chat[index]
         except (ValueError, IndexError):
             pass
+
+    def resend_message(self, envelope, index=None):
+        self.delete_message(envelope, index)
+
+        contact = self.signal.get_envelope_contact(envelope)
+        message = get_envelope_msg(envelope)
+        attachments = get_envelope_attachments(envelope)
+        self.signal.send_message(contact, message, attachments)
 
     def on_send_message(self, envelope):
         msg_widget = self.print_sent_message(envelope)
