@@ -226,7 +226,7 @@ urwid.register_signal(ObservableConfig, ObservableConfig.signals)
 
 
 def hash_contact(x):
-    h = x.get('number') or x.get('groupId')
+    h = get_contact_id(x)
     if h is None:
         logging.critical('hash_contact:No number or groupId')
     return h
@@ -257,6 +257,14 @@ def get_contact_number(x):
         return number
 
     return "NULL"
+
+
+def get_contact_id(contact):
+    if not contact:
+        logging.critical('get_contact_number:empty sender')
+        return "NULL"
+
+    return contact.get('number') or contact.get('groupId')
 
 
 def get_contact_color(x):
@@ -996,8 +1004,8 @@ class Signal:
         logging.info('send_message:%s', envelope)
         urwid.emit_signal(self, 'send_message', envelope)
 
-    def get_contact(self, number_or_id):
-        return self.contacts_map.get(number_or_id)
+    def get_contact(self, contact_id):
+        return self.contacts_map.get(contact_id)
 
     def get_envelope_contact(self, envelope):
         contact_id = get_envelope_contact_id(envelope)
@@ -1704,7 +1712,7 @@ class State:
     def reload(self):
         self.signal.reload()
         if self.current_contact is not None:
-            contact_id = self.current_contact.get("number") or self.current_contact.get("groupId")
+            contact_id = get_contact_id(self.current_contact)
             current_contact_reloaded = self.signal.get_contact(contact_id)
             self.set_current_contact(current_contact_reloaded)
         urwid.emit_signal(self, 'reload_request')
