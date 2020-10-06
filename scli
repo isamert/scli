@@ -1035,7 +1035,10 @@ class ContactsWindow(urwid.ListBox):
         self.reload()
 
         for contact_id, notify_count in self.state.notify_counts.items():
-            contact_widget = self.contact_widgets_map[contact_id]
+            try:
+                contact_widget = self.contact_widgets_map[contact_id]
+            except KeyError:
+                continue
             self.set_contact_widget_notify_count(contact_widget, notify_count)
 
         urwid.connect_signal(self.state.signal, 'receive_message', self.on_new_message)
