@@ -64,16 +64,17 @@ PALETTE = [
     ('strikethrough', 'strikethrough', ''),
     ('bolditalic', 'italics,bold', ''),
     ('reversed', 'standout', ''),
-    ('reverseditalic', 'standout,italics', ''),
+    ('reversed_italic', 'standout,italics', ''),
+    ('reversed_strikethrough', 'standout,strikethrough', ''),
 ]
 
 LIST_FOCUS_MAP = {
     None: 'reversed',
     'normal': 'reversed',
     'bold': 'reversed',
-    'italic': 'reversed',
-    'strikethrough': 'reversed',
+    'italic': 'reversed_italic',
     'bolditalic': 'reversed',
+    'strikethrough': 'reversed_strikethrough',
 }
 
 FORMAT_MAP = {'_': 'italic', '*': 'bold', '~': 'strikethrough'}
@@ -949,7 +950,7 @@ class Commands:
 
 
 class Signal:
-    signals = ['receive_message', 'send_message', 'sending_done']
+    signals = ['receive_message', 'send_message', 'sending_done', 'receive_receipt']
 
     def __init__(self, user):
         self.user = user
@@ -974,6 +975,8 @@ class Signal:
             urwid.emit_signal(self, 'sending_done', envelope)
         elif envelope.get('dataMessage') is not None:
             urwid.emit_signal(self, 'receive_message', envelope)
+        elif envelope.get('receiptMessage') is not None:
+            urwid.emit_signal(self, 'receive_receipt', envelope)
         else:
             logging.info('NOT_A_MESSAGE:%s', envelope)
 
@@ -1209,7 +1212,7 @@ class ContactsWindow(urwid.ListBox):
                 widget = urwid.Text(self.mk_contact_widget_markup(x))
                 contact = x
 
-            am = urwid.AttrMap(widget, None, focus_map={None: 'reversed', 'italic': 'reverseditalic'})
+            am = urwid.AttrMap(widget, None, focus_map=LIST_FOCUS_MAP)
             am.contact = contact
             return am
 
@@ -1769,6 +1772,7 @@ class State:
         atexit.register(self.save_history)
 
         urwid.connect_signal(self.signal, 'receive_message', self.on_receive_message)
+        urwid.connect_signal(self.signal, 'receive_receipt', self.on_receive_receipt)
         urwid.connect_signal(self.signal, 'send_message', self.on_send_message)
         urwid.connect_signal(self.signal, 'sending_done', self.on_sending_done)
 
@@ -1820,6 +1824,20 @@ class State:
             return index
         raise ValueError
 
+    def get_message_widget(self, contact_num, timestamp):
+        dummy_widget = FocusableText('')
+        dummy_widget.envelope = {'timestamp': timestamp}
+
+        for contact_id in (contact_num, ):
+            chat = self.chats[contact_id]
+            index = bisect.bisect_left(chat, dummy_widget)
+            if index != len(chat):
+                msg_widget = chat[index]
+                if get_envelope_time(msg_widget.envelope) == timestamp and msg_widget.envelope['source'] == self.cfg.username:
+                    return msg_widget
+
+        raise ValueError
+
     def delete_message(self, envelope, index=None):
         self.delivery_status.delete(envelope)
 
@@ -1859,6 +1877,25 @@ class State:
 
         formatted_message = self.print_received_message(envelope)
         self.commands.send_notification(contact_name, to_txt(formatted_message))
+
+    def on_receive_receipt(self, envelope):
+        # NOTE: Receipt message structure would be different then assumed here if the sent message was not a "sealed sender" one:
+        # https://github.com/AsamK/signal-cli/issues/346
+        receipt_contact = envelope['source']
+        receipt_message = envelope['receiptMessage']
+        if receipt_message['isDelivery']:
+            status = 'delivered'
+        elif receipt_message['isRead']:
+            status = 'read'
+        timestamps = receipt_message['timestamps']
+        when = receipt_message['when']
+        for timestamp in timestamps:
+            try:
+                msg_widget = self.get_message_widget(receipt_contact, timestamp)
+            except ValueError:
+                pass
+            else:
+                self.delivery_status.set(msg_widget, status, when, receipt_contact)
 
     def on_sending_done(self, envelope, status='sent', timestamp_adj=None):
         try:
@@ -2011,10 +2048,11 @@ class DeliveryStatus:
 
     class DetailedStatus:
 
-        __slots__ = ("str", )
+        __slots__ = ("str", "when")
 
-        def __init__(self, status=''):
+        def __init__(self, status='', when=0):
             self.str = status
+            self.when = when
 
 
     def __init__(self, one_sided):
@@ -2029,6 +2067,8 @@ class DeliveryStatus:
                 'sending':          '',
                 'send_failed':      '✖',
                 'sent':             '✓',
+                'delivered':        '✓✓',
+                'read':             '✓✓',
                 }
         status_text_len = max([len(text) for text in status_text.values()])
 
@@ -2036,7 +2076,7 @@ class DeliveryStatus:
         for status, text in status_text.items():
             padding = ' ' * (status_text_len - len(text))
             text = (text + padding) if self._one_sided else (padding + text)
-            self._markup_map[status] = ('bold', text)
+            self._markup_map[status] = ('bold', text) if status != 'read' else ('strikethrough', text)
 
         self._markup_index = {key: ind for ind, key in enumerate(status_text.keys())}
 
@@ -2062,7 +2102,7 @@ class DeliveryStatus:
         markup[0 if self._one_sided else -1] = status_markup
         msg_widget.original_widget.set_text(markup)
 
-    def set(self, msg_widget, status):
+    def set(self, msg_widget, status, when=None, receipt_contact=None):
         envelope = msg_widget.envelope
         timestamp = get_envelope_time(envelope)
         curr_status_detailed = self._status_map.setdefault(timestamp, self.DetailedStatus())
@@ -2072,6 +2112,8 @@ class DeliveryStatus:
             return
 
         curr_status_detailed.str = status
+        if when is not None:
+            curr_status_detailed.when = when
         self._set_widget_status_markup(msg_widget, status)
 
     def delete(self, envelope):
