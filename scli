@@ -2015,7 +2015,7 @@ class State:
 
         envelopes = [x.envelope for vals in self.chats.values() for x in vals]
         notify_counts = {contact_id: count for (contact_id, count) in self.notify_counts.items() if count != 0}
-        items = {'envelopes': envelopes, 'notify_counts': notify_counts}
+        items = {'envelopes': envelopes, 'notify_counts': notify_counts, 'delivery_status': self.delivery_status.dump()}
 
         with open(SCLI_HISTORY_FILE, 'w') as history_file:
             json.dump(items, history_file, ensure_ascii=False)
@@ -2026,6 +2026,8 @@ class State:
 
         with open(SCLI_HISTORY_FILE, 'r') as history_file:
             history = json.load(history_file)
+
+        self.delivery_status.load(history.get('delivery_status', {}))
 
         for envelope in history['envelopes']:
             if is_envelope_outgoing(envelope):
@@ -2053,6 +2055,23 @@ class DeliveryStatus:
         def __init__(self, status='', when=0):
             self.str = status
             self.when = when
+
+        def serialize(self):
+            ret = []
+            for attr in self.__slots__:
+                val = getattr(self, attr, None)
+                ret.append(val)
+
+            # Skip empty values at the end
+            for ind, val in enumerate(reversed(ret)):
+                if val:
+                    if ind != 0:
+                        ret = ret[:-ind]
+                    break
+            else:
+                ret = []
+
+            return ret
 
 
     def __init__(self, one_sided):
@@ -2121,6 +2140,18 @@ class DeliveryStatus:
             del self._status_map[get_envelope_time(envelope)]
         except KeyError:
             pass
+
+    def dump(self):
+        ret = {}
+        for timestamp, status_detailed in self._status_map.items():
+            status_serialized = status_detailed.serialize()
+            if status_serialized:
+                ret[timestamp] = status_serialized
+        return ret
+
+    def load(self, status_map):
+        for timestamp, status_detailed in status_map.items():
+            self._status_map[int(timestamp)] = self.DetailedStatus(*status_detailed)
 
 
 # #############################################################################
