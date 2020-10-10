@@ -276,6 +276,21 @@ def get_contact_color(x):
     return 'white'
 
 
+def get_group_members(group, exclude=None):
+    ret = set()
+    if exclude is None:
+        exclude = []
+    members = group['members']
+    for m in members:
+        try:
+            phone_num = m['number']
+        except TypeError:
+            phone_num = m
+        if phone_num not in exclude:
+            ret.add(phone_num)
+    return ret
+
+
 def is_contact_group(contact):
     return has_key('groupId', contact)
 
@@ -1008,6 +1023,17 @@ class Signal:
         ]
         self.contacts_map = {c['number']: c for c in self.contacts}
         self.contacts_map.update({g['groupId']: g for g in self.groups})
+        self.group_members = {g['groupId']: get_group_members(g, exclude=[self.user]) for g in self.groups}
+        self.groups_w_contact = self._get_groups_w_contacts()
+
+    def _get_groups_w_contacts(self):
+        ret = {}
+        for group_id, group_members in self.group_members.items():
+            for contact_num in group_members:
+                if contact_num in self.contacts_map:
+                    groups_w_contact_num = ret.setdefault(contact_num, set())
+                    groups_w_contact_num.add(group_id)
+        return ret
 
     def send_message(self, contact, message="", attachments=[]):
         target = contact.get('number')
@@ -1842,7 +1868,12 @@ class State:
         dummy_widget = FocusableText('')
         dummy_widget.envelope = {'timestamp': timestamp}
 
-        for contact_id in (contact_num, ):
+        def contact_id_gen():
+            yield contact_num
+            groups_w_contact = self.signal.groups_w_contact.get(contact_num, tuple())
+            for g in groups_w_contact:
+                yield g
+        for contact_id in contact_id_gen():
             chat = self.chats[contact_id]
             index = bisect.bisect_left(chat, dummy_widget)
             if index != len(chat):
@@ -1874,6 +1905,10 @@ class State:
     def on_send_message(self, envelope):
         msg_widget = self.print_sent_message(envelope)
         self.delivery_status.set(msg_widget, 'sending')
+        if is_envelope_group_message(envelope):
+            group_id = get_envelope_contact_id(envelope)
+            group_members = self.signal.group_members[group_id]
+            self.delivery_status.set_group_members(msg_widget, group_members)
 
     def on_receive_message(self, envelope):
         msg = get_envelope_msg(envelope)
@@ -2031,8 +2066,17 @@ class State:
         notify_counts = {contact_id: count for (contact_id, count) in self.notify_counts.items() if count != 0}
         items = {'envelopes': envelopes, 'notify_counts': notify_counts, 'delivery_status': self.delivery_status.dump()}
 
+        class JSONSetEncoder(json.JSONEncoder):
+            def default(self, o):
+                try:
+                    return json.JSONEncoder.default(self, o)
+                except TypeError:
+                    if isinstance(o, set):
+                        return tuple(o)
+                    raise
+
         with open(SCLI_HISTORY_FILE, 'w') as history_file:
-            json.dump(items, history_file, ensure_ascii=False)
+            json.dump(items, history_file, ensure_ascii=False, cls=JSONSetEncoder)
 
     def load_history(self):
         if not self.cfg.save_history or not os.path.exists(SCLI_HISTORY_FILE):
@@ -2062,13 +2106,41 @@ urwid.register_signal(State, State.signals)
 
 class DeliveryStatus:
 
+    DelivReadConts = collections.namedtuple('DelivReadConts', ['delivered', 'read'])
+
     class DetailedStatus:
 
-        __slots__ = ("str", "when")
+        __slots__ = ("str", "when", "grp_memb_remain_un")
 
-        def __init__(self, status='', when=0):
+        def __init__(self, status='', when=0, grp_memb_remain_un=None):
             self.str = status
             self.when = when
+            if grp_memb_remain_un:
+                self.grp_memb_remain_un = DeliveryStatus.DelivReadConts(*(set(contacts) if contacts else set() for contacts in grp_memb_remain_un))
+
+        def set_grp_memb_status(self, grp_member, status):
+            try:
+                grp_memb_remain_un = self.grp_memb_remain_un
+            except AttributeError:
+                return None
+            grp_memb_remaining = getattr(grp_memb_remain_un, status)
+            try:
+                grp_memb_remaining.remove(grp_member)
+            except (KeyError, AttributeError):
+                # This happens when 'read' receipt arrives before 'delivered', or after getting multiple copies of the same receipt message.
+                return None
+
+            if status == 'delivered':
+                remaining_unread = grp_memb_remain_un.read
+                remaining_unread.add(grp_member)
+                if grp_memb_remaining:
+                    return None
+                return status
+
+            if any(grp_memb_remain_un):
+                return None
+            del self.grp_memb_remain_un
+            return status
 
         def serialize(self):
             ret = []
@@ -2144,10 +2216,20 @@ class DeliveryStatus:
         if self._markup_index[status] <= self._markup_index[curr_status]:
             return
 
+        if receipt_contact is not None and is_envelope_group_message(envelope):
+            status = curr_status_detailed.set_grp_memb_status(receipt_contact, status)
+            if status is None:
+                return
+
         curr_status_detailed.str = status
         if when is not None:
             curr_status_detailed.when = when
         self._set_widget_status_markup(msg_widget, status)
+
+    def set_group_members(self, msg_widget, group_members):
+        envelope = msg_widget.envelope
+        status_detailed = self._status_map[get_envelope_time(envelope)]
+        status_detailed.grp_memb_remain_un = self.DelivReadConts(set(group_members), set())
 
     def delete(self, envelope):
         try:
