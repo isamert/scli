@@ -1942,7 +1942,8 @@ class State:
             try:
                 msg_widget = self.get_message_widget(receipt_contact, timestamp)
             except ValueError:
-                pass
+                # Receipt is received before the msg_widget exists (e.g. before receiving a `sync` message for a message sent from another device)
+                self.delivery_status.buffer_receipt(timestamp, status, receipt_contact)
             else:
                 self.delivery_status.set(msg_widget, status, when, receipt_contact)
 
@@ -1965,6 +1966,8 @@ class State:
         if timestamp_adj is not None:
             self.delivery_status.adjust_timestamp(get_envelope_time(envelope), timestamp_adj)
             msg_widget.envelope['timestamp'] = msg_widget.envelope['dataMessage']['timestamp'] = timestamp_adj
+
+        self.delivery_status.process_buffered_receipts(msg_widget)
 
     def format_msg(self, message):
         message = '\n'.join(textwrap.wrap(message, width=self.cfg.wrap_at))
@@ -2128,7 +2131,13 @@ class DeliveryStatus:
                 grp_memb_remaining.remove(grp_member)
             except (KeyError, AttributeError):
                 # This happens when 'read' receipt arrives before 'delivered', or after getting multiple copies of the same receipt message.
-                return None
+                grp_memb_remaining = grp_memb_remain_un.delivered
+                try:
+                    grp_memb_remaining.remove(grp_member)
+                except (KeyError, AttributeError):
+                    return None
+                if not grp_memb_remain_un.delivered and grp_memb_remain_un.read:
+                    return 'delivered'
 
             if status == 'delivered':
                 remaining_unread = grp_memb_remain_un.read
@@ -2163,6 +2172,7 @@ class DeliveryStatus:
     def __init__(self, one_sided):
         self._one_sided = one_sided
         self._status_map = {}
+        self._buffered = {}
         self._init_markup_text()
         self.MAX_GROUP_SIZE = 15
 
@@ -2237,6 +2247,23 @@ class DeliveryStatus:
             return
 
         status_detailed.grp_memb_remain_un = self.DelivReadConts(set(group_members), set())
+
+    def buffer_receipt(self, timestamp, status, contact):
+        buffered = self._buffered.setdefault(timestamp, self.DelivReadConts(set(), set()))
+        buffered_contacts = getattr(buffered, status)
+        buffered_contacts.add(contact)
+
+    def process_buffered_receipts(self, msg_widget):
+        timestamp = get_envelope_time(msg_widget.envelope)
+        buffered = self._buffered.get(timestamp)
+        if buffered is None:
+            return
+        status_detailed = self._status_map[timestamp]
+        for status in buffered._fields:
+            buffered_contacts = getattr(buffered, status) or []
+            for contact in buffered_contacts:
+                self.set(msg_widget, status, receipt_contact=contact)
+        del self._buffered[timestamp]
 
     def delete(self, envelope):
         try:
