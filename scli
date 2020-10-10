@@ -2164,6 +2164,7 @@ class DeliveryStatus:
         self._one_sided = one_sided
         self._status_map = {}
         self._init_markup_text()
+        self.MAX_GROUP_SIZE = 15
 
     def _init_markup_text(self):
         status_text = {
@@ -2174,6 +2175,7 @@ class DeliveryStatus:
                 'sent':             '✓',
                 'delivered':        '✓✓',
                 'read':             '✓✓',
+                'ignore_receipts':  '✓',
                 }
         status_text_len = max([len(text) for text in status_text.values()])
 
@@ -2181,7 +2183,7 @@ class DeliveryStatus:
         for status, text in status_text.items():
             padding = ' ' * (status_text_len - len(text))
             text = (text + padding) if self._one_sided else (padding + text)
-            self._markup_map[status] = ('bold', text) if status != 'read' else ('strikethrough', text)
+            self._markup_map[status] = ('bold', text) if status not in ('read', 'ignore_receipts') else ('strikethrough', text)
 
         self._markup_index = {key: ind for ind, key in enumerate(status_text.keys())}
 
@@ -2229,6 +2231,11 @@ class DeliveryStatus:
     def set_group_members(self, msg_widget, group_members):
         envelope = msg_widget.envelope
         status_detailed = self._status_map[get_envelope_time(envelope)]
+
+        if len(group_members) > self.MAX_GROUP_SIZE:
+            self.set(msg_widget, 'ignore_receipts')
+            return
+
         status_detailed.grp_memb_remain_un = self.DelivReadConts(set(group_members), set())
 
     def delete(self, envelope):
