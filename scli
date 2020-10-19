@@ -1859,7 +1859,7 @@ class State:
         items = {'envelopes': envelopes, 'notify_counts': notify_counts}
 
         with open(SCLI_HISTORY_FILE, 'w') as history_file:
-            json.dump(items, history_file)
+            json.dump(items, history_file, ensure_ascii=False)
 
     def load_history(self):
         if not self.cfg.save_history or not os.path.exists(SCLI_HISTORY_FILE):
