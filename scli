@@ -1970,7 +1970,7 @@ class State:
         self.delivery_status.process_buffered_receipts(msg_widget)
 
     def format_msg(self, message):
-        message = '\n'.join(textwrap.wrap(message, width=self.cfg.wrap_at))
+        message = '\n'.join(textwrap.fill(line, width=self.cfg.wrap_at, expand_tabs=False, replace_whitespace=False) for line in message.splitlines())
 
         if not self.cfg.use_formatting:
             return ntxt(message)
