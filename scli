@@ -1097,7 +1097,7 @@ class Signal:
             profiles_map = {p['name']: p for p in profiles}
             contact_id = hash_contact(contact)
             return profiles_map[contact_id]['profile']['name']
-        except KeyError:
+        except (KeyError, TypeError):
             return None
 
 
