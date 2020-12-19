@@ -2288,6 +2288,41 @@ class DeliveryStatus:
 # main
 # #############################################################################
 
+def link_device(device_name):
+    import pyqrcode
+    cmd_link = 'signal-cli link -n "{}"'.format(device_name)
+    pipe_link = Popen(cmd_link, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    line = pipe_link.stdout.readline().strip()
+
+    if line.startswith('tsdevice:/'):
+        url = pyqrcode.create(line)
+        print(url.terminal(quiet_zone=1))
+    else:
+        print('Encountered an error while linking: {}'.format(line))
+        sys.exit(1)
+
+    print('Linking... Please wait...')
+
+    pipe_link.wait()
+    if pipe_link.returncode != 0:
+        print('Something went wrong while linking.')
+        sys.exit(pipe_link.returncode)
+
+    print('Receiving data for the first time...')
+
+    cmd_receive = 'signal-cli -u "{}" receive'.format(detect_user_name())
+    pipe_receive = Popen(cmd_receive, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+    for receive_out in iter(pipe_receive.stdout.readline, ''):
+        print(receive_out, end='')
+
+    pipe_receive.wait()
+    if pipe_receive.returncode != 0:
+        print('Something went wrong receiving.')
+        sys.exit(pipe_receive.returncode)
+
+    print('Done.')
+    sys.exit(0)
 
 def parse_cfg_file(cfg_file_path):
     vars = {}
@@ -2304,9 +2339,39 @@ def parse_cfg_file(cfg_file_path):
 
     return vars
 
+def detect_user_name():
+    ulist = []
+    for folder in [SIGNALCLI_DATA_FOLDER, SIGNALCLI_LEGACY_DATA_FOLDER]:
+        try:
+            users = [x for x in os.listdir(folder) if os.path.isfile(os.path.join(folder, x))]
+            ulist.extend(users)
+        except FileNotFoundError:
+            pass
+
+    if not ulist:
+        print("Couldn't find any linked device.", file=sys.stderr)
+        sys.exit(1)
+    elif len(ulist) == 1:
+        return ulist[0]
+    else:
+        print("Use one of these:", file=sys.stderr)
+        for u in ulist:
+            print("\tscli --username=" + u, file=sys.stderr)
+        sys.exit(1)
 
 def main():
     parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        '-l',
+        '--link',
+        nargs='?',
+        const='scli',
+        type=str,
+        metavar='CUSTOM_NAME',
+        help='Link a device. If you skip CUSTOM_NAME, device name will be registered as "scli".'
+    )
+
     parser.add_argument(
         '-c',
         '--config-file',
@@ -2425,6 +2490,11 @@ def main():
     parser.add_argument('--debug', default=False, action='store_true')
 
     cfg = parser.parse_args()
+
+    if cfg.link:
+        link_device(cfg.link)
+        sys.exit(0)
+
     file_cfg = parse_cfg_file(cfg.config_file)
     for key, val in file_cfg.items():
         attr = getattr(cfg, key)
@@ -2449,24 +2519,7 @@ def main():
         logging.basicConfig(filename=SCLI_LOG_FILE, level=logging.CRITICAL)
 
     if not cfg.username:
-        ulist = []
-        for folder in [SIGNALCLI_DATA_FOLDER, SIGNALCLI_LEGACY_DATA_FOLDER]:
-            try:
-                users = [x for x in os.listdir(folder) if os.path.isfile(os.path.join(folder, x))]
-                ulist.extend(users)
-            except FileNotFoundError:
-                pass
-
-        if not ulist:
-            print("Couldn't find any linked device.", file=sys.stderr)
-            sys.exit(1)
-        elif len(ulist) == 1:
-            cfg.username = ulist[0]
-        else:
-            print("Use one of these:", file=sys.stderr)
-            for u in ulist:
-                print("\tscli --username=" + u, file=sys.stderr)
-            sys.exit(1)
+        cfg.username = detect_user_name()
 
     state = State(ObservableConfig(cfg))
     window = MainWindow(state)

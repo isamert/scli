@@ -13,8 +13,20 @@ The following methods are supported by community and may be outdated.
 - [AUR](https://aur.archlinux.org/packages/scli-git/)
 - [FreshPorts](https://www.freshports.org/net-im/scli/)
 
-## Linking your device and using
-`scli` does not provide anything for registering/linking, you need to do this using `signal-cli`.
+## Linking
+
+### Automatic
+- Install `pyqrcode` using your systems package manager or with `pip3 install pyqrcode`.
+- Then simply do: `scli --link` or `scli --link my_device_name`.
+- Open Signal application on your phone and scan the QR code you just generated.
+- Wait for it to finish.
+- Now you can start using:
+```
+scli
+```
+
+### Manual
+You can also link your device manually using `signal-cli`.
 
 For linking your computer follow these steps (for registering a new number, see README of [signal-cli](https://github.com/AsamK/signal-cli))
 - Run `signal-cli link -n "DEVICE_NAME"`. (DEVICE_NAME is just an alias for your computer. You can skip `-n "DEVICE_NAME` part. Without that, your devices alias will be just `cli`.)
