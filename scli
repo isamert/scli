@@ -1017,7 +1017,7 @@ class Signal:
         self.groups = [
             g
             for g in self._data["groupStore"]['groups']
-            if g['name']
+            if g.get('name')
             # Older versions of `signal-cli` use `active` key while newer ones use `archived`.
             and (g.get('active') or not g.get('archived'))
         ]
