@@ -575,6 +575,8 @@ class clip:
     @staticmethod
     def xfiles():
         out = clip.xrun_lines('TARGETS')
+        if out is None:
+            return
 
         for otype in out:
             for mtype in clip.mime_order:
