@@ -628,11 +628,59 @@ class clip:
 # AsyncProc & Daemon
 # #############################################################################
 
+class CallbackQueue:
+
+    def __init__(self):
+        # The _queue is a list with each item a tuple: ({proc1, proc2, ..}, callback, callback_args, proc_callback, proc_callback_kwargs)
+        self._queue = []
+        self._accepting_new_procs_for_item = False
+
+    def new_item(self, callback, callback_kwargs, proc_callback, proc_callback_kwargs):
+        if callback is None and proc_callback is None:
+            return
+        self._queue.append((set(), callback, callback_kwargs, proc_callback, proc_callback_kwargs))
+        self._accepting_new_procs_for_item = True
+
+    def add_proc(self, proc):
+        if not self._accepting_new_procs_for_item:
+            return
+        curr_item = self._queue[-1]
+        procs = curr_item[0]
+        procs.add(proc)
+
+    def finalize_item(self):
+        self._accepting_new_procs_for_item = False
+        if self._queue and not self._queue[-1][0]:
+            # All background procs have already finished, or there had been none started
+            self._pop_callback(-1)
+
+    def on_proc_done(self, proc):
+        for ind, item in enumerate(self._queue):
+            procs, *_ = item
+            if proc not in procs:
+                continue
+            self._run_proc_callback(ind, proc)
+            procs.remove(proc)
+            if not procs and not self._accepting_new_procs_for_item:
+                self._pop_callback(ind)
+            return
+
+    def _run_proc_callback(self, queue_index, proc):
+        *_, proc_callback, proc_callback_kwargs = self._queue[queue_index]
+        if proc_callback is not None:
+            proc_callback(proc, **proc_callback_kwargs)
+
+    def _pop_callback(self, queue_index):
+        _, callback, callback_kwargs, *_ = self._queue.pop(queue_index)
+        if callback is not None:
+            callback(**callback_kwargs)
+
 
 class AsyncProc:
 
     def __init__(self, urwid_loop):
         self._urwid_loop = urwid_loop
+        self._callback_queue = CallbackQueue()
 
     def run(self, args, callback=None, *callback_args, shell=False, **callback_kwargs):
         """ Run the command composed of `args` in the background (asynchronously); run the `callback` function when it finishes """
@@ -651,6 +699,7 @@ class AsyncProc:
 
             if callback is not None:
                 callback(proc, *callback_args, **callback_kwargs)
+            self._callback_queue.on_proc_done(proc)
 
             os.close(watchpipe_fd) # Close the write end of urwid's watch pipe.
             return False # Close the read end of urwid's watch pipe and remove the watch from event_loop.
@@ -664,7 +713,21 @@ class AsyncProc:
 
         proc = Popen(sh_command, shell=True, stdout=watchpipe_fd, stderr=PIPE, universal_newlines=True)
         atexit.register(proc.kill)   # prevent orphaned processes surviving after the main program is stopped
+        self._callback_queue.add_proc(proc)
         return proc
+
+    def func_watch(self, fn, *args, callback=None, callback_kwargs=None, proc_callback=None, proc_callback_kwargs=None, **kwargs):
+        """Watch background processes started by function.
+
+        Call function `fn` and watch background processes started with `AsyncProc.run` by `fn` or by functions `fn` calls; run `proc_callback` when each background process exits; run `callback` when all the background processes exit.
+        """
+
+        callback_kwargs = callback_kwargs or {}
+        proc_callback_kwargs = proc_callback_kwargs or {}
+        self._callback_queue.new_item(callback, callback_kwargs, proc_callback, proc_callback_kwargs)
+        fn_ret = fn(*args, **kwargs)
+        self._callback_queue.finalize_item()
+        return fn_ret
 
 
 class Daemon(AsyncProc):
