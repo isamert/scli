@@ -2131,7 +2131,8 @@ class State:
             return
 
         envelopes = [x.envelope for vals in self.chats.values() for x in vals]
-        notify_counts = {contact_id: count for (contact_id, count) in self.notify_counts.items() if count != 0}
+        notify_counts = {contact_id: count for (contact_id, count) in self.notify_counts.items() if count != 0 and contact_id != "NULL"}
+            # TODO: remove the possibility of contact_id being set to "NULL" anywhere
         items = {'envelopes': envelopes, 'notify_counts': notify_counts, 'delivery_status': self.delivery_status.dump()}
 
         class JSONSetEncoder(json.JSONEncoder):
