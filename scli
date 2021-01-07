@@ -835,6 +835,16 @@ class Daemon(AsyncProc):
                     "string:" + '']         # avatar
         self.dbus_send_signal_cli(args, *proc_args, **proc_kwargs)
 
+    def get_group_name(self, group_id, *proc_args, **proc_kwargs):
+        args = ["org.asamk.Signal.getGroupName",
+                "array:byte:" + b64_to_bytearray(group_id)]
+        self.dbus_send_signal_cli(args, *proc_args, **proc_kwargs)
+
+    def get_group_members(self, group_id, *proc_args, **proc_kwargs):
+        args = ["org.asamk.Signal.getGroupMembers",
+                "array:byte:" + b64_to_bytearray(group_id)]
+        self.dbus_send_signal_cli(args, *proc_args, **proc_kwargs)
+
     @property
     def is_dbus_service_running(self):
         args = [
@@ -1101,6 +1111,7 @@ class Signal:
     def start_daemon(self):
         def on_daemon_started():
             logging.info("signal-cli dbus service started")
+            self._set_v2_groups_info_async_watch()
             urwid.emit_signal(self, 'daemon_started')
         self.daemon.run_when_dbus_service_started(on_daemon_started)
         return self.daemon.start(self.user, self.envelope_handler)
@@ -1131,6 +1142,9 @@ class Signal:
             self.groups.append(g)
         self.contacts_map = {c['number']: c for c in self.contacts}
         self.contacts_map.update({g['groupId']: g for g in self.groups})
+        self._set_v2_groups_info_async_watch()
+
+    def _set_groups_membership(self):
         self.group_members = {g['groupId']: get_group_members(g, exclude=[self.user]) for g in self.groups}
         self.groups_w_contact = self._get_groups_w_contacts()
 
@@ -1165,6 +1179,34 @@ class Signal:
                 break
         grp_name = bs[2:name_end].decode()
         return grp_name
+
+    def _set_v2_groups_info_async(self):
+        def set_name_cb(proc, group):
+            group['name'] = proc.output.split('\n')[1][11:-1]
+        def set_members_cb(proc, group):
+            members = []
+            for line in proc.output.split('\n')[2:-1]:
+                # Ad hoc parsing of `dbus-send`s output
+                num = line[14:-1]
+                members.append({"number": num})
+            group["members"] = members
+        for group in self.groups:
+            if not is_group_v2(group):
+                continue
+            self.daemon.get_group_name(get_contact_id(group), callback=set_name_cb, group=group)
+            self.daemon.get_group_members(get_contact_id(group), callback=set_members_cb, group=group)
+
+    def _set_v2_groups_info_async_watch(self):
+        if not self.daemon.is_dbus_service_running:
+            self._set_groups_membership()
+            return
+        def on_v2_groups_updated():
+            self._set_groups_membership()
+            urwid.emit_signal(self, 'groups_updated')
+        self.daemon.func_watch(
+                self._set_v2_groups_info_async,
+                callback = on_v2_groups_updated
+                )
 
     def send_message(self, contact, message="", attachments=[]):
         target = contact.get('number')
@@ -1951,6 +1993,9 @@ class State:
 
     def reload(self):
         self.signal.reload()
+        self._update_contacts()
+
+    def _update_contacts(self):
         if self.current_contact is not None:
             contact_id = get_contact_id(self.current_contact)
             current_contact_reloaded = self.signal.get_contact(contact_id)
