@@ -782,14 +782,11 @@ class Daemon(AsyncProc):
         logging.error('stderr: %s', line)
 
     def dbus_send(self, args, *proc_args, async_proc=True, **proc_kwargs):
-        """ Send a command to signal-cli daemon through dbus """
         args = [
                     'dbus-send',
                     '--session',
                     '--type=method_call',
                     '--print-reply',
-                    '--dest=org.asamk.Signal',
-                    '/org/asamk/Signal',
                     *args
                 ]
         if async_proc:
@@ -797,6 +794,15 @@ class Daemon(AsyncProc):
         else:
             proc = subprocess.run(args, *proc_args, **proc_kwargs)
         return proc
+
+    def dbus_send_signal_cli(self, args, *proc_args, **proc_kwargs):
+        """ Send a command to signal-cli daemon through dbus """
+        args = [
+                    '--dest=org.asamk.Signal',
+                    '/org/asamk/Signal',
+                    *args
+                ]
+        return self.dbus_send(args, *proc_args, **proc_kwargs)
 
     def send_message(self, message, attachments, recipient, is_group=False, *proc_args, **proc_kwargs):
         args = [
@@ -810,7 +816,7 @@ class Daemon(AsyncProc):
                     'array:byte:' + b64_to_bytearray(recipient))
                 ]
 
-        self.dbus_send(args, *proc_args, **proc_kwargs)
+        self.dbus_send_signal_cli(args, *proc_args, **proc_kwargs)
 
     def rename_contact(self, contact_id, new_name, is_group=False, *proc_args, **proc_kwargs):
         """Rename a contact or group.
@@ -827,7 +833,27 @@ class Daemon(AsyncProc):
                     "string:" + new_name,
                     "array:string:" + '',   # members
                     "string:" + '']         # avatar
-        self.dbus_send(args, *proc_args, **proc_kwargs)
+        self.dbus_send_signal_cli(args, *proc_args, **proc_kwargs)
+
+    @property
+    def is_dbus_service_running(self):
+        args = [
+                    '--dest=org.freedesktop.DBus',
+                    '/org/freedesktop/DBus',
+                    'org.freedesktop.DBus.ListNames'
+                ]
+        proc = self.dbus_send(args, async_proc=False, stdout=subprocess.PIPE, text=True)
+        signal_cli_str = 'string "org.asamk.Signal"'
+        return signal_cli_str in proc.stdout
+
+    def run_when_dbus_service_started(self, callback):
+        POLL_FREQ = 1       # seconds between polls
+        def set_alarm(urwid_loop, _user_data=None):
+            if self.is_dbus_service_running:
+                callback()
+            else:
+                urwid_loop.set_alarm_in(POLL_FREQ, set_alarm)
+        set_alarm(self._urwid_loop)
 
 
 # #############################################################################
@@ -1056,7 +1082,7 @@ class Commands:
 
 
 class Signal:
-    signals = ['receive_message', 'send_message', 'sending_done', 'receive_receipt']
+    signals = ['receive_message', 'send_message', 'sending_done', 'receive_receipt', 'daemon_started', 'groups_updated']
 
     def __init__(self, user):
         self.user = user
@@ -1073,6 +1099,10 @@ class Signal:
         self.reload()
 
     def start_daemon(self):
+        def on_daemon_started():
+            logging.info("signal-cli dbus service started")
+            urwid.emit_signal(self, 'daemon_started')
+        self.daemon.run_when_dbus_service_started(on_daemon_started)
         return self.daemon.start(self.user, self.envelope_handler)
 
     def envelope_handler(self, envelope):
@@ -1916,6 +1946,8 @@ class State:
         urwid.connect_signal(self.signal, 'receive_receipt', self.on_receive_receipt)
         urwid.connect_signal(self.signal, 'send_message', self.on_send_message)
         urwid.connect_signal(self.signal, 'sending_done', self.on_sending_done)
+        urwid.connect_signal(self.signal, 'daemon_started', self.on_daemon_started)
+        urwid.connect_signal(self.signal, 'groups_updated', self._update_contacts)
 
     def reload(self):
         self.signal.reload()
@@ -1924,6 +1956,12 @@ class State:
             current_contact_reloaded = self.signal.get_contact(contact_id)
             self.set_current_contact(current_contact_reloaded)
         urwid.emit_signal(self, 'reload_request')
+
+    def on_daemon_started(self):
+        self.set_notification("Initializing signal-cli daemon... Done")
+        def clear_status_line(*_args):
+            self.set_notification("")
+        self.loop.set_alarm_in(2, clear_status_line)
 
     def set_current_contact(self, contact, focus=False):
         old = self.current_contact
@@ -2633,6 +2671,7 @@ def main():
     if not cfg.no_daemon:
         proc = state.signal.start_daemon()
         atexit.register(proc.kill)
+        state.set_notification("Initializing signal-cli daemon... ")
 
     loop.run()
 
