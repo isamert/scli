@@ -280,7 +280,11 @@ def get_group_members(group, exclude=None):
     ret = set()
     if exclude is None:
         exclude = []
-    members = group['members']
+    try:
+        members = group['members']
+    except KeyError:
+        # Happens for v2 groups before their members have been populated
+        return ret
     for m in members:
         try:
             phone_num = m['number']
@@ -293,6 +297,10 @@ def get_group_members(group, exclude=None):
 
 def is_contact_group(contact):
     return has_key('groupId', contact)
+
+
+def is_group_v2(group):
+    return len(group['groupId']) == 44
 
 
 def is_envelope_outgoing(envelope):
@@ -366,6 +374,10 @@ def get_attachment_path(attachment):
 
 def b64_to_bytearray(group_id):
     return ','.join(str(i) for i in base64.b64decode(group_id.encode()))
+
+
+def b64_to_hex_str(group_id):
+    return base64.b64decode(group_id.encode()).hex()
 
 
 def strftimestamp(timestamp, strformat='%H:%M:%S (%Y-%m-%d)'):
@@ -1079,13 +1091,14 @@ class Signal:
             self._data = json.load(f)
 
         self.contacts = self._data['contactStore']['contacts']
-        self.groups = [
-            g
-            for g in self._data["groupStore"]['groups']
-            if g.get('name')
-            # Older versions of `signal-cli` use `active` key while newer ones use `archived`.
-            and (g.get('active') or not g.get('archived'))
-        ]
+        self.groups = []
+        for g in self._data["groupStore"]['groups']:
+            if is_group_v2(g):
+                group_id = g['groupId']
+                g['name'] = self._get_group_v2_cache_name(group_id) or group_id[:10] + '[..]'
+            if g.get('archived') or not g.get('name'):
+                continue
+            self.groups.append(g)
         self.contacts_map = {c['number']: c for c in self.contacts}
         self.contacts_map.update({g['groupId']: g for g in self.groups})
         self.group_members = {g['groupId']: get_group_members(g, exclude=[self.user]) for g in self.groups}
@@ -1099,6 +1112,29 @@ class Signal:
                     groups_w_contact_num = ret.setdefault(contact_num, set())
                     groups_w_contact_num.add(group_id)
         return ret
+
+    def _get_group_v2_cache_name(self, group_id):
+        # This is a crude hack to extract a group name from the group-cache's protobuf binary file without dealing with protobuf or querying signal-cli's `getGroupName`. Does not work for non-ascii group names.
+        # See
+        # https://github.com/AsamK/signal-cli/issues/386
+        for filename in (
+                group_id.replace("/", "_"),
+                b64_to_hex_str(group_id)
+                ):
+            # Since signal-cli v0.7.2, group-cache files' names are `group_id`s with `/` replaced with `_`. Existing group-cache filenames (hex-formatted) from v0.7.{0,1} are kept without renaming, so here we have to try both.
+            path = os.path.join(self._path + '.d', 'group-cache', filename)
+            try:
+                bs = open(path, 'br').readline()
+            except FileNotFoundError:
+                continue
+            else:
+                break
+        for name_end_str in (b'\x1aI', b'"'):
+            name_end = bs.find(name_end_str)
+            if name_end != -1:
+                break
+        grp_name = bs[2:name_end].decode()
+        return grp_name
 
     def send_message(self, contact, message="", attachments=[]):
         target = contact.get('number')
@@ -1560,7 +1596,7 @@ class ChatWindow(urwid.Frame):
             # see this: https://github.com/isamert/scli/issues/53#issuecomment-612571462
             contacts = [
                 self.state.signal.get_contact(contact if isinstance(contact, str) else contact['number']) or contact
-                for contact in contact['members']
+                for contact in contact.get('members') or []
             ]
             num = ', '.join([get_contact_name(contact) for contact in contacts])
 
