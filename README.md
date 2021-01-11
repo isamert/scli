@@ -9,13 +9,11 @@
 
 ## Limitations
 
-Not yet supported:
-- New (v2) groups ([#95](https://github.com/isamert/scli/issues/95))
-- Not supported by signal-cli:
-	- *Sending* read receipts for received messages ([#231](https://github.com/AsamK/signal-cli/issues/231), [#305](https://github.com/AsamK/signal-cli/issues/305))
-	- Message reactions ([#319](https://github.com/AsamK/signal-cli/issues/319))
-	- Quoting messages ([#151](https://github.com/AsamK/signal-cli/issues/151))
-	- Typing indicators
+Not yet supported by signal-cli:
+- *Sending* read receipts for received messages ([#231](https://github.com/AsamK/signal-cli/issues/231), [#305](https://github.com/AsamK/signal-cli/issues/305))
+- Message reactions ([#319](https://github.com/AsamK/signal-cli/issues/319))
+- Quoting messages ([#151](https://github.com/AsamK/signal-cli/issues/151))
+- Typing indicators
 
 
 # Installation
