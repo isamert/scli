@@ -1035,7 +1035,7 @@ class Commands:
 
     def send_notification(self, sender, message):
         if self.state.cfg.enable_notifications:
-            mk_call(self.state.cfg.notification_command, {'%s': sender, '%m': message})
+            mk_call(self.state.cfg.notification_command, {'%s': sender, '%m': message}, disown=True)
 
     def rename_contact(self, args):
         # :renameContact +NUMBER new name here  -> use +NUMBER number
