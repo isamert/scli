@@ -1365,7 +1365,7 @@ class ContactsWindow(urwid.ListBox):
                 return (0, contact_name.lower())
             return (-get_envelope_time(last_envelope), contact_name.lower())
 
-        if not self.state.cfg.group_contacts:
+        if not self.state.cfg.partition_contacts:
             return sorted(self.state.signal.contacts_map.values(), key=sorter)
         else:
             grps = sorted(self.state.signal.groups, key=sorter)
@@ -1394,7 +1394,7 @@ class ContactsWindow(urwid.ListBox):
                 if profile_name:
                     markup.append(('italic', ' ~' + profile_name))
 
-        if is_contact_group(contact) and not self.state.cfg.group_contacts:
+        if is_contact_group(contact) and not self.state.cfg.partition_contacts:
             markup.append(('italic', ' [GRP]'))
 
         return markup
@@ -1444,7 +1444,7 @@ class ContactsWindow(urwid.ListBox):
         contact_widget.original_widget.set_text(contact_widget_markup)
 
     def move_contact_top(self, w):
-        if self.state.cfg.group_contacts:
+        if self.state.cfg.partition_contacts:
             is_group = is_contact_group(w.contact)
             offset = 2 + (0 if is_group else (3 + len(self.state.signal.groups)))
         else:
@@ -1494,7 +1494,7 @@ class ContactsWindow(urwid.ListBox):
 
     def focus_prev(self, num=1):
         try:
-            if not self.state.cfg.group_contacts or self.focus_position > 2:
+            if not self.state.cfg.partition_contacts or self.focus_position > 2:
                 self.focus_position = self.focus_position - num
                 if not self.get_focused_contact():
                     self.focus_prev()
@@ -1503,7 +1503,7 @@ class ContactsWindow(urwid.ListBox):
 
     def focus_first(self):
         try:
-            if self.state.cfg.group_contacts:
+            if self.state.cfg.partition_contacts:
                 self.focus_position = 2
             else:
                 self.focus_position = 0
@@ -1547,7 +1547,7 @@ class LeftWindow(urwid.Frame):
 
         super().__init__(self._wcontacts, footer=None)
 
-        if not self.state.cfg.group_contacts:
+        if not self.state.cfg.partition_contacts:
             self.header = urwid.Pile([urwid.Text(btxt('Contacts'), align='center'), urwid.Divider('-')])
 
     def start_search(self):
@@ -2709,7 +2709,16 @@ def main():
     parser.add_argument(
         '--group-contacts',
         action='store_true',
-        help='Show groups and contacts seperately under the left pane. (Disabled by default)',
+        help=argparse.SUPPRESS,
+        # The option name can be confusing, e.g. in:
+        # https://github.com/isamert/scli/issues/95#issuecomment-757502271
+        # Keep for backwards compatiability, but don't show in `--help`. Use `--partition-contacts` instead.
+    )
+
+    parser.add_argument(
+        '--partition-contacts',
+       action='store_true',
+        help='Separate groups and individual contacts in the contacts list.',
     )
 
     parser.add_argument(
@@ -2744,6 +2753,8 @@ def main():
             setattr(cfg, key, int(val))
         else:
             setattr(cfg, key, val)
+    args.partition_contacts = args.partition_contacts or args.group_contacts
+    del args.__dict__['group_contacts']
     logging.info("scli %s", __version__)
 
     if args.subcommand == 'link':
