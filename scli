@@ -1088,7 +1088,11 @@ class Commands:
 
     def send_notification(self, sender, message):
         if self.state.cfg.enable_notifications:
-            callf(self.state.cfg.notification_command, {'%s': sender, '%m': message}, background=True)
+            rmap = {}
+            for token, text in (('%s', sender), ('%m', message)):
+                text = text.replace(r"'", r"'\''")
+                rmap[token] = text
+            callf(self.state.cfg.notification_command, rmap, background=False)
 
     def rename_contact(self, args):
         # :renameContact +NUMBER new name here  -> use +NUMBER number
