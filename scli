@@ -2549,8 +2549,22 @@ def detect_user_name():
             print("\tscli --username=" + u, file=sys.stderr)
         sys.exit(1)
 
+class CustomDefaultsHelpFormatter(argparse.ArgumentDefaultsHelpFormatter):
+    """Show default values in `--help` output for custom-set default values.
+
+    Modified `argparse.ArgumentDefaultsHelpFormatter` class that adds
+    `(default: %(default)s)`
+    to `--help` output, but not for the "implicit" defaults: `None` for `action=store` arguments (default `action` for `argparse.add_argument()`), and `True` for `action=store_true` arguments.
+    """
+    def _get_help_string(self, action):
+        if action.default in (None, False):
+            return action.help
+        return super()._get_help_string(action)
+
 def main():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+            formatter_class=CustomDefaultsHelpFormatter,
+    )
 
     parser.add_argument(
         '-l',
@@ -2566,9 +2580,7 @@ def main():
         '-c',
         '--config-file',
         default=SCLI_CFG_FILE,
-        help='Config file. Configs in this file overrides every other config supplied by command line. (Default: '
-        + SCLI_CFG_FILE
-        + ')',
+        help='Path to the config file. Arguments on the command line override settings in the file.',
     )
 
     parser.add_argument(
@@ -2588,14 +2600,14 @@ def main():
         '-N',
         '--notification-command',
         default="notify-send scli '%s - %m'",
-        help='The command to run when a new message arrives. %%m is replaced with the message, %%s is replaced with the sender. (Default is "notify-send scli \'%%s - %%m\'',
+        help='Command to run when a new message arrives. %%m is replaced with the message, %%s is replaced with the sender.',
     )
 
     parser.add_argument(
         '-o',
         '--open-command',
         default='xdg-open "%u"',
-        help='File/URL opener command. %%u is replaced with the path. (Default is "xdg-open %%u")',
+        help='File/URL opener command. %%u is replaced with the path.',
     )
 
     parser.add_argument(
@@ -2608,27 +2620,27 @@ def main():
     parser.add_argument(
         '-G',
         '--clipboard-get-command',
-        help='A command that returns a valid file path(s). When user calls `:attachClip` or `:c`, this command is executed and the returned file(s) will be added as attachment(s). The command should return one absolute file path per each line. (Default uses `xclip`)',
+        help='Command used by `:attachClip` to get a list of files to send as attachments. Should return one absolute file path per line. If not set, `xclip` is used.'
     )
 
     parser.add_argument(
         '-P',
         '--clipboard-put-command',
-        help='A command that puts given text to clipboard. %%s will be replaced with the text. (Default uses `xclip`.',
+        help='Command to put text on clipboard. %%s will be replaced with the text. If not set, `xclip` is used.',
     )
 
     parser.add_argument(
         '-s',
         '--save-history',
         action='store_true',
-        help='Enable saving history. History is saved as plain text. (Disabled by default.)',
+        help='Enable saving history. History is saved as plain text.',
     )
 
     parser.add_argument(
         '-f',
         '--use-formatting',
         action='store_true',
-        help='Use _italic_, *bold*, ~strikethrough~ formatting in messages. (Disabled by default.)',
+        help='Use _italic_, *bold*, ~strikethrough~ formatting in messages.',
     )
 
     parser.add_argument('-w', '--wrap-at', type=int, default=300, help='Wrap messages at given column.')
@@ -2636,13 +2648,13 @@ def main():
     parser.add_argument(
         '--one-sided',
         action='store_true',
-        help='Show messages aligned to one side in message list. (Disabled by default.)',
+        help='Left-align both sent and received messages',
     )
 
     parser.add_argument(
         '--show-names',
         action='store_true',
-        help='Show contact names even in message list even if it is one-to-one conversation. (Disabled by default.)',
+        help="Show contacts' names next to messages, even in one-to-one conversations.",
     )
 
     parser.add_argument(
@@ -2654,13 +2666,13 @@ def main():
     parser.add_argument(
         '--contacts-autohide',
         action='store_true',
-        help='Autohide the contacts pane when it loses focus. (Disabled by default)',
+        help='Autohide the contacts pane when it loses focus.',
     )
 
     parser.add_argument(
         '--contacts-sort-alpha',
         action='store_true',
-        help='Sort contacts alphabetically. (Default: sort by the most recent message)',
+        help='Sort contacts alphabetically. (default: sort by the most recent message)',
     )
 
     parser.add_argument('--no-daemon', action='store_true', help='Not really useful.')
