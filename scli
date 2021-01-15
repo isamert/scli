@@ -1178,7 +1178,7 @@ class Signal:
         if get_nested(envelope, 'syncMessage', 'sentMessage') is not None:
             urwid.emit_signal(self, 'send_message', envelope)
             urwid.emit_signal(self, 'sending_done', envelope)
-        elif envelope.get('dataMessage') is not None:
+        elif get_envelope_msg(envelope) or get_envelope_attachments(envelope):
             urwid.emit_signal(self, 'receive_message', envelope)
         elif envelope.get('receiptMessage') is not None:
             urwid.emit_signal(self, 'receive_receipt', envelope)
@@ -1426,9 +1426,6 @@ class ContactsWindow(urwid.ListBox):
         self.set_contact_widget_notify_count(self.focus, 0)
 
     def on_new_message(self, envelope):
-        if get_envelope_msg(envelope) is None and not get_envelope_attachments(envelope):
-            return
-
         contact_id = get_envelope_contact_id(envelope)
         contact = self.state.signal.get_contact(contact_id)
         contact_widget = self.contact_widgets_map.get(contact_id)
@@ -2153,14 +2150,11 @@ class State:
             self.delivery_status.set_group_members(msg_widget, group_members)
 
     def on_receive_message(self, envelope):
+        logging.info('MESSAGE:%s', envelope)
+
         msg = get_envelope_msg(envelope)
         sender = self.signal.get_envelope_contact(envelope)
         contact_name = get_contact_name(sender)
-
-        if msg is None:
-            logging.info('NOT_A_MESSAGE:%s', envelope)
-            return
-        logging.info('MESSAGE:%s', envelope)
 
         if sender != self.current_contact:
             notif = 'New message from ' + contact_name + ': "' + msg + '"'
