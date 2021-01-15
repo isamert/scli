@@ -53,7 +53,7 @@ SCLI_LOG_FILE = os.path.join(SCLI_DATA_FOLDER, 'log')
 # coloring stuff
 # #############################################################################
 
-# TODO: make costumizable
+# TODO: make customizable
 
 PALETTE = [
     ('normal', '', ''),
@@ -917,6 +917,7 @@ class Daemon(AsyncProc):
             else:
                 urwid_loop.set_alarm_in(POLL_FREQ, set_alarm)
         set_alarm(self._urwid_loop)
+
 
 
 # #############################################################################
