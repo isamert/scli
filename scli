@@ -2493,7 +2493,7 @@ def link_device(device_name):
     else:
         sys.exit('Encountered an error while linking: \n{}\n{}'.format(line, pipe_link.stderr.read()))
 
-    print('Scan the QR code with Signal app on your phone and wait for the linking process to finish. This may take a moment...')
+    print('Scan the QR code with Signal app on your phone and wait for the linking process to finish.\nYou might need to zoom out for the QR code to display properly.\nThis may take a moment...')
 
     pipe_link.wait()
     if pipe_link.returncode != 0:
@@ -2566,14 +2566,21 @@ def main():
             formatter_class=CustomDefaultsHelpFormatter,
     )
 
-    parser.add_argument(
-        '-l',
-        '--link',
-        nargs='?',
-        const='scli',
-        type=str,
-        metavar='CUSTOM_NAME',
-        help='Link a device. If you skip CUSTOM_NAME, device name will be registered as "scli".'
+
+    subparser = parser.add_subparsers(
+            description='Use `%(prog)s <subcommand> -h` for additional help.',
+            dest='subcommand',
+    )
+    parser_link = subparser.add_parser(
+            'link',
+            help='Link to an existing device.',
+            formatter_class=CustomDefaultsHelpFormatter,
+    )
+    parser_link.add_argument(
+            '-n',
+            '--name',
+            default='scli',
+            help='Device name that will be shown in "Linked devices" list on master device.',
     )
 
     parser.add_argument(
@@ -2681,10 +2688,6 @@ def main():
 
     cfg = parser.parse_args()
 
-    if cfg.link:
-        link_device(cfg.link)
-        sys.exit(0)
-
     file_cfg = parse_cfg_file(cfg.config_file)
     for key, val in file_cfg.items():
         attr = getattr(cfg, key)
@@ -2694,6 +2697,10 @@ def main():
             setattr(cfg, key, int(val))
         else:
             setattr(cfg, key, val)
+
+    if args.subcommand == 'link':
+        link_device(args.name)
+        sys.exit()
 
     if not os.path.exists(SCLI_DATA_FOLDER):
         try:

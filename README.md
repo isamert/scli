@@ -71,7 +71,7 @@ The following methods are supported by community and may be outdated.
 ## Registering or linking your device
 
 Before running `scli`, `signal-cli` needs to be registered with the signal servers. You can either register a [new device](https://github.com/AsamK/signal-cli/wiki/Quickstart#user-content-set-up-an-account), or [link](https://github.com/AsamK/signal-cli/wiki/Linking-other-devices-(Provisioning)) `signal-cli` with an already registered device (e.g. your phone).
-Linking can also be done with `scli --link`, see below.
+Linking can also be done with `scli link`, see below.
 See also: `signal-cli` [usage](https://github.com/AsamK/signal-cli#Usage), [man page](https://github.com/AsamK/signal-cli/blob/master/man/signal-cli.1.adoc), and [wiki](https://github.com/AsamK/signal-cli/wiki).
 
 After registering or linking, verify that the following commands work:
@@ -97,15 +97,15 @@ scli
 if you have put it on your system's `$PATH`, or specify the full `/path/to/executable/scli`.
 
 
-### Linking with `scli --link`
+### Linking with `scli link`
 
 Linking with an existing account can be done interactively with
 
 ```
-scli --link [new-device-name]
+scli link [--name DEVICE_NAME]
 ```
 
-and following instructions on the screen. The `new-device-name` is optional, `scli` is used by default.
+and following instructions on the screen. The `DEVICE_NAME` is optional, `scli` is used by default.
 
 This requires [pyqrcode](https://github.com/mnooner256/pyqrcode) package (available on [PyPI](https://pypi.org/project/PyQRCode/) and other [repositories](https://repology.org/project/python:pyqrcode/versions))
 
