@@ -882,6 +882,11 @@ class Daemon(AsyncProc):
                 "array:byte:" + b64_to_bytearray(group_id)]
         self.dbus_send_signal_cli(args, *proc_args, **proc_kwargs)
 
+    def get_signal_cli_version(self, callback, *args, **kwargs):
+        def proc_callback(proc):
+            callback(proc.output, *args, **kwargs)
+        self.run(['signal-cli', '--version'], callback=proc_callback)
+
     @property
     def is_dbus_service_running(self):
         args = [
@@ -2771,6 +2776,10 @@ def main():
         proc = state.signal.start_daemon()
         atexit.register(proc.kill)
         state.set_notification("Initializing signal-cli daemon... ")
+        if args.debug:
+            state.signal.daemon.get_signal_cli_version(
+                    callback=lambda ver: logging.info(ver)
+                    )
 
     loop.run()
 
