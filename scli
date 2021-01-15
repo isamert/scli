@@ -19,12 +19,12 @@ from subprocess import PIPE, Popen
 from datetime import datetime
 import base64
 import collections
+import shutil
 
 import urwid
 
 try:
     from urwid_readline import ReadlineEdit
-
     Edit = ReadlineEdit
 except ImportError:
     Edit = urwid.Edit
@@ -193,6 +193,17 @@ def get_version():
     if tag_re_match:
         return tag_re_match.group(1)
     return version_str.split(maxsplit=1)[0]   # commit hash
+
+def get_default_editor():
+    for env_var in ('VISUAL', 'EDITOR'):
+        ret = os.getenv(env_var)
+        if ret is not None:
+            return ret
+    for exe in ('sensible-editor', 'editor', 'nano', 'emacs', 'vi'):
+        ret = shutil.which(exe)
+        if ret is not None:
+            return ret
+    return ret
 
 
 PHONE_NUM_REGEX = re.compile('^\\+[1-9][0-9]{6,14}$')
@@ -2662,8 +2673,7 @@ def main():
     parser.add_argument(
         '-e',
         '--editor-command',
-        default='$EDITOR',
-        help='A text editor command to edit your messages externally.',
+        help='External text editor command. If not set, %(prog)s checks among `$VISUAL`, `$EDITOR`, `sensible-editor` etc.',
     )
 
     parser.add_argument(
@@ -2776,6 +2786,8 @@ def main():
             setattr(cfg, key, int(val))
         else:
             setattr(cfg, key, val)
+    if args.editor_command is None:
+        args.editor_command = get_default_editor()
     args.partition_contacts = args.partition_contacts or args.group_contacts
     del args.__dict__['group_contacts']
 
