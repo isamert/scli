@@ -2309,14 +2309,14 @@ class State:
                         return tuple(o)
                     raise
 
-        with open(SCLI_HISTORY_FILE, 'w') as history_file:
+        with open(self.cfg.save_history, 'w') as history_file:
             json.dump(items, history_file, ensure_ascii=False, cls=JSONSetEncoder)
 
     def load_history(self):
-        if not self.cfg.save_history or not os.path.exists(SCLI_HISTORY_FILE):
+        if not self.cfg.save_history or not os.path.exists(self.cfg.save_history):
             return
 
-        with open(SCLI_HISTORY_FILE, 'r') as history_file:
+        with open(self.cfg.save_history, 'r') as history_file:
             history = json.load(history_file)
 
         self.delivery_status.load(history.get('delivery_status', {}))
@@ -2681,8 +2681,11 @@ def main():
     parser.add_argument(
         '-s',
         '--save-history',
-        action='store_true',
-        help='Enable saving history. History is saved as plain text.',
+        nargs='?',
+        const=SCLI_HISTORY_FILE,
+        default=False,
+        metavar='HISTORY_FILE',
+        help='Enable conversations history. History is saved in plain text. (default %(metavar)s: %(const)s)',
     )
 
     parser.add_argument(

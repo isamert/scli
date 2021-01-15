@@ -169,7 +169,7 @@ enable-notifications=true
 
 ## History
 
-Conversations history can be enabled with `--save-history` or `-s` flag. The file is saved in plain text to `~/.local/share/scli/history`.
+Conversations history can be enabled with `--save-history` or `-s` flag. If enabled, the file is saved in plain text (to `~/.local/share/scli/history` by default).
 
 
 # Similar projects
