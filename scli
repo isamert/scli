@@ -129,33 +129,28 @@ def get_urls(txt):
     return re.findall(r'(https?://[^\s]+)', txt)
 
 
-def mk_call(cmd, rmap=None, disown=False, use_pipe=True):
-    if not rmap:
-        rmap = {}
+def callf(cmd, rmap=None, background=False, capture_output=True, shell=False):
+    if rmap:
+        for key, val in rmap.items():
+            cmd = cmd.replace(key, val)
 
-    for key, val in rmap.items():
-        cmd = cmd.replace(key, val)
+    if not shell:
+        cmd = shlex.split(cmd)
+    logging.info('callf: `%s`', cmd)
 
-    if disown:
-        with open(os.devnull, 'w') as f:
-            subprocess.Popen(cmd, shell=True, stdout=f, stderr=f, preexec_fn=os.setpgrp)
-    else:
-        if use_pipe:
-            pipe = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        else:
-            pipe = subprocess.Popen(cmd, shell=True)
+    if background:
+        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=shell)
+        return proc
 
-        out, err = pipe.communicate()
-        logging.info('mk_call:%s', cmd)
-        try:
-            if pipe.returncode == 0:
-                logging.info('mk_call:exit_0:%s', out.decode('utf-8'))
-            else:
-                logging.critical('mk_call:exit_%d:%s', pipe.returncode, err.decode('utf-8'))
-        except AttributeError:
-            pass
+    proc = subprocess.run(cmd, capture_output=capture_output, shell=shell, text=True)
 
-        return out
+    if proc.returncode != 0:
+        logging.error('callf: exit code: %d, stderr: %s', proc.args, proc.returncode, proc.stderr)
+    elif proc.stdout:
+        logging.info('callf: %s', proc.stdout)
+
+    return proc
+
 
 def get_prog_dir():
     return os.path.dirname(os.path.realpath(__file__))
@@ -673,7 +668,7 @@ class clip:
         if cmd is None:
             return clip.xput(txt)
 
-        return mk_call(cmd, {'%s': txt})
+        return callf(cmd, {'%s': txt})
 
     @staticmethod
     def files(state):
@@ -681,7 +676,7 @@ class clip:
         if cmd is None:
             return clip.xfiles()
 
-        return mk_call(cmd).split('\n')
+        return callf(cmd).split('\n')
 
 
 # #############################################################################
@@ -986,8 +981,8 @@ class Commands:
                 msg_file.write(*message)
 
         self.state.loop.stop()
-        mk_call(self.state.cfg.editor_command + " " + shlex.quote(msg_file_path), use_pipe=False)
-        print('Please wait...')
+        cmd = self.state.cfg.editor_command + " " + shlex.quote(msg_file_path)
+        callf(cmd, capture_output=False)
         self.state.loop.start()
 
         with open(msg_file_path, 'r') as msg_file:
@@ -1018,8 +1013,8 @@ class Commands:
     def open_file(self, path):
         if os.path.exists(path):
             if isinstance(path, dict):
-                mk_call(self.state.cfg.open_command, path, True)
-            mk_call(self.state.cfg.open_command, {'%u': path}, True)
+                callf(self.state.cfg.open_command, path, background=True)
+            callf(self.state.cfg.open_command, {'%u': path}, background=True)
 
     def attach(self, args):
         if self.state.current_contact is None:
@@ -1065,7 +1060,7 @@ class Commands:
         txt = get_envelope_msg(envelope)
         urls = get_urls(txt)
         if urls:
-            mk_call(self.state.cfg.open_command, {'%u': urls[0]}, True)
+            callf(self.state.cfg.open_command, {'%u': urls[0]}, background=True)
             return True
 
         return False
@@ -1093,7 +1088,7 @@ class Commands:
 
     def send_notification(self, sender, message):
         if self.state.cfg.enable_notifications:
-            mk_call(self.state.cfg.notification_command, {'%s': sender, '%m': message}, disown=True)
+            callf(self.state.cfg.notification_command, {'%s': sender, '%m': message}, background=True)
 
     def rename_contact(self, args):
         # :renameContact +NUMBER new name here  -> use +NUMBER number
