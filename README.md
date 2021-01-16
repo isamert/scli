@@ -11,9 +11,9 @@
 
 Not yet supported by signal-cli:
 - *Sending* read receipts for received messages ([#231](https://github.com/AsamK/signal-cli/issues/231), [#305](https://github.com/AsamK/signal-cli/issues/305))
+- Message quoting ([#213](https://github.com/AsamK/signal-cli/issues/213), [#151](https://github.com/AsamK/signal-cli/issues/151))
 - Message reactions ([#319](https://github.com/AsamK/signal-cli/issues/319))
-- Quoting messages ([#151](https://github.com/AsamK/signal-cli/issues/151))
-- Typing indicators
+- Typing indicators ([#423](https://github.com/AsamK/signal-cli/issues/423))
 
 
 # Installation
