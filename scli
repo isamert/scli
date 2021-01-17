@@ -1623,6 +1623,9 @@ class BracketedPasteEdit(Edit):
             self._paste_mode_on = False
         elif key == 'enter' and not (self._multiline_arg or self._paste_mode_on):
             return key
+        elif key == 'meta enter':
+            # Allow inserting new lines with Alt+Enter. This is not a part of "bracketed mode paste" functionality.
+            return super().keypress(size, 'enter')
         else:
             return super().keypress(size, key)
 
