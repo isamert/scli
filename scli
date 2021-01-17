@@ -1609,6 +1609,23 @@ class LeftWindow(urwid.Frame):
 # ChatWindow
 # #############################################################################
 
+class BracketedPasteEdit(Edit):
+    def __init__(self, *args, multiline=False, **kwargs):
+        super().__init__(*args, multiline=True, **kwargs)
+        # Using `multiline=True` in super() and then passing on 'enter' keypress to it. A nicer alternative would be to pass '\n', but Edit does not handle it.
+        self._multiline_arg = multiline
+        self._paste_mode_on = False
+
+    def keypress(self, size, key):
+        if key == 'begin paste':
+            self._paste_mode_on = True
+        elif key == 'end paste':
+            self._paste_mode_on = False
+        elif key == 'enter' and not (self._multiline_arg or self._paste_mode_on):
+            return key
+        else:
+            return super().keypress(size, key)
+
 
 class ChatWindow(urwid.Frame):
     def __init__(self, state):
@@ -1620,7 +1637,7 @@ class ChatWindow(urwid.Frame):
 
         self._wsearch = urwid.ListBox(self.search_list)
         self._wtitle = urwid.Text('')
-        self._wline = Edit(('bold', '> '))
+        self._wline = BracketedPasteEdit(('bold', '> '))
         self._wdiv = urwid.Divider('-')
         self._wlist = urwid.ListBox([])
 
@@ -2532,6 +2549,15 @@ class DeliveryStatus:
 # main
 # #############################################################################
 
+class BracketedPasteMode:
+    """Context manager for enabling/disabling bracketed paste mode."""
+    # Same as tdryer's code
+    # https://github.com/urwid/urwid/issues/119#issuecomment-761424363
+    def __enter__(self):
+        sys.stdout.write('\x1b[?2004h')
+    def __exit__(self, exc_type, exc_value, traceback):
+        sys.stdout.write('\x1b[?2004l')
+
 def link_device(device_name):
     try:
         import pyqrcode
@@ -2855,7 +2881,8 @@ def main():
                     callback=lambda ver: logging.info(ver)
                     )
 
-    loop.run()
+    with BracketedPasteMode():
+        loop.run()
 
 
 __version__ = get_version()
