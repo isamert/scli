@@ -787,13 +787,19 @@ class AsyncProc:
 
 class Daemon(AsyncProc):
 
-    def start(self, username, envelope_handler):
+    def start(self, username, envelope_handler, error_handler):
         self._envelope_handler = envelope_handler
+        self._error_handler = error_handler
         self._buffer = b''
 
         stdout_fd = self._urwid_loop.watch_pipe(self._daemon_handler)
         stderr_fd = self._urwid_loop.watch_pipe(self._daemon_stderr_handler)
-        return Popen(['signal-cli', '-u', username, 'daemon', '--json'], stdout=stdout_fd, stderr=stderr_fd, close_fds=True)
+        cmd_args = ['signal-cli', '-u', username, 'daemon', '--json']
+        try:
+            proc = Popen(cmd_args, stdout=stdout_fd, stderr=stderr_fd, close_fds=True)
+        except FileNotFoundError:
+            sys.exit(f"Error: could not find `{cmd_args[0]}` executable. Make sure it is on system path.")
+        return proc
 
     def _daemon_handler(self, line):
         line = self._buffer + line
@@ -823,6 +829,7 @@ class Daemon(AsyncProc):
         if not line:
             return
         logging.error('stderr: %s', line)
+        self._error_handler(line)
 
     def dbus_send(self, args, *proc_args, async_proc=True, **proc_kwargs):
         args = [
@@ -920,8 +927,14 @@ class Daemon(AsyncProc):
             if self.is_dbus_service_running:
                 callback()
             else:
-                urwid_loop.set_alarm_in(POLL_FREQ, set_alarm)
+                self._alarm_handle = urwid_loop.set_alarm_in(POLL_FREQ, set_alarm)
         set_alarm(self._urwid_loop)
+
+    def stop_checking_dbus_service(self):
+        try:
+            self._urwid_loop.remove_alarm(self._alarm_handle)
+        except AttributeError:
+            pass
 
 
 
@@ -1159,7 +1172,7 @@ class Commands:
 
 
 class Signal:
-    signals = ['receive_message', 'send_message', 'sending_done', 'receive_receipt', 'daemon_started', 'groups_updated']
+    signals = ['receive_message', 'send_message', 'sending_done', 'receive_receipt', 'daemon_started', 'groups_updated', 'daemon_error']
 
     def __init__(self, user):
         self.user = user
@@ -1181,7 +1194,7 @@ class Signal:
             self._set_v2_groups_info_async_watch()
             urwid.emit_signal(self, 'daemon_started')
         self.daemon.run_when_dbus_service_started(on_daemon_started)
-        return self.daemon.start(self.user, self.envelope_handler)
+        return self.daemon.start(self.user, self.envelope_handler, self.error_handler)
 
     def envelope_handler(self, envelope):
         if get_nested(envelope, 'syncMessage', 'sentMessage') is not None:
@@ -1193,6 +1206,11 @@ class Signal:
             urwid.emit_signal(self, 'receive_receipt', envelope)
         else:
             logging.info('NOT_A_MESSAGE:%s', envelope)
+
+    def error_handler(self, stderr_line):
+        if stderr_line.startswith("ERR"):
+            self.daemon.stop_checking_dbus_service()
+            urwid.emit_signal(self, 'daemon_error', stderr_line)
 
     def reload(self):
         with open(self._path) as f:
@@ -2072,6 +2090,7 @@ class State:
         urwid.connect_signal(self.signal, 'sending_done', self.on_sending_done)
         urwid.connect_signal(self.signal, 'daemon_started', self.on_daemon_started)
         urwid.connect_signal(self.signal, 'groups_updated', self._update_contacts)
+        urwid.connect_signal(self.signal, 'daemon_error', self.on_daemon_error)
 
     def reload(self):
         self.signal.reload()
@@ -2089,6 +2108,10 @@ class State:
         def clear_status_line(*_args):
             self.set_notification("")
         self.loop.set_alarm_in(2, clear_status_line)
+
+    def on_daemon_error(self, stderr_line):
+        if not self.signal.daemon.is_dbus_service_running:
+            self.set_notification(["ERROR: signal-cli daemon has stopped:\n   ", stderr_line, "\nRestart scli to restart the daemon."])
 
     def set_current_contact(self, contact, focus=False):
         old = self.current_contact
