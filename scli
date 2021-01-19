@@ -2628,13 +2628,6 @@ def make_arg_parser():
     )
 
     parser.add_argument(
-        '-n',
-        '--enable-notifications',
-        action='store_true',
-        help='Enable desktop notifications. (Also see --notification-command)',
-    )
-
-    parser.add_argument(
         '-u',
         '--username',
         help='Phone number starting with "+" followed by country code. If not given, %(prog)s will look for an existing profile in signal-cli\'s data dir.'
@@ -2686,6 +2679,13 @@ def make_arg_parser():
         '--log-file',
         default=SCLI_LOG_FILE,
         help='Path to the log file. If not explicitly specified, logs are written only if `--debug` or `--save-history` are on.',
+    )
+
+    parser.add_argument(
+        '-n',
+        '--enable-notifications',
+        action='store_true',
+        help='Enable desktop notifications. (Also see --notification-command)',
     )
 
     parser.add_argument(
