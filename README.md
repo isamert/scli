@@ -29,7 +29,7 @@ or download a [release](https://github.com/isamert/scli/releases).
 
 ### Dependencies
 
-- [`signal-cli`](https://github.com/AsamK/signal-cli) `>=v0.6.8`. (Latest tested `v0.7.2`)
+- [`signal-cli`](https://github.com/AsamK/signal-cli) `>=v0.6.8`. (Latest tested `v0.7.4`)
 
 	Download and unpack a [release](https://github.com/AsamK/signal-cli/releases), and place the `signal-cli` executable somewhere on the `$PATH`.
 
