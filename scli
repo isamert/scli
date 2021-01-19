@@ -622,7 +622,7 @@ class clip:
     @staticmethod
     def put(state, txt):
         cmd = state.cfg.clipboard_put_command
-        if cmd == "":
+        if cmd is None:
             return clip.xput(txt)
 
         return mk_call(cmd, {'%s': txt})
@@ -630,7 +630,7 @@ class clip:
     @staticmethod
     def files(state):
         cmd = state.cfg.clipboard_get_command
-        if cmd == "":
+        if cmd is None:
             return clip.xfiles()
 
         return mk_call(cmd).split('\n')
@@ -912,6 +912,10 @@ class Commands:
     def external_edit(self, *args):
         if self.state.current_contact is None:
             self.state.set_error(":edit Error: no contact currently selected")
+            return
+
+        if self.state.cfg.editor_command is None:
+            self.state.set_error(":edit Error: no command for external editor set")
             return
 
         filename = ''
@@ -2561,27 +2565,28 @@ def main():
     parser.add_argument(
         '-c',
         '--config-file',
-        type=str,
         default=SCLI_CFG_FILE,
         help='Config file. Configs in this file overrides every other config supplied by command line. (Default: '
         + SCLI_CFG_FILE
         + ')',
     )
 
-    parser.add_argument('-u', '--username', type=str, help='Phone number starting with "+" followed by country code.')
-
     parser.add_argument(
         '-n',
         '--enable-notifications',
-        default=False,
         action='store_true',
         help='Enable desktop notifications. (Also see --notification-command)',
     )
 
     parser.add_argument(
+        '-u',
+        '--username',
+        help='Phone number starting with "+" followed by country code. If not given, %(prog)s will look for an existing profile in signal-cli\'s data dir.'
+    )
+
+    parser.add_argument(
         '-N',
         '--notification-command',
-        type=str,
         default="notify-send scli '%s - %m'",
         help='The command to run when a new message arrives. %%m is replaced with the message, %%s is replaced with the sender. (Default is "notify-send scli \'%%s - %%m\'',
     )
@@ -2589,7 +2594,6 @@ def main():
     parser.add_argument(
         '-o',
         '--open-command',
-        type=str,
         default='xdg-open "%u"',
         help='File/URL opener command. %%u is replaced with the path. (Default is "xdg-open %%u")',
     )
@@ -2597,7 +2601,6 @@ def main():
     parser.add_argument(
         '-e',
         '--editor-command',
-        type=str,
         default='$EDITOR',
         help='A text editor command to edit your messages externally.',
     )
@@ -2605,23 +2608,18 @@ def main():
     parser.add_argument(
         '-G',
         '--clipboard-get-command',
-        type=str,
-        default="",
         help='A command that returns a valid file path(s). When user calls `:attachClip` or `:c`, this command is executed and the returned file(s) will be added as attachment(s). The command should return one absolute file path per each line. (Default uses `xclip`)',
     )
 
     parser.add_argument(
         '-P',
         '--clipboard-put-command',
-        type=str,
-        default="",
         help='A command that puts given text to clipboard. %%s will be replaced with the text. (Default uses `xclip`.',
     )
 
     parser.add_argument(
         '-s',
         '--save-history',
-        default=False,
         action='store_true',
         help='Enable saving history. History is saved as plain text. (Disabled by default.)',
     )
@@ -2629,7 +2627,6 @@ def main():
     parser.add_argument(
         '-f',
         '--use-formatting',
-        default=False,
         action='store_true',
         help='Use _italic_, *bold*, ~strikethrough~ formatting in messages. (Disabled by default.)',
     )
@@ -2638,35 +2635,30 @@ def main():
 
     parser.add_argument(
         '--one-sided',
-        default=False,
         action='store_true',
         help='Show messages aligned to one side in message list. (Disabled by default.)',
     )
 
     parser.add_argument(
         '--show-names',
-        default=False,
         action='store_true',
         help='Show contact names even in message list even if it is one-to-one conversation. (Disabled by default.)',
     )
 
     parser.add_argument(
         '--group-contacts',
-        default=False,
         action='store_true',
         help='Show groups and contacts seperately under the left pane. (Disabled by default)',
     )
 
     parser.add_argument(
         '--contacts-autohide',
-        default=False,
         action='store_true',
         help='Autohide the contacts pane when it loses focus. (Disabled by default)',
     )
 
     parser.add_argument(
         '--contacts-sort-alpha',
-        default=False,
         action='store_true',
         help='Sort contacts alphabetically. (Default: sort by the most recent message)',
     )
