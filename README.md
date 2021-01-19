@@ -154,17 +154,19 @@ There is a built-in search feature. Simply hit `/` while you are on the chat win
 For searching through contacts, you need to hit `/` while you are on the contacts window and start typing, contacts will be filtered out while you are typing. Hit `enter` to focus the results. Hitting `Esc` will clear the search.
 
 ## Configuration
-There are some simple configuration options. You can either pass them as command-line arguments or add them to your configuration file. Run `scli --help` to see options. Configuration file syntax is also pretty easy. Lines starting with `#` and empty lines are ignored, other lines are `key=value` pairs.
+There are some simple configuration options. You can either pass them as command-line arguments or add them to your configuration file. Run `scli --help` to see all options. 
+
+Configuration file syntax is also pretty easy. Lines starting with `#` and empty lines are ignored, other lines are `key = value` pairs. Optional arguments (flags) like `--debug`, can be enabled in config file with any of: `true`, `t`, `yes`, `y` (with any capitalization, case insensitive).
 
 ### Example
 ```sh
-scli -u +1234567890 --enable-notifications=true
+scli -u +1234567890 --enable-notifications
 ```
 Configuration file equivalent of this command is:
 ```ini
-# Long option forms are used in config file. (u=+123... is not valid.)
-username=+1234567890
-enable-notifications=true
+# Long option forms are used in config file. (u = +123... is not valid.)
+username = +1234567890
+enable-notifications = true
 ```
 
 ## History

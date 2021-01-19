@@ -2567,21 +2567,6 @@ def link_device(device_name):
     print('Done.')
     sys.exit(0)
 
-def parse_cfg_file(cfg_file_path):
-    vars = {}
-    cfg_file_path = os.path.expanduser(cfg_file_path)
-    if os.path.exists(cfg_file_path):
-        with open(cfg_file_path) as cfg_file:
-            for line in cfg_file:
-                if not line.startswith('#') and line.strip() != "":
-                    name, var = line.partition("=")[::2]
-                    vars[name.strip().replace('-', '_')] = var.strip()
-    elif cfg_file_path != SCLI_CFG_FILE and cfg_file_path != "":
-        print('Given config file not found: ' + cfg_file_path, file=sys.stderr)
-        sys.exit(2)
-
-    return vars
-
 def detect_user_name():
     ulist = []
     for folder in [SIGNALCLI_DATA_FOLDER, SIGNALCLI_LEGACY_DATA_FOLDER]:
@@ -2614,11 +2599,10 @@ class CustomDefaultsHelpFormatter(argparse.ArgumentDefaultsHelpFormatter):
             return action.help
         return super()._get_help_string(action)
 
-def main():
+def make_arg_parser():
     parser = argparse.ArgumentParser(
             formatter_class=CustomDefaultsHelpFormatter,
     )
-
 
     subparser = parser.add_subparsers(
             description='Use `%(prog)s <subcommand> -h` for additional help.',
@@ -2770,26 +2754,69 @@ def main():
         help='Verbose log output.',
     )
 
-    cfg = parser.parse_args()
     parser.add_argument(
             '--version',
             action='version',
             version='%(prog)s ' + __version__
     )
 
-    file_cfg = parse_cfg_file(cfg.config_file)
-    for key, val in file_cfg.items():
-        attr = getattr(cfg, key)
-        if isinstance(attr, bool):
-            setattr(cfg, key, val.lower() in ['true', 't', 'yes', 'y'])
-        elif isinstance(attr, int):
-            setattr(cfg, key, int(val))
+    return parser
+
+def get_cfg_file_args(file_obj):
+    # Alternatively, can override `ArgumentParser.convert_arg_line_to_args()`
+    ret = {}
+    for line in file_obj:
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        name, _, val = line.partition("=")
+        ret[name.strip()] = val.strip()
+    return ret
+
+def parse_cfg_file(parser, cli_args):
+    cfg_file_path = os.path.expanduser(cli_args.config_file)
+    try:
+        with open(cfg_file_path) as cfg_f:
+            cfg_f_args_dict = get_cfg_file_args(cfg_f)
+    except FileNotFoundError:
+        if cli_args.config_file == parser.get_default('config_file'):
+            return cli_args
+        sys.exit("Config file not found: " + cfg_file_path)
+
+    args_list = []
+    for arg_name, arg_val in cfg_f_args_dict.items():
+        try:
+            cli_arg_val = getattr(cli_args, arg_name.replace('-', '_'))
+        except AttributeError:
+            logging.error("Error while parsing config file: unrecognized argument: %s", arg_name)
+            continue
+        arg_name = '--' + arg_name
+        if isinstance(cli_arg_val, bool):
+            if arg_val.lower() in ('true', 't', 'yes', 'y'):
+                args_list.append(arg_name)
         else:
-            setattr(cfg, key, val)
+            args_list.extend((arg_name, arg_val))
+    # Need to actually parse the arguments (rather then simply updating args.__dict__), so that the `type`s would be set correctly.
+    cfg_file_args = parser.parse_args(args_list)
+    parser.parse_args(namespace=cfg_file_args)
+    return cfg_file_args
+
+def parse_args():
+    parser = make_arg_parser()
+    args = parser.parse_args()
+    if args.config_file:
+        args = parse_cfg_file(parser, args)
     if args.editor_command is None:
         args.editor_command = get_default_editor()
+    if not args.username:
+        args.username = detect_user_name()
     args.partition_contacts = args.partition_contacts or args.group_contacts
     del args.__dict__['group_contacts']
+    return args
+
+
+def main():
+    args = parse_args()
 
     if args.debug:
         logging.basicConfig(filename=args.log_file, level=logging.DEBUG)
@@ -2811,17 +2838,13 @@ def main():
                 print("Can't create data directory.", file=sys.stderr)
                 sys.exit(3)
 
-
-    if not cfg.username:
-        cfg.username = detect_user_name()
-
-    state = State(ObservableConfig(cfg))
+    state = State(ObservableConfig(args))
     window = MainWindow(state)
 
     loop = urwid.MainLoop(window, palette=PALETTE)
     state.loop = state.signal.daemon._urwid_loop = loop
 
-    if not cfg.no_daemon:
+    if not args.no_daemon:
         proc = state.signal.start_daemon()
         atexit.register(proc.kill)
         state.set_notification("Initializing signal-cli daemon... ")
