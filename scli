@@ -2701,7 +2701,13 @@ def main():
         help='Use _italic_, *bold*, ~strikethrough~ formatting in messages.',
     )
 
-    parser.add_argument('-w', '--wrap-at', type=int, default=300, help='Wrap messages at given column.')
+    parser.add_argument(
+        '-w',
+        '--wrap-at',
+        type=int,
+        default=300,
+        help='Wrap message lines longer then this value',
+    )
 
     parser.add_argument(
         '--one-sided',
@@ -2742,9 +2748,17 @@ def main():
         help='Sort contacts alphabetically. (default: sort by the most recent message)',
     )
 
-    parser.add_argument('--no-daemon', action='store_true', help='Not really useful.')
+    parser.add_argument(
+        '--no-daemon',
+        action='store_true',
+        help='Do not start signal-cli daemon. Only useful for debugging scli.',
+    )
 
-    parser.add_argument('--debug', default=False, action='store_true')
+    parser.add_argument(
+        '--debug',
+        action='store_true',
+        help='Verbose log output.',
+    )
 
     cfg = parser.parse_args()
     parser.add_argument(
