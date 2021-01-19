@@ -2689,6 +2689,12 @@ def main():
     )
 
     parser.add_argument(
+        '--log-file',
+        default=SCLI_LOG_FILE,
+        help='Path to the log file. If not explicitly specified, logs are written only if `--debug` or `--save-history` are on.',
+    )
+
+    parser.add_argument(
         '-f',
         '--use-formatting',
         action='store_true',
@@ -2758,6 +2764,13 @@ def main():
             setattr(cfg, key, val)
     args.partition_contacts = args.partition_contacts or args.group_contacts
     del args.__dict__['group_contacts']
+
+    if args.debug:
+        logging.basicConfig(filename=args.log_file, level=logging.DEBUG)
+    elif args.save_history or args.log_file != SCLI_LOG_FILE:
+        logging.basicConfig(filename=args.log_file, level=logging.WARNING)
+    else:
+        logging.disable()
     logging.info("scli %s", __version__)
 
     if args.subcommand == 'link':
@@ -2772,10 +2785,6 @@ def main():
                 print("Can't create data directory.", file=sys.stderr)
                 sys.exit(3)
 
-    if cfg.debug:
-        logging.basicConfig(filename=SCLI_LOG_FILE, level=logging.DEBUG)
-    else:
-        logging.basicConfig(filename=SCLI_LOG_FILE, level=logging.CRITICAL)
 
     if not cfg.username:
         cfg.username = detect_user_name()
