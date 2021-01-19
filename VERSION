@@ -1,0 +1,11 @@
+$Format:%h %d$
+
+
+# The format string above is expanded with values during the execution of
+# 	git archive
+# if the `export-subst` "hook" is in `.gitattributes`.
+# This is what GitHub appears to do when creating a release.
+# Format tokens (`%..`) are replaced like those for
+# 	git log --format=format:"..."
+# See
+# 	https://git-scm.com/docs/pretty-formats

@@ -157,6 +157,43 @@ def mk_call(cmd, rmap=None, disown=False, use_pipe=True):
 
         return out
 
+def get_prog_dir():
+    return os.path.dirname(os.path.realpath(__file__))
+
+
+def get_version():
+    """Get this program's version.
+
+    Based on either `git describe`, or, if not available (e.g. for a release downloaded without the `.git` dir), use VERSION file populated during the creation of the release.
+    Does not output the leading `v` if it's present in git tag's name.
+    """
+
+    # Do not use `logging` in this function, as it's called before logging.basicConfig().
+    prog_dir = get_prog_dir()
+    git_dir = os.path.join(prog_dir, '.git')
+    git_cmd = ['git', '--git-dir', git_dir, 'describe']
+    try:
+        proc = subprocess.run(git_cmd, capture_output=True, check=True, text=True)
+        return proc.stdout.strip('v\n')
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        pass
+
+    version_file_path = os.path.join(prog_dir, 'VERSION')
+    # Assumes VERSION file is formatted with `$Format:%h %d$`
+    try:
+        with open(version_file_path) as f:
+            version_str = f.readline()
+    except OSError:
+        return "?"
+    if version_str.startswith('$'):
+        # Neither a release, nor is there a `.git` dir (e.g. manually dl'ed blob)
+        return "?"
+    TAG_RE = re.compile(r"tag: v(.+?)[,)]")
+    tag_re_match = TAG_RE.search(version_str)
+    if tag_re_match:
+        return tag_re_match.group(1)
+    return version_str.split(maxsplit=1)[0]   # commit hash
+
 
 PHONE_NUM_REGEX = re.compile('^\\+[1-9][0-9]{6,14}$')
 # https://github.com/signalapp/libsignal-service-java/blob/master/java/src/main/java/org/whispersystems/signalservice/api/util/PhoneNumberFormatter.java
@@ -2687,6 +2724,11 @@ def main():
     parser.add_argument('--debug', default=False, action='store_true')
 
     cfg = parser.parse_args()
+    parser.add_argument(
+            '--version',
+            action='version',
+            version='%(prog)s ' + __version__
+    )
 
     file_cfg = parse_cfg_file(cfg.config_file)
     for key, val in file_cfg.items():
@@ -2697,6 +2739,7 @@ def main():
             setattr(cfg, key, int(val))
         else:
             setattr(cfg, key, val)
+    logging.info("scli %s", __version__)
 
     if args.subcommand == 'link':
         link_device(args.name)
@@ -2731,6 +2774,8 @@ def main():
 
     loop.run()
 
+
+__version__ = get_version()
 
 if __name__ == "__main__":
     main()
