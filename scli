@@ -1479,8 +1479,11 @@ class ContactsWindow(urwid.ListBox):
 
     def move_contact_top(self, w):
         if self.state.cfg.partition_contacts:
-            is_group = is_contact_group(w.contact)
-            offset = 2 + (0 if is_group else (3 + len(self.state.signal.groups)))
+            if is_contact_group(w.contact):
+                offset = 2
+            else:
+                txt_ws = [getattr(w.base_widget, "text", "") for w in self.body]
+                offset = 2 + txt_ws.index('~~ Contacts ~~')
         else:
             offset = 0
 
