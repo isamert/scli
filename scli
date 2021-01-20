@@ -1316,14 +1316,27 @@ class Signal:
                 if attachment.startswith(os.path.join(tempfile.gettempdir(), clip.tempfile_prefix)):
                     os.remove(attachment)
 
+            timestamp_adj = None
             # Check if send command succeeded
             if proc.returncode != 0:
-                urwid.emit_signal(self, 'sending_done', envelope, 'send_failed')
-                return
+                # If group has some members with deleted accounts, some of the envelopes may fail to deliver
+                if is_group and 'Unregistered user' in proc.output:
+                    output_lines = proc.output.strip().rsplit('\n')
+                    member_count = len(contact['members'])
+                    failed_count = len(output_lines) - 2 # 2 lines for error explanation, rest are failed numbers
+                    if member_count > failed_count:
+                        timestamp_adj = int(output_lines[0].rsplit(':')[1])
+                        logging.warning('send_message: Failed to send %s people out of %s. Timestamp: %s', failed_count, member_count, timestamp_adj)
+                    else:
+                        return urwid.emit_signal(self, 'sending_done', envelope, 'send_failed')
+                else:
+                    return urwid.emit_signal(self, 'sending_done', envelope, 'send_failed')
+
 
             # Set envelope timestamp to that returned by signal-cli
             try:
-                timestamp_adj = int(proc.output.rsplit(maxsplit=1)[1])
+                if timestamp_adj == None:
+                    timestamp_adj = int(proc.output.rsplit(maxsplit=1)[1])
             except Exception as e:
                 logging.error("send_message: Failed to get adjusted envelope timestamp")
                 logging.exception(e)
