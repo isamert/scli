@@ -930,14 +930,6 @@ class Daemon(AsyncProc):
                 self._alarm_handle = urwid_loop.set_alarm_in(POLL_FREQ, set_alarm)
         set_alarm(self._urwid_loop)
 
-    def stop_checking_dbus_service(self):
-        try:
-            self._urwid_loop.remove_alarm(self._alarm_handle)
-        except AttributeError:
-            pass
-
-
-
 # #############################################################################
 # commands
 # #############################################################################
@@ -1189,11 +1181,6 @@ class Signal:
         self.reload()
 
     def start_daemon(self):
-        def on_daemon_started():
-            logging.info("signal-cli dbus service started")
-            self._set_v2_groups_info_async_watch()
-            urwid.emit_signal(self, 'daemon_started')
-        self.daemon.run_when_dbus_service_started(on_daemon_started)
         return self.daemon.start(self.user, self.envelope_handler, self.daemon_log_handler)
 
     def envelope_handler(self, envelope):
@@ -1209,6 +1196,12 @@ class Signal:
 
     def daemon_log_handler(self, log_line):
         urwid.emit_signal(self, 'daemon_log', log_line)
+        if log_line == "INFO DaemonCommand - Exported dbus object: /org/asamk/Signal":
+            def on_daemon_started():
+                logging.info("signal-cli dbus service started")
+                self._set_v2_groups_info_async_watch()
+                urwid.emit_signal(self, 'daemon_started')
+            self.daemon.run_when_dbus_service_started(on_daemon_started)
 
     def reload(self):
         with open(self._path) as f:
@@ -2127,7 +2120,6 @@ class State:
 
     def on_daemon_log(self, log_line):
         if log_line.startswith("ERROR") and not self.signal.daemon.is_dbus_service_running:
-            self.signal.daemon.stop_checking_dbus_service()
             self.set_notification(["signal-cli daemon has stopped:\n   ", log_line, "\nRestart scli to restart the daemon."])
 
     def set_current_contact(self, contact, focus=False):
