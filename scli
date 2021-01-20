@@ -2861,6 +2861,11 @@ def parse_cfg_file(parser, cli_args):
 def parse_args():
     parser = make_arg_parser()
     args = parser.parse_args()
+
+    if args.subcommand == 'link':
+        link_device(args.name)
+        sys.exit()
+
     if args.config_file:
         args = parse_cfg_file(parser, args)
     if args.editor_command is None:
@@ -2882,10 +2887,6 @@ def main():
     else:
         logging.disable()
     logging.info("scli %s", __version__)
-
-    if args.subcommand == 'link':
-        link_device(args.name)
-        sys.exit()
 
     if not os.path.exists(SCLI_DATA_FOLDER):
         try:
