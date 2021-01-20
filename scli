@@ -389,6 +389,10 @@ def get_envelope_contact_id(envelope):
     )
 
 
+def get_envelope_quote(envelope):
+    return get_nested(envelope, 'dataMessage', 'quote')
+
+
 def get_envelope_attachments(envelope):
     return (
         get_nested(envelope, 'dataMessage', 'attachments')
@@ -1908,7 +1912,8 @@ class ChatWindow(urwid.Frame):
             elif key == 'i':
                 self.show_pop_up(MessageInfo(self.state, envelope))
             elif key == 'q':
-                # TODO: quote (https://github.com/AsamK/signal-cli/issues/151)
+                # Replying / quoting not supported by signal-cli
+                # https://github.com/AsamK/signal-cli/issues/213
                 pass
         return key
 
@@ -2296,6 +2301,7 @@ class State:
         source = envelope['source']
         is_group = is_envelope_group_message(envelope)
         attachments = get_envelope_attachments(envelope)
+        quote = get_envelope_quote(envelope)
 
         txt = [btxt('>> ')]
         if is_group or self.cfg.show_names:
@@ -2304,7 +2310,21 @@ class State:
                 txt.append(ibtxt(get_contact_name(contact)))
             else:
                 txt.append(btxt(source))
-            txt.append(btxt(' | '))
+            if quote:
+                txt.append('\n')
+            else:
+                txt.append(btxt(' | '))
+
+        if quote:
+            try:
+                quote_author_num = quote['author']
+                quote_text = quote['text']
+            except KeyError:
+                pass
+            else:
+                author = self.signal.get_contact(quote_author_num)
+                author_name = get_contact_name(author) if author else quote_author_num
+                txt.extend(['| ', ('bolditalic', author_name), '\n', '| ', quote_text, '\n'])
 
         message = self.format_msg(get_envelope_msg(envelope))
         attachments = get_envelope_attachments(envelope)
