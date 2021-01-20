@@ -794,7 +794,7 @@ class Daemon(AsyncProc):
 
         stdout_fd = self._urwid_loop.watch_pipe(self._daemon_handler)
         stderr_fd = self._urwid_loop.watch_pipe(self._daemon_stderr_handler)
-        cmd_args = ['signal-cli', '-u', username, 'daemon', '--json']
+        cmd_args = ['signal-cli', '-u', username, '--output=json', 'daemon']
         try:
             proc = Popen(cmd_args, stdout=stdout_fd, stderr=stderr_fd, close_fds=True)
         except FileNotFoundError:
