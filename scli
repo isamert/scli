@@ -2167,10 +2167,21 @@ class State:
             return index
         raise ValueError
 
-    def get_message_widget(self, contact_num, timestamp):
+    def get_chat_index_for_timestamp(self, chat, timestamp, sender=None):
         dummy_widget = FocusableText('')
         dummy_widget.envelope = {'timestamp': timestamp}
 
+        index = bisect.bisect_left(chat, dummy_widget)
+        if index != len(chat):
+            envelope = chat[index].envelope
+            if get_envelope_time(envelope) == timestamp and (
+                    sender is None or sender == envelope['source']
+                    ):
+                return index
+
+        raise ValueError
+
+    def get_sent_message_widget(self, contact_num, timestamp):
         def contact_id_gen():
             yield contact_num
             groups_w_contact = self.signal.groups_w_contact.get(contact_num, tuple())
@@ -2178,12 +2189,12 @@ class State:
                 yield g
         for contact_id in contact_id_gen():
             chat = self.chats[contact_id]
-            index = bisect.bisect_left(chat, dummy_widget)
-            if index != len(chat):
-                msg_widget = chat[index]
-                if get_envelope_time(msg_widget.envelope) == timestamp and msg_widget.envelope['source'] == self.cfg.username:
-                    return msg_widget
-
+            try:
+                index = self.get_chat_index_for_timestamp(chat, timestamp, sender=self.cfg.username)
+            except ValueError:
+                continue
+            else:
+                return chat[index]
         raise ValueError
 
     def delete_message(self, envelope, index=None):
@@ -2240,7 +2251,7 @@ class State:
         when = receipt_message['when']
         for timestamp in timestamps:
             try:
-                msg_widget = self.get_message_widget(receipt_contact, timestamp)
+                msg_widget = self.get_sent_message_widget(receipt_contact, timestamp)
             except ValueError:
                 # Receipt is received before the msg_widget exists (e.g. before receiving a `sync` message for a message sent from another device)
                 self.delivery_status.buffer_receipt(timestamp, status, receipt_contact)
