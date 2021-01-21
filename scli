@@ -1319,6 +1319,8 @@ class Signal:
             timestamp_adj = None
             # Check if send command succeeded
             if proc.returncode != 0:
+                # Workaround for
+                #     https://github.com/AsamK/signal-cli/issues/348
                 # If group has some members with deleted accounts, some of the envelopes may fail to deliver
                 if is_group and 'Unregistered user' in proc.output:
                     output_lines = proc.output.strip().rsplit('\n')
