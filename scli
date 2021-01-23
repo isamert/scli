@@ -1168,7 +1168,7 @@ class Commands:
 
 
 class Signal:
-    signals = ['receive_message', 'send_message', 'sending_done', 'receive_receipt', 'daemon_started', 'groups_updated', 'daemon_log']
+    signals = ['receive_message', 'send_message', 'sending_done', 'receive_receipt', 'daemon_started', 'groups_updated', 'daemon_log', 'contact_typing']
 
     def __init__(self, user):
         self.user = user
@@ -1194,7 +1194,11 @@ class Signal:
         elif get_envelope_msg(envelope) or get_envelope_attachments(envelope):
             urwid.emit_signal(self, 'receive_message', envelope)
         elif envelope.get('receiptMessage') is not None:
+            # In signal-cli >=0.7.3, above check can be replaced with just
+            #   'receiptMessage' in envelope
             urwid.emit_signal(self, 'receive_receipt', envelope)
+        elif 'typingMessage' in envelope:
+            urwid.emit_signal(self, 'contact_typing', envelope)
         else:
             logging.info('NOT_A_MESSAGE:%s', envelope)
 
@@ -1686,6 +1690,7 @@ class ChatWindow(urwid.Frame):
         urwid.connect_signal(self.state, 'dialog_requested', self.show_pop_up)
         urwid.connect_signal(self.state.signal, 'receive_message', self.on_new_message)
         urwid.connect_signal(self.state.signal, 'send_message', self.on_new_message)
+        urwid.connect_signal(self.state.signal, 'contact_typing', self.on_new_message)
 
     def show_pop_up(self, widget):
         def on_pop_up_closed(sender, accepted, result):
@@ -2092,7 +2097,7 @@ class State:
         self.notify_counts = {}
 
         self.commands = Commands(self)
-
+        self.typing_indicators = TypingIndicators(self)
         self.delivery_status = DeliveryStatus(self.cfg.one_sided)
 
         self.load_history()
@@ -2235,6 +2240,8 @@ class State:
             notif = 'New message from ' + contact_name + ': "' + msg + '"'
             self.set_notification(notif, sender)
 
+        self.typing_indicators.remove(envelope['source'])
+
         formatted_message = self.print_received_message(envelope)
         self.commands.send_notification(contact_name, to_txt(formatted_message))
 
@@ -2277,6 +2284,7 @@ class State:
         if timestamp_adj is not None:
             self.delivery_status.adjust_timestamp(get_envelope_time(envelope), timestamp_adj)
             msg_widget.envelope['timestamp'] = msg_widget.envelope['dataMessage']['timestamp'] = timestamp_adj
+            # After adjusting timestamp, msg_widget might need to be moved in `chat`, for `chat` to remain sorted. However, the timestamp_adj is normally within 50ms of the original timestamp, so in practice this is not a problem most of the time.
 
         self.delivery_status.process_buffered_receipts(msg_widget)
 
@@ -2391,7 +2399,13 @@ class State:
         if not self.cfg.save_history:
             return
 
-        envelopes = [x.envelope for vals in self.chats.values() for x in vals]
+        envelopes = []
+        for chat in self.chats.values():
+            for msg_w in chat:
+                envelope = msg_w.envelope
+                if 'typingMessage' in envelope:
+                    continue
+                envelopes.append(envelope)
         notify_counts = {contact_id: count for (contact_id, count) in self.notify_counts.items() if count != 0 and contact_id != "NULL"}
             # TODO: remove the possibility of contact_id being set to "NULL" anywhere
         items = {'envelopes': envelopes, 'notify_counts': notify_counts, 'delivery_status': self.delivery_status.dump()}
@@ -2609,6 +2623,79 @@ class DeliveryStatus:
     def load(self, status_map):
         for timestamp, status_detailed in status_map.items():
             self._status_map[int(timestamp)] = self.DetailedStatus(*status_detailed)
+
+
+class TypingIndicators:
+    def __init__(self, state):
+        self._state = state
+        self._map = {}
+        self._alarms = {}
+        urwid.connect_signal(self._state.signal, 'contact_typing', self.on_contact_typing)
+
+    def on_contact_typing(self, envelope):
+        contact_num = envelope['source']
+        typing_message = envelope['typingMessage']
+        action = typing_message['action']
+        chat = self._get_chat(envelope)
+        self.remove(contact_num, chat)
+        if action == 'STARTED':
+            self._add(contact_num, chat, envelope)
+        elif action != 'STOPPED':
+            logging.error("on_contact_typing: typing envelope = %s", envelope)
+
+    def _get_chat(self, envelope):
+        typing_message = envelope.get('typingMessage')
+        if typing_message is None:
+            return self._state.get_chat_for_envelope(envelope)
+        group_id = typing_message.get('groupId')
+        if group_id is not None:
+            return self._state.chats[group_id]
+        contact_num = envelope['source']
+        return self._state.chats[contact_num]
+
+    def _add(self, contact_num, chat, envelope):
+        msg_w = self._make_widget(envelope)
+        bisect.insort(chat, msg_w)
+        self._map[contact_num] = msg_w
+        self._alarms[contact_num] = self._state.loop.set_alarm_in(10,
+                lambda *_: self.remove(contact_num, chat))
+            # Sometimes the STOPPED typing message is never sent. Need to set a timeout to manually remove the typing indicator in this case.
+            # https://github.com/AsamK/signal-cli/issues/458
+
+    def _make_widget(self, envelope):
+        markup = [btxt('>> ')]
+        is_group = 'groupId' in envelope['typingMessage']
+        if is_group or self._state.cfg.show_names:
+            contact_num = envelope['source']
+            contact = self._state.signal.get_contact(contact_num)
+            if contact:
+                markup.append(ibtxt(get_contact_name(contact)))
+            else:
+                markup.append(btxt(contact_num))
+            markup.append(btxt(' | '))
+        markup.append('...')
+        typing_msg_w = FocusableText(markup)
+        typing_msg_w.envelope = envelope
+        return typing_msg_w
+
+    def remove(self, sender, chat=None):
+        self._state.loop.remove_alarm(self._alarms.get(sender))
+        try:
+            msg_w = self._map.pop(sender)
+        except KeyError:
+            return
+        envelope = msg_w.envelope
+        if chat is None:
+            chat = self._get_chat(envelope)
+        try:
+            index = self._state.get_chat_index_for_timestamp(chat, get_envelope_time(envelope), sender)
+        except ValueError:
+            logging.error("TypingIndicators: remove: index not found for envelope = %s", envelope)
+            return
+        if 'typingMessage' in chat[index].envelope:
+            del chat[index]
+        else:
+            logging.error("TypingIndicators: remove: message %s at index = %s is not a tying indicator", chat[index].envelope, index)
 
 
 # #############################################################################
