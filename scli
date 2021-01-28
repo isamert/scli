@@ -78,6 +78,17 @@ LIST_FOCUS_MAP = {
 }
 
 FORMAT_MAP = {'_': 'italic', '*': 'bold', '~': 'strikethrough'}
+FORMATTING_RE = re.compile(
+    rf"""
+        (
+            [{''.join(FORMAT_MAP.keys())}]      # i.e. [_*~]
+        )
+        (?:
+            (?!\1).     # consume a char and check it's not a format char
+        )+
+        \1
+    """,
+    re.VERBOSE)
 
 
 def ibtxt(txt):
@@ -2358,33 +2369,25 @@ class State:
         message = '\n'.join(textwrap.fill(line, width=self.cfg.wrap_at, expand_tabs=False, replace_whitespace=False) for line in message.splitlines())
 
         if not self.cfg.use_formatting:
-            return ntxt(message)
+            return [message]
 
-        i, m = 0, []
-        while i < len(message):
-            c = message[i]
-            if c in ('_', '*', '~'):
-                try:
-                    end = message[i + 1 :].index(c)
-                    sub = message[i + 1 : i + 1 + end]
-                    m.append(c)
-                    m.append((FORMAT_MAP[c], sub))
-                    m.append(c)
-                    i = i + 2 + end
-                except ValueError:
-                    m.append(c)
-                    i = i + 1
-            else:
-                m.append(c)
-                i = i + 1
-
-        if not m:
-            m = " "
-        return m
+        ret = []
+        pos = 0
+        for match in FORMATTING_RE.finditer(message):
+            if pos != match.start():
+                # Do not add empty strings. Urwid breaks on markup like:
+                # [.., ('bold', 'txt1'), '', ('bold', 'txt2'), ...]
+                ret.append(message[pos:match.start()])
+            ret.append((FORMAT_MAP[match[1]], match.group()[1:-1]))
+            pos = match.end()
+        if pos != len(message):
+            ret.append(message[pos:])
+        return ret or ['']
 
     def print_received_message(self, envelope):
         source = envelope['source']
         is_group = is_envelope_group_message(envelope)
+        message = get_envelope_msg(envelope)
         attachments = get_envelope_attachments(envelope)
         quote = get_envelope_quote(envelope)
 
@@ -2411,8 +2414,6 @@ class State:
                 author_name = get_contact_name(author) if author else quote_author_num
                 txt.extend(['| ', ('bolditalic', author_name), '\n', '| ', quote_text, '\n'])
 
-        message = self.format_msg(get_envelope_msg(envelope))
-        attachments = get_envelope_attachments(envelope)
 
         if attachments != []:
             attachments_txt = ', '.join(
@@ -2420,7 +2421,7 @@ class State:
             )
             txt.append(ntxt('[attached: ' + attachments_txt + '] '))
 
-        txt.append(message)
+        txt.extend(self.format_msg(message))
         wtxt = FocusableText(txt)
         wtxt.envelope = envelope
         bisect.insort(self.get_chat_for_envelope(envelope), wtxt)
@@ -2428,17 +2429,17 @@ class State:
         return txt[1:]
 
     def print_sent_message(self, envelope):
-        message = self.format_msg(get_envelope_msg(envelope))
+        message_markup = self.format_msg(get_envelope_msg(envelope))
         attachments = get_envelope_attachments(envelope)
 
         if not attachments:
-            txt = [message]
+            txt = message_markup
         else:
             anames = ', '.join([get_attachment_name(attachment) for attachment in attachments])
             txt = [ntxt('[attached: '),
                     itxt(anames),
                     ntxt('] '),
-                    ntxt(message)]
+                    *message_markup]
 
         status_markup = self.delivery_status.get_markup_for_envelope(envelope)
 
@@ -2447,10 +2448,10 @@ class State:
             markup = [status_markup,
                     ' ',
                     btxt('You | ') if self.cfg.show_names else '',
-                    txt]
+                    *txt]
         else:
             align = 'right'
-            markup = [txt,
+            markup = [*txt,
                     btxt(' | You') if self.cfg.show_names else '',
                     ' ',
                     status_markup]
