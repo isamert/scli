@@ -78,17 +78,6 @@ LIST_FOCUS_MAP = {
 }
 
 FORMAT_MAP = {'_': 'italic', '*': 'bold', '~': 'strikethrough'}
-FORMATTING_RE = re.compile(
-    rf"""
-        (
-            [{''.join(FORMAT_MAP.keys())}]      # i.e. [_*~]
-        )
-        (?:
-            (?!\1).     # consume a char and check it's not a format char
-        )+
-        \1
-    """,
-    re.VERBOSE)
 
 
 def ibtxt(txt):
@@ -408,6 +397,10 @@ def get_envelope_reaction(envelope):
     return get_nested(envelope, 'dataMessage', 'reaction')
 
 
+def get_envelope_mentions(envelope):
+    return get_nested(envelope, 'dataMessage', 'mentions')
+
+
 def get_envelope_attachments(envelope):
     return (
         get_nested(envelope, 'dataMessage', 'attachments')
@@ -561,6 +554,9 @@ class MessageInfo(urwid.ListBox):
         timestamp = get_envelope_time(envelope)
         date = strftimestamp(timestamp)
         status_detailed = self.state.delivery_status.get_detailed(envelope)
+        mentions = get_envelope_mentions(envelope)
+        if mentions:
+            msg = self.state.insert_mentions(msg, mentions)
 
         txt_name = FocusableText([btxt('Name   : '), ntxt(get_contact_name(state.signal.get_contact(source)))])
         txt_source = FocusableText([btxt('Number : '), ntxt(source)])
@@ -2136,6 +2132,7 @@ class State:
         self.current_chat = None
         self.loop = None
         self.notify_counts = {}
+        self.MENTION_BRACKET_CHAR, self.FORMAT_MAP, self.FORMATTING_RE = self._get_formatting_consts()
 
         self.commands = Commands(self)
         self.typing_indicators = TypingIndicators(self)
@@ -2280,12 +2277,16 @@ class State:
 
         self.typing_indicators.remove(envelope['source'])
 
-        formatted_message = self.print_received_message(envelope)
+        msg_w = self.print_received_message(envelope)
 
         if sender != self.current_contact:
+            mentions = get_envelope_mentions(envelope)
+            if mentions:
+                msg = self.insert_mentions(msg, mentions)
             notif = 'New message from ' + contact_name + ': "' + msg + '"'
             self.set_notification(notif, sender)
-            self.commands.send_notification(contact_name, to_txt(formatted_message))
+            msg_w_text = msg_w.base_widget.text[3:]
+            self.commands.send_notification(contact_name, msg_w_text)
 
     def on_receive_receipt(self, envelope):
         # NOTE: Receipt message structure would be different then assumed here if the sent message was not a "sealed sender" one:
@@ -2365,20 +2366,63 @@ class State:
         text_w.set_text(markup)
         msg_w.reactions.append(envelope)
 
-    def format_msg(self, message):
+    def _get_formatting_consts(self):
+        format_map = FORMAT_MAP if self.cfg.use_formatting else {}
+        MENTION_BRACKET_CHAR = chr(31)  # arbitrary non-printable char
+        format_map[MENTION_BRACKET_CHAR] = 'bolditalic'
+        FORMATTING_RE = re.compile(
+            # Match text like "_italicised_", where "_" is a char in FORMAT_MAP
+            rf"""
+                (
+                    [{''.join(format_map.keys())}]
+                )
+                #.+?        # bad with doubled format chars, e.g. ~~this~~
+                #[^\1]+     # can't use backreferences in character class
+                (?:
+                    (?!\1). # consume a char and check it's not a format char
+                )+
+                \1
+            """,
+            re.VERBOSE)
+        return MENTION_BRACKET_CHAR, format_map, FORMATTING_RE
+
+    def insert_mentions(self, message, mentions, bracket_char=''):
+        # See also: What is the Mention's "length" parameter?
+        # https://github.com/AsamK/signal-cli/discussions/409
+        ret = ''
+        pos = 0
+        for mention in mentions:
+            contact_num = mention['name']
+            contact_name = get_contact_name(self.signal.get_contact(contact_num))
+            start = mention['start']
+            ret = ''.join((
+                ret,
+                message[pos:start],
+                bracket_char,
+                "@", contact_name,
+                bracket_char,
+                ))
+            pos = start + 1
+        ret += message[pos:]
+        return ret
+
+    def format_msg(self, message, mentions=None):
+        if mentions:
+            message = self.insert_mentions(message, mentions, self.MENTION_BRACKET_CHAR)
+
         message = '\n'.join(textwrap.fill(line, width=self.cfg.wrap_at, expand_tabs=False, replace_whitespace=False) for line in message.splitlines())
 
-        if not self.cfg.use_formatting:
+        if not (self.cfg.use_formatting or mentions):
             return [message]
 
         ret = []
         pos = 0
-        for match in FORMATTING_RE.finditer(message):
+        for match in self.FORMATTING_RE.finditer(message):
             if pos != match.start():
                 # Do not add empty strings. Urwid breaks on markup like:
                 # [.., ('bold', 'txt1'), '', ('bold', 'txt2'), ...]
                 ret.append(message[pos:match.start()])
-            ret.append((FORMAT_MAP[match[1]], match.group()[1:-1]))
+            ret.append((self.FORMAT_MAP[match[1]], match.group()[1:-1]))
             pos = match.end()
         if pos != len(message):
             ret.append(message[pos:])
@@ -2390,6 +2434,7 @@ class State:
         message = get_envelope_msg(envelope)
         attachments = get_envelope_attachments(envelope)
         quote = get_envelope_quote(envelope)
+        mentions = get_envelope_mentions(envelope)
 
         txt = [btxt('>> ')]
         if is_group or self.cfg.show_names:
@@ -2414,19 +2459,18 @@ class State:
                 author_name = get_contact_name(author) if author else quote_author_num
                 txt.extend(['| ', ('bolditalic', author_name), '\n', '| ', quote_text, '\n'])
 
-
         if attachments != []:
             attachments_txt = ', '.join(
                 [get_attachment_name(attachment) + ' (' + str(i) + ')' for i, attachment in enumerate(attachments)]
             )
             txt.append(ntxt('[attached: ' + attachments_txt + '] '))
 
-        txt.extend(self.format_msg(message))
+        txt.extend(self.format_msg(message, mentions))
         wtxt = FocusableText(txt)
         wtxt.envelope = envelope
         bisect.insort(self.get_chat_for_envelope(envelope), wtxt)
 
-        return txt[1:]
+        return wtxt
 
     def print_sent_message(self, envelope):
         message_markup = self.format_msg(get_envelope_msg(envelope))
