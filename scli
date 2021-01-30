@@ -1202,7 +1202,7 @@ class Commands:
 
 
 class Signal:
-    signals = ['receive_message', 'send_message', 'sending_done', 'receive_receipt', 'daemon_started', 'groups_updated', 'daemon_log', 'contact_typing', 'receive_reaction']
+    signals = ['receive_message', 'send_message', 'sending_done', 'receive_receipt', 'daemon_started', 'groups_updated', 'daemon_log', 'contact_typing', 'receive_reaction', 'remote_delete']
 
     def __init__(self, user):
         self.user = user
@@ -1235,6 +1235,8 @@ class Signal:
             urwid.emit_signal(self, 'contact_typing', envelope)
         elif get_envelope_reaction(envelope):
             urwid.emit_signal(self, 'receive_reaction', envelope)
+        elif get_nested(envelope, 'dataMessage', 'remoteDelete') is not None:
+            urwid.emit_signal(self, 'remote_delete', envelope)
         else:
             logging.info('NOT_A_MESSAGE:%s', envelope)
 
@@ -2149,6 +2151,7 @@ class State:
         urwid.connect_signal(self.signal, 'groups_updated', self._update_contacts)
         urwid.connect_signal(self.signal, 'daemon_log', self.on_daemon_log)
         urwid.connect_signal(self.signal, 'receive_reaction', self.on_receive_reaction)
+        urwid.connect_signal(self.signal, 'remote_delete', self.on_remote_delete)
 
     def reload(self):
         self.signal.reload()
@@ -2200,8 +2203,7 @@ class State:
         urwid.emit_signal(self, 'dialog_requested', w)
 
     def get_chat_for_envelope(self, envelope):
-        contact = self.signal.get_envelope_contact(envelope)
-        return self.chats[hash_contact(contact)]
+        return self.chats[get_envelope_contact_id(envelope)]
 
     def get_chat_index_for_envelope(self, chat, envelope):
         dummy_widget = FocusableText('')
@@ -2330,6 +2332,28 @@ class State:
             # After adjusting timestamp, msg_widget might need to be moved in `chat`, for `chat` to remain sorted. However, the timestamp_adj is normally within 50ms of the original timestamp, so in practice this is not a problem most of the time.
 
         self.delivery_status.process_buffered_receipts(msg_widget)
+
+    def on_remote_delete(self, envelope):
+        timestamp_del = get_nested(envelope, 'dataMessage', 'remoteDelete', 'timestamp')
+        source = envelope['source']
+        chat = self.get_chat_for_envelope(envelope)
+        try:
+            index = self.get_chat_index_for_timestamp(chat, timestamp_del, source)
+        except ValueError:
+            logging.error("on_remote_delete: index not found for envelope = %s", envelope)
+            return
+        msg_w = chat[index]
+        markup = [btxt('>> ')]
+        if is_envelope_group_message(msg_w.envelope) or self.cfg.show_names:
+            contact = self.signal.get_contact(source)
+            if contact:
+                markup.append(ibtxt(get_contact_name(contact)))
+            else:
+                markup.append(btxt(source))
+            markup.append(btxt(' | '))
+        markup.append(('italic', '[deleted]'))
+        msg_w.base_widget.set_text(markup)
+        msg_w.remote_delete = envelope
 
     def on_receive_reaction(self, envelope):
         reaction = get_envelope_reaction(envelope)
@@ -2521,6 +2545,11 @@ class State:
                     envelopes.extend(msg_w.reactions)
                 except AttributeError:
                     pass
+                try:
+                    envelopes.append(msg_w.remote_delete)
+                except AttributeError:
+                    pass
+
         notify_counts = {contact_id: count for (contact_id, count) in self.notify_counts.items() if count != 0 and contact_id != "NULL"}
             # TODO: remove the possibility of contact_id being set to "NULL" anywhere
         items = {'envelopes': envelopes, 'notify_counts': notify_counts, 'delivery_status': self.delivery_status.dump()}
@@ -2555,6 +2584,8 @@ class State:
                     if not get_envelope_reaction(msg_w.envelope):
                         self.print_reaction(msg_w, envelope)
                         break
+            elif get_nested(envelope, 'dataMessage', 'remoteDelete') is not None:
+                self.on_remote_delete(envelope)
             else:
                 self.print_received_message(envelope)
 
