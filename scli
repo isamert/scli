@@ -1202,7 +1202,7 @@ class Commands:
 
 
 class Signal:
-    signals = ['receive_message', 'send_message', 'sending_done', 'receive_receipt', 'daemon_started', 'groups_updated', 'daemon_log', 'contact_typing', 'receive_reaction', 'remote_delete']
+    signals = ['receive_message', 'send_message', 'sending_done', 'receive_receipt', 'daemon_started', 'groups_updated', 'daemon_log', 'contact_typing', 'receive_reaction', 'remote_delete', 'contacts_sync']
 
     def __init__(self, user):
         self.user = user
@@ -1237,6 +1237,8 @@ class Signal:
             urwid.emit_signal(self, 'receive_reaction', envelope)
         elif get_nested(envelope, 'dataMessage', 'remoteDelete') is not None:
             urwid.emit_signal(self, 'remote_delete', envelope)
+        elif get_nested(envelope, 'syncMessage', 'type') in ('CONTACTS_SYNC', 'GROUPS_SYNC'):
+            urwid.emit_signal(self, 'contacts_sync')
         else:
             logging.info('NOT_A_MESSAGE:%s', envelope)
 
@@ -2152,6 +2154,7 @@ class State:
         urwid.connect_signal(self.signal, 'daemon_log', self.on_daemon_log)
         urwid.connect_signal(self.signal, 'receive_reaction', self.on_receive_reaction)
         urwid.connect_signal(self.signal, 'remote_delete', self.on_remote_delete)
+        urwid.connect_signal(self.signal, 'contacts_sync', self.reload)
 
     def reload(self):
         self.signal.reload()
@@ -2275,6 +2278,9 @@ class State:
 
         msg = get_envelope_msg(envelope)
         sender = self.signal.get_envelope_contact(envelope)
+        if sender is None:
+            self.reload()
+            sender = self.signal.get_envelope_contact(envelope)
         contact_name = get_contact_name(sender)
 
         self.typing_indicators.remove(envelope['source'])
