@@ -2267,14 +2267,14 @@ class State:
         sender = self.signal.get_envelope_contact(envelope)
         contact_name = get_contact_name(sender)
 
-        if sender != self.current_contact:
-            notif = 'New message from ' + contact_name + ': "' + msg + '"'
-            self.set_notification(notif, sender)
-
         self.typing_indicators.remove(envelope['source'])
 
         formatted_message = self.print_received_message(envelope)
-        self.commands.send_notification(contact_name, to_txt(formatted_message))
+
+        if sender != self.current_contact:
+            notif = 'New message from ' + contact_name + ': "' + msg + '"'
+            self.set_notification(notif, sender)
+            self.commands.send_notification(contact_name, to_txt(formatted_message))
 
     def on_receive_receipt(self, envelope):
         # NOTE: Receipt message structure would be different then assumed here if the sent message was not a "sealed sender" one:
