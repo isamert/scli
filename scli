@@ -1202,7 +1202,7 @@ class Commands:
 
 
 class Signal:
-    signals = ['receive_message', 'send_message', 'sending_done', 'receive_receipt', 'daemon_started', 'groups_updated', 'daemon_log', 'contact_typing', 'receive_reaction', 'remote_delete', 'contacts_sync']
+    signals = ['receive_message', 'send_message', 'sending_done', 'receive_receipt', 'daemon_started', 'groups_updated', 'daemon_log', 'contact_typing', 'receive_reaction', 'remote_delete', 'contacts_sync', 'call_message']
 
     def __init__(self, user):
         self.user = user
@@ -1239,6 +1239,8 @@ class Signal:
             urwid.emit_signal(self, 'remote_delete', envelope)
         elif get_nested(envelope, 'syncMessage', 'type') in ('CONTACTS_SYNC', 'GROUPS_SYNC'):
             urwid.emit_signal(self, 'contacts_sync')
+        elif envelope.get('callMessage') is not None:
+            urwid.emit_signal(self, 'call_message', envelope)
         else:
             logging.info('NOT_A_MESSAGE:%s', envelope)
 
@@ -1438,6 +1440,7 @@ class ContactsWindow(urwid.ListBox):
 
         urwid.connect_signal(self.state.signal, 'receive_message', self.on_new_message)
         urwid.connect_signal(self.state.signal, 'send_message', self.on_new_message)
+        urwid.connect_signal(self.state.signal, 'call_message', self.on_call_message)
         urwid.connect_signal(self.state.signal, 'sending_done', self.on_sending_done)
         urwid.connect_signal(self.state, 'current_contact_changed', self.on_current_contact_changed)
 
@@ -1530,6 +1533,11 @@ class ContactsWindow(urwid.ListBox):
             contact_widget_markup = [contact_widget_markup]
         contact_widget_markup = [self.state.delivery_status.get_markup('send_failed'), ' ', contact_widget_markup]
         contact_widget.original_widget.set_text(contact_widget_markup)
+
+    def on_call_message(self, envelope):
+        if get_nested(envelope, 'callMessage', 'offerMessage'):
+            # Incoming call
+            self.on_new_message(envelope)
 
     def move_contact_top(self, w):
         if self.state.cfg.partition_contacts:
@@ -1730,6 +1738,7 @@ class ChatWindow(urwid.Frame):
         urwid.connect_signal(self.state, 'dialog_requested', self.show_pop_up)
         urwid.connect_signal(self.state.signal, 'receive_message', self.on_new_message)
         urwid.connect_signal(self.state.signal, 'send_message', self.on_new_message)
+        urwid.connect_signal(self.state.signal, 'call_message', self.on_new_message)
         urwid.connect_signal(self.state.signal, 'contact_typing', self.on_new_message)
 
     def show_pop_up(self, widget):
@@ -2155,6 +2164,7 @@ class State:
         urwid.connect_signal(self.signal, 'receive_reaction', self.on_receive_reaction)
         urwid.connect_signal(self.signal, 'remote_delete', self.on_remote_delete)
         urwid.connect_signal(self.signal, 'contacts_sync', self.reload)
+        urwid.connect_signal(self.signal, 'call_message', self.on_call_message)
 
     def reload(self):
         self.signal.reload()
@@ -2383,6 +2393,19 @@ class State:
         self.set_notification(notif, sender)
         self.commands.send_notification(sender_name, reaction['emoji'])
 
+    def on_call_message(self, envelope):
+        w = self.print_call_message(envelope)
+        sender = self.signal.get_contact(envelope['source'])
+
+        if (not w
+                or get_nested(envelope, 'callMessage', 'answerMessage') # Outgoing call
+                or sender == self.current_contact):
+            return
+        sender_name = get_contact_name(sender)
+        notif = w.base_widget.text[3:]
+        self.set_notification(''.join([notif, ': ', sender_name]), sender)
+        self.commands.send_notification(sender_name, notif)
+
     def print_reaction(self, msg_w, envelope):
         # On official signal clients, when a contact sends a new reaction to the same message, it replaces the old reaction. Here, the new reaction is shown alongside with the old ones.
         text_w = msg_w.base_widget
@@ -2395,6 +2418,23 @@ class State:
         markup.append(reaction['emoji'])
         text_w.set_text(markup)
         msg_w.reactions.append(envelope)
+
+    def print_call_message(self, envelope):
+        call_message = envelope['callMessage']
+        if 'offerMessage' in call_message:
+            markup = [btxt('>> '), '📞 ', itxt('Incoming call')]
+        elif get_nested(call_message, 'hangupMessage', 'type') == 'NORMAL':
+            # For accepted calls, `type: "ACCEPTED"`
+            markup = [btxt('>> '), '📞 ', itxt('Hung up')]
+        elif 'answerMessage' in call_message:
+            markup = [itxt('Calling'), ' 📞', btxt(' <<')]
+        else:
+            return
+        align = 'right' if 'answerMessage' in call_message and not self.cfg.one_sided else 'left'
+        w = FocusableText(markup, align=align)
+        w.envelope = envelope
+        bisect.insort(self.get_chat_for_envelope(envelope), w)
+        return w
 
     def _get_formatting_consts(self):
         format_map = FORMAT_MAP if self.cfg.use_formatting else {}
@@ -2592,6 +2632,8 @@ class State:
                         break
             elif get_nested(envelope, 'dataMessage', 'remoteDelete') is not None:
                 self.on_remote_delete(envelope)
+            elif envelope.get('callMessage') is not None:
+                self.print_call_message(envelope)
             else:
                 self.print_received_message(envelope)
 
