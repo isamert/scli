@@ -468,6 +468,8 @@ def get_text_markup(text_widget):
         attr_run_end = run_len_pos + attr_run_len
         markup.append((attr, text[run_len_pos: attr_run_end]))
         run_len_pos = attr_run_end
+    if run_len_pos != len(text):
+        markup.append(text[run_len_pos:])
     return markup
 
 
