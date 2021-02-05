@@ -12,7 +12,7 @@
 Not yet supported by signal-cli:
 - *Sending* read receipts for received messages ([#231](https://github.com/AsamK/signal-cli/issues/231), [#305](https://github.com/AsamK/signal-cli/issues/305))
 - Quoting a message ([#213](https://github.com/AsamK/signal-cli/issues/213))
-- Message reactions ([#319](https://github.com/AsamK/signal-cli/issues/319))
+- Sending message reactions ([#319](https://github.com/AsamK/signal-cli/issues/319))
 
 # Installation
 ## Manual

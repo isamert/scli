@@ -393,6 +393,10 @@ def get_envelope_quote(envelope):
     return get_nested(envelope, 'dataMessage', 'quote')
 
 
+def get_envelope_reaction(envelope):
+    return get_nested(envelope, 'dataMessage', 'reaction')
+
+
 def get_envelope_attachments(envelope):
     return (
         get_nested(envelope, 'dataMessage', 'attachments')
@@ -576,6 +580,27 @@ class MessageInfo(urwid.ListBox):
             atchs.append(txt_atch)
 
         items = [txt_name, txt_source, txt_date, txt_msg, txt_status, txt_urls, *urls, txt_atchs, *atchs]
+
+        # Reactions
+        chat = self.state.get_chat_for_envelope(envelope)
+        msg_index = self.state.get_chat_index_for_envelope(chat, envelope)
+        reactions = getattr(chat[msg_index], 'reactions', None)
+        if reactions is not None:
+            reactions_heading = FocusableText([btxt('Reactions')], align='center')
+            reactions_markup = []
+            for reaction in reactions:
+                sender_name = get_contact_name(self.state.signal.get_contact(reaction['source']))
+                reactions_markup.append(FocusableText([
+                    sender_name,
+                    ': ',
+                    get_nested(reaction, 'dataMessage', 'reaction', 'emoji'),
+                    ' (',
+                    strftimestamp(get_envelope_time(reaction)),
+                    ')',
+                    ]))
+            items.append(reactions_heading)
+            items.extend(reactions_markup)
+
         super().__init__(urwid.SimpleFocusListWalker(items))
 
     def keypress(self, size, key):
@@ -1170,7 +1195,7 @@ class Commands:
 
 
 class Signal:
-    signals = ['receive_message', 'send_message', 'sending_done', 'receive_receipt', 'daemon_started', 'groups_updated', 'daemon_log', 'contact_typing']
+    signals = ['receive_message', 'send_message', 'sending_done', 'receive_receipt', 'daemon_started', 'groups_updated', 'daemon_log', 'contact_typing', 'receive_reaction']
 
     def __init__(self, user):
         self.user = user
@@ -1201,6 +1226,8 @@ class Signal:
             urwid.emit_signal(self, 'receive_receipt', envelope)
         elif 'typingMessage' in envelope:
             urwid.emit_signal(self, 'contact_typing', envelope)
+        elif get_envelope_reaction(envelope):
+            urwid.emit_signal(self, 'receive_reaction', envelope)
         else:
             logging.info('NOT_A_MESSAGE:%s', envelope)
 
@@ -2113,6 +2140,7 @@ class State:
         urwid.connect_signal(self.signal, 'daemon_started', self.on_daemon_started)
         urwid.connect_signal(self.signal, 'groups_updated', self._update_contacts)
         urwid.connect_signal(self.signal, 'daemon_log', self.on_daemon_log)
+        urwid.connect_signal(self.signal, 'receive_reaction', self.on_receive_reaction)
 
     def reload(self):
         self.signal.reload()
@@ -2291,6 +2319,41 @@ class State:
 
         self.delivery_status.process_buffered_receipts(msg_widget)
 
+    def on_receive_reaction(self, envelope):
+        reaction = get_envelope_reaction(envelope)
+        chat = self.get_chat_for_envelope(envelope)
+        index = self.get_chat_index_for_timestamp(
+                    chat,
+                    timestamp=reaction['targetSentTimestamp'],
+                    sender=reaction['targetAuthor'])
+        msg_w = chat[index]
+
+        self.print_reaction(msg_w, envelope)
+
+        sender = self.signal.get_contact(envelope['source'])
+        if sender == self.current_contact:
+            return
+        sender_name = get_contact_name(sender)
+        notif = ' '.join((
+            'New reaction', 'from',
+            repr(sender_name), ':', reaction['emoji'], 'to', repr(get_envelope_msg(msg_w.envelope))
+            ))
+        self.set_notification(notif, sender)
+        self.commands.send_notification(sender_name, reaction['emoji'])
+
+    def print_reaction(self, msg_w, envelope):
+        # On official signal clients, when a contact sends a new reaction to the same message, it replaces the old reaction. Here, the new reaction is shown alongside with the old ones.
+        text_w = msg_w.base_widget
+        markup = get_text_markup(text_w)
+        REACTION_MARKUP = '└ '
+        msg_w.reactions = getattr(msg_w, 'reactions', [])
+        if not msg_w.reactions:
+            markup.extend(('\n', REACTION_MARKUP))
+        reaction = get_envelope_reaction(envelope)
+        markup.append(reaction['emoji'])
+        text_w.set_text(markup)
+        msg_w.reactions.append(envelope)
+
     def format_msg(self, message):
         message = '\n'.join(textwrap.fill(line, width=self.cfg.wrap_at, expand_tabs=False, replace_whitespace=False) for line in message.splitlines())
 
@@ -2409,6 +2472,10 @@ class State:
                 if 'typingMessage' in envelope:
                     continue
                 envelopes.append(envelope)
+                try:
+                    envelopes.extend(msg_w.reactions)
+                except AttributeError:
+                    pass
         notify_counts = {contact_id: count for (contact_id, count) in self.notify_counts.items() if count != 0 and contact_id != "NULL"}
             # TODO: remove the possibility of contact_id being set to "NULL" anywhere
         items = {'envelopes': envelopes, 'notify_counts': notify_counts, 'delivery_status': self.delivery_status.dump()}
@@ -2437,6 +2504,12 @@ class State:
         for envelope in history['envelopes']:
             if is_envelope_outgoing(envelope):
                 self.print_sent_message(envelope)
+            elif get_envelope_reaction(envelope):
+                chat = self.get_chat_for_envelope(envelope)
+                for msg_w in reversed(chat):
+                    if not get_envelope_reaction(msg_w.envelope):
+                        self.print_reaction(msg_w, envelope)
+                        break
             else:
                 self.print_received_message(envelope)
 
