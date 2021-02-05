@@ -1879,7 +1879,7 @@ class ChatWindow(urwid.Frame):
                     real_index = self.search_list[self._wsearch.focus_position].real_index
                     self.set_edit_text('')
                     self._wlist.focus_position = real_index
-                else:
+                elif get_envelope_msg(envelope) is not None:
                     self.state.commands.open_attach(envelope) or self.state.commands.open_url(envelope)
             elif key == 'o':
                 self.state.commands.open_url(envelope) or self.state.commands.open_attach(envelope)
@@ -1915,7 +1915,8 @@ class ChatWindow(urwid.Frame):
                 else:
                     self.state.resend_message(envelope, self._wlist.focus_position)
             elif key == 'i':
-                self.show_pop_up(MessageInfo(self.state, envelope))
+                if get_envelope_msg(envelope) is not None:
+                    self.show_pop_up(MessageInfo(self.state, envelope))
             elif key == 'q':
                 # Replying / quoting not supported by signal-cli
                 # https://github.com/AsamK/signal-cli/issues/213
