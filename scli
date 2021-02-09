@@ -1145,7 +1145,7 @@ class Commands:
             for token, text in (('%s', sender), ('%m', message)):
                 text = text.replace(r"'", r"'\''")
                 rmap[token] = text
-            callf(self.state.cfg.notification_command, rmap, background=False)
+            callf(self.state.cfg.notification_command, rmap, background=True)
 
     def rename_contact(self, args):
         # :renameContact +NUMBER new name here  -> use +NUMBER number
