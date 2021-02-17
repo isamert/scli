@@ -9,11 +9,15 @@
 
 ## Limitations
 
-Not yet supported by signal-cli:
+- "View once" or "expiring" message properties are not honored.
+
+#### Not yet supported by signal-cli:
+
 - *Sending* read receipts for received messages ([#231](https://github.com/AsamK/signal-cli/issues/231), [#305](https://github.com/AsamK/signal-cli/issues/305))
 - Quoting a message ([#213](https://github.com/AsamK/signal-cli/issues/213))
 - Sending message reactions ([#319](https://github.com/AsamK/signal-cli/issues/319))
 - Voice calls ([#80](https://github.com/AsamK/signal-cli/issues/80))
+- Sending a "view once" or "expiring" messages, or a "remote deletion" request for a message.
 
 # Installation
 ## Manual
