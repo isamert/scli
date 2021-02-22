@@ -173,9 +173,30 @@ username = +1234567890
 enable-notifications = true
 ```
 
-## History
+### History
 
 Conversations history can be enabled with `--save-history` or `-s` flag. If enabled, the file is saved in plain text (to `~/.local/share/scli/history` by default).
+
+### Colors
+
+Messages' text can be colorized using the `--color` option:
+
+- `--color` (no additional value)
+   Use contacts' colors from the master signal device.
+
+- `--color=high`
+	 Same as above, but use 256 colors instead of the terminal's standard 8. Colors look closer to those on official clients, but not necessarily legible on all terminals' color schemes.
+
+- `--color='{"<signal_color>": "<urwid_color>", ..., "<phone_number>": "<urwid_color>", ...}'`
+   Override colors for particular contacts or redefine signal-assigned colors; use signal-assigned colors for the rest, as above. If any of the `<urwid_color>`s is specified as a 256-color, the "high-color mode" will be turned on (like `--color=high`).
+
+- `--color='["<urwid_color_sent>", "<urwid_color_recv>"]'`
+   Use one color for sent messages and another for received messages (from any contact).
+
+The list of available `<signal_color>` names is in the [source code](scli#L2925-L2939). 
+An `<urwid_color>` is one of urwid's [16 standard foreground colors](https://urwid.readthedocs.io/en/latest/manual/displayattributes.html#standard-foreground-colors) (`dark green`, `yellow`, `default`, etc), or [256 foreground colors](https://urwid.readthedocs.io/en/latest/manual/displayattributes.html#color-foreground-and-background-colors) (`#f8d`, `h123`, etc).
+To see the available colors rendered in your terminal, run [palette_test.py](https://github.com/urwid/urwid/blob/master/examples/palette_test.py) from urwid's examples.
+The single quotes in `--color='...'` above are just shell-escaping, and not needed in `sclirc`.
 
 
 # Similar projects
