@@ -193,7 +193,7 @@ Messages' text can be colorized using the `--color` option:
 - `--color='["<urwid_color_sent>", "<urwid_color_recv>"]'`
    Use one color for sent messages and another for received messages (from any contact).
 
-The list of available `<signal_color>` names is in the [source code](scli#L2925-L2939). 
+The list of available `<signal_color>` names is in the [source code](https://github.com/isamert/scli/blob/9a5a49d/scli#L2925-L2939) (first column).
 An `<urwid_color>` is one of urwid's [16 standard foreground colors](https://urwid.readthedocs.io/en/latest/manual/displayattributes.html#standard-foreground-colors) (`dark green`, `yellow`, `default`, etc), or [256 foreground colors](https://urwid.readthedocs.io/en/latest/manual/displayattributes.html#color-foreground-and-background-colors) (`#f8d`, `h123`, etc).
 To see the available colors rendered in your terminal, run [palette_test.py](https://github.com/urwid/urwid/blob/master/examples/palette_test.py) from urwid's examples.
 The single quotes in `--color='...'` above are just shell-escaping, and not needed in `sclirc`.
