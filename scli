@@ -16,7 +16,7 @@ import textwrap
 import bisect
 import shlex
 from subprocess import PIPE, Popen
-from datetime import datetime
+from datetime import datetime, timezone
 import base64
 import collections
 import shutil
@@ -435,12 +435,16 @@ def b64_to_hex_str(group_id):
     return base64.b64decode(group_id.encode()).hex()
 
 
+def utc2local(utc_dt):
+    return utc_dt.replace(tzinfo=timezone.utc).astimezone(tz=None)
+
 def strftimestamp(timestamp, strformat='%H:%M:%S (%Y-%m-%d)'):
     try:
         date = datetime.utcfromtimestamp(timestamp)
     except ValueError:
         date = datetime.utcfromtimestamp(timestamp / 1000)
-    return date.strftime(strformat)
+
+    return utc2local(date).strftime(strformat)
 
 
 # #############################################################################
@@ -550,7 +554,6 @@ class MessageInfo(urwid.ListBox):
 
         source = envelope['source']
         msg = get_envelope_msg(envelope)
-        date = None
         timestamp = get_envelope_time(envelope)
         date = strftimestamp(timestamp)
         status_detailed = self.state.delivery_status.get_detailed(envelope)
