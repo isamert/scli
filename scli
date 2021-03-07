@@ -2297,14 +2297,15 @@ class State:
 
         msg_w = self.print_received_message(envelope)
 
+        # Notifications
+        mentions = get_envelope_mentions(envelope)
+        if mentions:
+            msg = self.insert_mentions(msg, mentions)
+        msg_w_text = msg_w.base_widget.text[3:]
+        self.commands.send_notification(contact_name, msg_w_text)
         if sender != self.current_contact:
-            mentions = get_envelope_mentions(envelope)
-            if mentions:
-                msg = self.insert_mentions(msg, mentions)
             notif = 'New message from ' + contact_name + ': "' + msg + '"'
             self.set_notification(notif, sender)
-            msg_w_text = msg_w.base_widget.text[3:]
-            self.commands.send_notification(contact_name, msg_w_text)
 
     def on_receive_receipt(self, envelope):
         # NOTE: Receipt message structure would be different then assumed here if the sent message was not a "sealed sender" one:
@@ -2382,29 +2383,31 @@ class State:
 
         self.print_reaction(msg_w, envelope)
 
+        # Notifications
         sender = self.signal.get_contact(envelope['source'])
-        if sender == self.current_contact:
-            return
         sender_name = get_contact_name(sender)
-        notif = ' '.join((
-            'New reaction', 'from',
-            repr(sender_name), ':', reaction['emoji'], 'to', repr(get_envelope_msg(msg_w.envelope))
-            ))
-        self.set_notification(notif, sender)
         self.commands.send_notification(sender_name, reaction['emoji'])
+        if chat is not self.current_chat:
+            notif = ' '.join((
+                'New reaction', 'from',
+                repr(sender_name), ':', reaction['emoji'], 'to', repr(get_envelope_msg(msg_w.envelope))
+                ))
+            self.set_notification(notif, sender)
 
     def on_call_message(self, envelope):
         w = self.print_call_message(envelope)
         sender = self.signal.get_contact(envelope['source'])
 
+        # Notifications
         if (not w
                 or get_nested(envelope, 'callMessage', 'answerMessage') # Outgoing call
-                or sender == self.current_contact):
+                ):
             return
         sender_name = get_contact_name(sender)
         notif = w.base_widget.text[3:]
-        self.set_notification(''.join([notif, ': ', sender_name]), sender)
         self.commands.send_notification(sender_name, notif)
+        if sender != self.current_contact:
+            self.set_notification(''.join([notif, ': ', sender_name]), sender)
 
     def print_reaction(self, msg_w, envelope):
         # On official signal clients, when a contact sends a new reaction to the same message, it replaces the old reaction. Here, the new reaction is shown alongside with the old ones.
