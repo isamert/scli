@@ -50,6 +50,29 @@ SCLI_CFG_FILE = os.path.join(CFG_FOLDER, 'sclirc')
 SCLI_LOG_FILE = os.path.join(SCLI_DATA_FOLDER, 'log')
 
 # #############################################################################
+# key bindings
+# #############################################################################
+
+KEY_BINDINGS = {
+        'copy_message'          : 'y',
+        'open_attach_or_url'    : 'o',
+        'delete_message'        : 'd',
+        'reload_contacts'       : 'r', # Same key, different
+        'resend_message'        : 'r',  # contexts, no problem
+        'show_message_info'     : 'i',
+        'show_help'             : ['?', 'h'],
+            # An example of     multiple keys for the same action
+        'input_new_line'        : 'meta enter',
+        'select_next_contact'   : ['meta j', 'meta down'], # This functionality is implemented
+        'select_prev_contact'   : ['meta k', 'meta up'],   # in ui-misc branch
+        }
+for action, key in KEY_BINDINGS.items():
+    # Convert every value to "list of keys", for consistency.
+    if not isinstance(key, list):
+        KEY_BINDINGS[action] = [key]
+
+
+# #############################################################################
 # coloring stuff
 # #############################################################################
 
@@ -617,7 +640,7 @@ class MessageInfo(urwid.ListBox):
             listbox_focus_next(self)
         elif key in ('k', 'up'):
             listbox_focus_prev(self)
-        elif key == 'y':
+        elif key in KEY_BINDINGS['copy_message']:
             text, _ = item.get_text()
             try:
                 clip.put(self.state, item.full_path)
@@ -626,7 +649,7 @@ class MessageInfo(urwid.ListBox):
                     clip.put(self.state, text.split(": ")[1])
                 except IndexError:
                     clip.put(self.state, text)
-        elif key in ('enter', 'o'):
+        elif key in ('enter', *KEY_BINDINGS['open_attach_or_url']):
             try:
                 self.state.commands.open_file(item.full_path)
             except (AttributeError, TypeError):
@@ -1631,7 +1654,7 @@ class ContactsWindow(urwid.ListBox):
             self.focus_first()
         elif key == 'G':
             self.focus_last()
-        elif key == 'r':
+        elif key in KEY_BINDINGS['reload_contacts']:
             self.state.reload()
         return key
 
@@ -1706,7 +1729,7 @@ class BracketedPasteEdit(Edit):
             self._paste_mode_on = False
         elif key == 'enter' and not (self._multiline_arg or self._paste_mode_on):
             return key
-        elif key == 'meta enter':
+        elif key in KEY_BINDINGS['input_new_line']:
             # Allow inserting new lines with Alt+Enter. This is not a part of "bracketed mode paste" functionality.
             return super().keypress(size, 'enter')
         else:
@@ -1930,7 +1953,7 @@ class ChatWindow(urwid.Frame):
                     self._wlist.focus_position = real_index
                 elif get_envelope_msg(envelope) is not None:
                     self.state.commands.open_attach(envelope) or self.state.commands.open_url(envelope)
-            elif key == 'o':
+            elif key in KEY_BINDINGS['open_attach_or_url']:
                 self.state.commands.open_url(envelope) or self.state.commands.open_attach(envelope)
             elif key in ('j', 'down'):
                 listbox_focus_next(self._w.original_widget)
@@ -1940,10 +1963,10 @@ class ChatWindow(urwid.Frame):
                 self.focus_chatfirst()
             elif key == 'G':
                 self.focus_chatlast()
-            elif key == 'y':
+            elif key in KEY_BINDINGS['copy_message']:
                 txt = get_envelope_msg(envelope)
                 clip.put(self.state, txt)
-            elif key == 'd':
+            elif key in KEY_BINDINGS['delete_message']:
                 if self.search_mode:
                     item = self.search_list[self._wsearch.focus_position]
                     real_index = item.real_index
@@ -1951,7 +1974,7 @@ class ChatWindow(urwid.Frame):
                     self.state.delete_message(envelope, real_index)
                 else:
                     self.state.delete_message(envelope, self._wlist.focus_position)
-            elif key == 'r':
+            elif key in KEY_BINDINGS['resend_message']:
                 if self.state.delivery_status.get_str(envelope) != 'send_failed':
                     # Only allow re-sending failed messages this way
                     return
@@ -1963,7 +1986,7 @@ class ChatWindow(urwid.Frame):
                     self.search_list.append(self.state.current_chat[-1])
                 else:
                     self.state.resend_message(envelope, self._wlist.focus_position)
-            elif key == 'i':
+            elif key in KEY_BINDINGS['show_message_info']:
                 if get_envelope_msg(envelope) is not None:
                     self.show_pop_up(MessageInfo(self.state, envelope))
             elif key == 'q':
@@ -2111,7 +2134,7 @@ class MainWindow(urwid.Frame):
             self.focus_input(cmd_mode=True)
         elif key == '/' and self.current_focus == 'chat':
             self.focus_input(search_mode=True)
-        elif key == '?':
+        elif key in KEY_BINDINGS['show_help']:
             self.show_help_pop_up()
 
         return key
@@ -3093,6 +3116,16 @@ class CustomDefaultsHelpFormatter(argparse.ArgumentDefaultsHelpFormatter):
             return action.help
         return super()._get_help_string(action)
 
+def parse_key_bindings(bind_args):
+    # NOTE:
+    # ':' and '/' symbols in `--bind` values are 'special'.
+    # They could not be used as `key`s in re-binidings.
+    # Different 'special' chars could be chosen instead, of course.
+    for bind_arg in bind_args:
+        action, _, keys = bind_arg.partition(':')
+        keys = keys.split('/')
+        KEY_BINDINGS[action] = keys
+
 def make_arg_parser():
     parser = argparse.ArgumentParser(
             formatter_class=CustomDefaultsHelpFormatter,
@@ -3196,6 +3229,21 @@ def make_arg_parser():
         default=False,
         help="Colorize messages. See README for options.",
     )
+
+    parser.add_argument(
+        '--bind',  # TODO: arg name good as is?
+        action='append',
+        help="Rebind keys. Values are `action:key[/key/key/..]`.",
+    )
+    # TODO:
+    # - ? Add a command that would print list of actions and current bindings? (w/o starting scli)
+        # Maybe something like
+        #   scli show key-bindings
+        # Or, do it with just
+        #   scli --bind
+        # (w/o values). Might be questionable: aruments / flags are not "actions". With a flag `--option..` scli should still start and do its normal thing.
+        # Otherwise, in README, can simply point to
+        # KEY_BINDINGS dict in the code (lines 56-68 in this file)
 
     parser.add_argument(
         '-w',
@@ -3318,6 +3366,8 @@ def parse_args():
         args.username = detect_user_name()
     if args.color:
         args.color = Color(args.color)
+    if args.bind:
+        parse_key_bindings(args.bind)
     args.partition_contacts = args.partition_contacts or args.group_contacts
     del args.__dict__['group_contacts']
     return args
