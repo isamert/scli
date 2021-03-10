@@ -54,23 +54,59 @@ SCLI_LOG_FILE = os.path.join(SCLI_DATA_FOLDER, 'log')
 # #############################################################################
 
 KEY_BINDINGS = {
-        'copy_message'          : 'y',
-        'open_attach_or_url'    : 'o',
-        'delete_message'        : 'd',
-        'reload_contacts'       : 'r', # Same key, different
-        'resend_message'        : 'r',  # contexts, no problem
-        'show_message_info'     : 'i',
-        'show_help'             : ['?', 'h'],
-            # An example of     multiple keys for the same action
-        'input_new_line'        : 'meta enter',
-        'select_next_contact'   : ['meta j', 'meta down'], # This functionality is implemented
-        'select_prev_contact'   : ['meta k', 'meta up'],   # in ui-misc branch
+        # 'action'              : [['key', 'key', ..],   ['scope', 'scope', ..]]
+        # `scopes` can be: 'contacts', 'chat', 'input', 'popup', 'other'
+            # TODO: make an enum?
+        'copy_message'          : ['y',             ['chat', 'popup']],
+        'open_attach_or_url'    : ['o',             ['chat', 'popup']],
+        #'open_contact_chat'     : ['o',             ['contacts']],  # example: if we want to open a chat with `o`, different context
+        'delete_message'        : ['d',             ['chat']],
+        'reload_contacts'       : ['r',             ['contacts']],# Same key, different
+        'resend_message'        : ['r',             ['chat']], # contexts, no problem
+        'show_message_info'     : ['i',             ['chat']],
+        'show_help'             : [['?', 'h'],      ['contacts', 'chat']],
+           ## An example of     multiple keys for the same action
+        'input_new_line'        : [['meta enter'],    ['input']],
+        'select_next_contact'   : [['meta j', 'meta down'],    ['contacts', 'chat', 'input']], # This functionality is implemented
+        'select_prev_contact'   : [['meta k', 'meta up'],     ['contacts', 'chat', 'input']],  # in ui-misc branch
         }
-for action, key in KEY_BINDINGS.items():
-    # Convert every value to "list of keys", for consistency.
-    if not isinstance(key, list):
-        KEY_BINDINGS[action] = [key]
 
+def set_key_bindings(bind_args):
+    # NOTE:
+    # ':' and '/' symbols in `--bind` values are 'special'.
+    # They could not be used as `key`s in re-binidings.
+    # Different 'special' chars could be chosen instead, of course.
+
+    def remove_scopes():
+        # We only need 'scopes' to check for collisions.
+        # If there aren't any, we can remove them from KEY_BINDINGS to simplify its usage.
+        for action, (keys, _scopes) in KEY_BINDINGS.items():
+            KEY_BINDINGS[action] = keys
+
+    for action, (keys, _scopes) in KEY_BINDINGS.items():
+        # Convert all `keys` to `set`s, for consistency.
+        KEY_BINDINGS[action][0] = set(keys)
+
+    if not bind_args:
+        remove_scopes()
+        return
+
+    for bind_arg in bind_args:
+        action, _, keys = bind_arg.partition(':')
+        keys = keys.split('/')
+        KEY_BINDINGS[action][0] = set(keys)
+
+    # Check for keys collisions
+    keys_in_scopes = {}
+    for keys, scopes in KEY_BINDINGS.values():
+        for scope in scopes:
+            keys_in_scope = keys_in_scopes.setdefault(scope, set())
+            collisions = keys & keys_in_scope
+            if collisions:
+                sys.exit(f"Key binding collision: {collisions}")
+            keys_in_scope.update(keys)
+
+    remove_scopes()
 
 # #############################################################################
 # coloring stuff
@@ -3116,15 +3152,7 @@ class CustomDefaultsHelpFormatter(argparse.ArgumentDefaultsHelpFormatter):
             return action.help
         return super()._get_help_string(action)
 
-def parse_key_bindings(bind_args):
-    # NOTE:
-    # ':' and '/' symbols in `--bind` values are 'special'.
-    # They could not be used as `key`s in re-binidings.
-    # Different 'special' chars could be chosen instead, of course.
-    for bind_arg in bind_args:
-        action, _, keys = bind_arg.partition(':')
-        keys = keys.split('/')
-        KEY_BINDINGS[action] = keys
+
 
 def make_arg_parser():
     parser = argparse.ArgumentParser(
@@ -3366,8 +3394,7 @@ def parse_args():
         args.username = detect_user_name()
     if args.color:
         args.color = Color(args.color)
-    if args.bind:
-        parse_key_bindings(args.bind)
+    set_key_bindings(args.bind)
     args.partition_contacts = args.partition_contacts or args.group_contacts
     del args.__dict__['group_contacts']
     return args
