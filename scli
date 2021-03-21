@@ -253,25 +253,6 @@ def split_path(string):
     return [path, rest] if rest else [path]
 
 
-class ObservableConfig:
-    signals = ['changed']
-
-    def __init__(self, cfg_obj):
-        self._cfg_obj = cfg_obj
-
-    def __getattr__(self, name):
-        return getattr(self._cfg_obj, name)
-
-    def __setattr__(self, name, value):
-        if name != '_cfg_obj' and hasattr(self._cfg_obj, name):
-            setattr(self._cfg_obj, name, value)
-            urwid.emit_signal(self, 'changed', name, value)
-        else:
-            super().__setattr__(name, value)
-
-
-urwid.register_signal(ObservableConfig, ObservableConfig.signals)
-
 def utc2local(utc_dt):
     return utc_dt.replace(tzinfo=timezone.utc).astimezone(tz=None)
 
@@ -723,16 +704,16 @@ class clip:
         p.wait()
 
     @staticmethod
-    def put(state, txt):
-        cmd = state.cfg.clipboard_put_command
+    def put(txt):
+        cmd = cfg.clipboard_put_command
         if cmd is None:
             return clip.xput(txt)
 
         return callf(cmd, {'%s': txt})
 
     @staticmethod
-    def files(state):
-        cmd = state.cfg.clipboard_get_command
+    def files():
+        cmd = cfg.clipboard_get_command
         if cmd is None:
             return clip.xfiles()
 
@@ -3076,14 +3057,28 @@ def link_device(device_name):
     pipe_link.wait()
     if pipe_link.returncode != 0:
         sys.exit('Something went wrong while linking: {}'.format(pipe_link.stderr.read()))
+class Config:
+    def __init__(self, cfg_obj):
+        self._cfg_obj = cfg_obj
+        self.on_modified = noop
 
     print('Receiving data for the first time...')
+    def set(self, cfg_obj):
+        self._cfg_obj = cfg_obj
 
     cmd_receive = 'signal-cli -u {} receive'.format(detect_user_name())
     pipe_receive = Popen(cmd_receive.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    def __getattr__(self, name):
+        return getattr(self._cfg_obj, name)
 
     for receive_out in iter(pipe_receive.stdout.readline, ''):
         print(receive_out, end='')
+    def __setattr__(self, name, value):
+        if name != '_cfg_obj' and hasattr(self._cfg_obj, name):
+            setattr(self._cfg_obj, name, value)
+            self.on_modified(name, value)
+        else:
+            super().__setattr__(name, value)
 
     pipe_receive.wait()
     if pipe_receive.returncode != 0:
@@ -3091,6 +3086,7 @@ def link_device(device_name):
 
     print('Done.')
     sys.exit(0)
+cfg = Config(None)
 
 def detect_user_name():
     ulist = []
