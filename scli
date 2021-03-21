@@ -272,6 +272,18 @@ class ObservableConfig:
 
 urwid.register_signal(ObservableConfig, ObservableConfig.signals)
 
+def utc2local(utc_dt):
+    return utc_dt.replace(tzinfo=timezone.utc).astimezone(tz=None)
+
+
+def strftimestamp(timestamp, strformat='%H:%M:%S (%Y-%m-%d)'):
+    try:
+        date = datetime.utcfromtimestamp(timestamp)
+    except ValueError:
+        date = datetime.utcfromtimestamp(timestamp / 1000)
+    return utc2local(date).strftime(strformat)
+
+
 # #############################################################################
 # signal utility
 # #############################################################################
@@ -452,16 +464,6 @@ def b64_to_hex_str(group_id):
     return base64.b64decode(group_id.encode()).hex()
 
 
-def utc2local(utc_dt):
-    return utc_dt.replace(tzinfo=timezone.utc).astimezone(tz=None)
-
-def strftimestamp(timestamp, strformat='%H:%M:%S (%Y-%m-%d)'):
-    try:
-        date = datetime.utcfromtimestamp(timestamp)
-    except ValueError:
-        date = datetime.utcfromtimestamp(timestamp / 1000)
-
-    return utc2local(date).strftime(strformat)
 
 
 # #############################################################################
