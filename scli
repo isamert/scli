@@ -29,9 +29,11 @@ try:
 except ImportError:
     Edit = urwid.Edit
 
+
 # #############################################################################
 # constants
 # #############################################################################
+
 
 DATA_FOLDER = os.getenv('XDG_DATA_HOME', os.path.expanduser('~/.local/share'))
 CFG_FOLDER = os.getenv('XDG_CONFIG_HOME', os.path.expanduser('~/.config'))
@@ -186,20 +188,21 @@ def get_version():
         pass
 
     version_file_path = os.path.join(prog_dir, 'VERSION')
-    # Assumes VERSION file is formatted with `$Format:%h %d$`
     try:
         with open(version_file_path) as f:
             version_str = f.readline()
     except OSError:
-        return "?"
+        return '?'
     if version_str.startswith('$'):
         # Neither a release, nor is there a `.git` dir (e.g. manually dl'ed blob)
-        return "?"
-    TAG_RE = re.compile(r"tag: v(.+?)[,)]")
-    tag_re_match = TAG_RE.search(version_str)
+        return '?'
+    tag_re = re.compile(r"tag: v(.+?)[,)]")
+        # Assumes VERSION file is formatted with `$Format:%h %d$`
+    tag_re_match = tag_re.search(version_str)
     if tag_re_match:
         return tag_re_match.group(1)
     return version_str.split(maxsplit=1)[0]   # commit hash
+
 
 def get_default_editor():
     for env_var in ('VISUAL', 'EDITOR'):
@@ -661,23 +664,27 @@ class clip:
     @staticmethod
     def xrun(mime):
         try:
-            p = Popen(['xclip', '-selection', 'clipboard', '-t', mime, '-o'], stdout=PIPE, stderr=PIPE)
-        except OSError:
-            return
-        out, err = p.communicate()
-        return out
+            proc = subprocess.run(
+                    ['xclip', '-selection', 'clipboard', '-t', mime, '-o'],
+                    capture_output=True,
+                    check=True,
+                    )
+        except (OSError, subprocess.CalledProcessError):
+            return None
+        return proc.stdout
 
     @staticmethod
     def xrun_lines(mime):
         out = clip.xrun(mime)
         if out:
             return out.decode('utf-8').split('\n')
+        return None
 
     @staticmethod
     def xfiles():
         out = clip.xrun_lines('TARGETS')
         if out is None:
-            return
+            return out
 
         for otype in out:
             for mtype in clip.mime_order:
@@ -686,7 +693,10 @@ class clip:
                         content = clip.xrun(mtype)
                         suffix = '.' + mtype.split('/')[1]
                         tmp = tempfile.NamedTemporaryFile(
-                            mode='w+b', prefix=clip.tempfile_prefix, suffix=suffix, delete=False
+                            mode='w+b',
+                            prefix=clip.tempfile_prefix,
+                            suffix=suffix,
+                            delete=False,
                         )
                         tmp.write(content)
                         tmp.flush()
@@ -696,24 +706,28 @@ class clip:
                         content = clip.xrun_lines(mtype)
                         return [x.replace('file://', '') for x in content[1:]]
 
+        return None
+
     @staticmethod
     def xput(txt):
         if not txt:
             return
         try:
-            p = Popen(['xclip', '-selection', 'clipboard'], stdout=PIPE, stderr=PIPE, stdin=PIPE)
+            proc = subprocess.Popen(
+                    ['xclip', '-selection', 'clipboard'],
+                    stdin=subprocess.PIPE,
+                    text=True,
+                    )
         except OSError:
             return
-        p.stdin.write(bytes(txt, 'utf-8'))
-        p.stdin.close()
-        p.wait()
+        proc.stdin.write(txt)
+        proc.stdin.close()
 
     @staticmethod
     def put(txt):
         cmd = cfg.clipboard_put_command
         if cmd is None:
             return clip.xput(txt)
-
         return callf(cmd, {'%s': txt})
 
     @staticmethod
@@ -729,17 +743,19 @@ class clip:
 # AsyncProc & Daemon
 # #############################################################################
 
-class CallbackQueue:
 
+class CallbackQueue:
     def __init__(self):
-        # The _queue is a list with each item a tuple: ({proc1, proc2, ..}, callback, callback_args, proc_callback, proc_callback_kwargs)
+        # The _queue is a list with each item a tuple: ({proc1, proc2, ..}, callback, callback_kwargs, proc_callback, proc_callback_kwargs)
         self._queue = []
         self._accepting_new_procs_for_item = False
 
     def new_item(self, callback, callback_kwargs, proc_callback, proc_callback_kwargs):
         if callback is None and proc_callback is None:
             return
-        self._queue.append((set(), callback, callback_kwargs, proc_callback, proc_callback_kwargs))
+        self._queue.append(
+                (set(), callback, callback_kwargs, proc_callback, proc_callback_kwargs)
+                )
         self._accepting_new_procs_for_item = True
 
     def add_proc(self, proc):
@@ -778,9 +794,9 @@ class CallbackQueue:
 
 
 class AsyncProc:
-
-    def __init__(self, urwid_loop):
-        self._urwid_loop = urwid_loop
+    def __init__(self, main_loop):
+        # The `main_loop` is an object like `urwid.MainLoop`, that implements `watch_pipe()` and `set_alarm_in()` methods.
+        self.main_loop = main_loop
         self._callback_queue = CallbackQueue()
 
     def run(self, args, callback=None, *callback_args, shell=False, **callback_kwargs):
@@ -796,23 +812,36 @@ class AsyncProc:
             proc.output = proc.stderr.read().rstrip('\n')   # stderr stream is not seekable, so can be read only once
 
             if return_code != 0:
-                logging.error('proc: cmd:`%s`; return_code:%d; output:"%s"', proc.args, return_code, proc.output)
+                logging.error(
+                        'proc: cmd:`%s`; return_code:%d; output:"%s"',
+                        proc.args,
+                        return_code,
+                        proc.output,
+                        )
 
             if callback is not None:
                 callback(proc, *callback_args, **callback_kwargs)
             self._callback_queue.on_proc_done(proc)
 
-            os.close(watchpipe_fd) # Close the write end of urwid's watch pipe.
-            return False # Close the read end of urwid's watch pipe and remove the watch from event_loop.
+            os.close(watchpipe_fd)  # Close the write end of watch pipe.
+            return False    # Close the read end of watch pipe and remove the watch from event_loop.
 
-        watchpipe_fd = self._urwid_loop.watch_pipe(watchpipe_handler)
+        watchpipe_fd = self.main_loop.watch_pipe(watchpipe_handler)
 
         # If the command is run with Popen(.., shell=True), shlex.quote is needed to escape special chars in args.
-        sh_command = " ".join([shlex.quote(arg) for arg in args] if not shell else ['{', args, ';', '}'])
+        sh_command = " ".join(
+                [shlex.quote(arg) for arg in args] if not shell else ['{', args, ';', '}']
+                )
         # Redirect all the process's output to stderr, and write the process PID and exit status to the watch pipe.
         sh_command += " 1>&2; echo $$ $?"
 
-        proc = Popen(sh_command, shell=True, stdout=watchpipe_fd, stderr=PIPE, universal_newlines=True)
+        proc = subprocess.Popen(
+                sh_command,
+                shell=True,
+                stdout=watchpipe_fd,
+                stderr=subprocess.PIPE,
+                universal_newlines=True,
+                )
         atexit.register(proc.kill)   # prevent orphaned processes surviving after the main program is stopped
         self._callback_queue.add_proc(proc)
         return proc
@@ -872,9 +901,9 @@ class Daemon(AsyncProc):
                     )
         return proc
 
-    def _daemon_handler(self, line):
-        line = self._buffer + line
-        lines = line.split(b'\n')
+    def _daemon_stdout_handler(self, bytes_recv):
+        bytes_recv = self._buffer + bytes_recv
+        lines = bytes_recv.split(b'\n')
         if lines[-1] != b'':
             # Not a complete message. Store in buffer
             self._buffer = lines[-1]
@@ -886,17 +915,16 @@ class Daemon(AsyncProc):
             if not line.strip():
                 continue
             try:
-                e = json.loads(line.decode('utf-8'))
-                envelope = e['envelope']
+                json_data = json.loads(line.decode('utf-8'))
+                envelope = json_data['envelope']
+            except (json.JSONDecodeError, KeyError) as err:
+                logging.error('Could not parse daemon output: %s', line)
+                logging.exception(err)
+            else:
                 self._envelope_handler(envelope)
-            except Exception as e:
-                logging.error('input: %s', line)
-                logging.exception(e)
-                # TODO: display error to user
-                continue
 
-    def _daemon_stderr_handler(self, line):
-        line = line.decode().strip()
+    def _daemon_stderr_handler(self, bytes_recv):
+        line = bytes_recv.decode().strip()
         if not line:
             return
         logging.info('daemon_log: %s', line)
@@ -931,13 +959,13 @@ class Daemon(AsyncProc):
         else:
             logging.info('No action for received envelope: %s', pprint.pformat(envelope))
 
-    def dbus_send(self, args, *proc_args, async_proc=True, **proc_kwargs):
+    def _dbus_send(self, args, *proc_args, async_proc=True, **proc_kwargs):
         args = [
-                    'dbus-send',
-                    '--session',
-                    '--type=method_call',
-                    '--print-reply',
-                    *args
+                'dbus-send',
+                '--session',
+                '--type=method_call',
+                '--print-reply',
+                *args
                 ]
         if async_proc:
             proc = self.run(args, *proc_args, **proc_kwargs)
@@ -945,14 +973,14 @@ class Daemon(AsyncProc):
             proc = subprocess.run(args, *proc_args, **proc_kwargs)
         return proc
 
-    def dbus_send_signal_cli(self, args, *proc_args, **proc_kwargs):
+    def _dbus_send_signal_cli(self, args, *proc_args, **proc_kwargs):
         """ Send a command to signal-cli daemon through dbus """
         args = [
-                    '--dest=org.asamk.Signal',
-                    '/org/asamk/Signal',
-                    *args
+                '--dest=org.asamk.Signal',
+                '/org/asamk/Signal',
+                *args
                 ]
-        return self.dbus_send(args, *proc_args, **proc_kwargs)
+        return self._dbus_send(args, *proc_args, **proc_kwargs)
 
     def _send_message_dbus_cmd(self, message, attachments, recipient, is_group=False, *proc_args, **proc_kwargs):
         args = [
@@ -966,7 +994,7 @@ class Daemon(AsyncProc):
                     'array:byte:' + b64_to_bytearray(recipient))
                 ]
 
-        self.dbus_send_signal_cli(args, *proc_args, **proc_kwargs)
+        self._dbus_send_signal_cli(args, *proc_args, **proc_kwargs)
 
     def send_message(self, contact_id, message="", attachments=None):
         is_group = not is_number(contact_id)
@@ -1039,25 +1067,32 @@ class Daemon(AsyncProc):
 
         If a contact does not exist, it will be created. Changes to groups are sent to the server, changes to individual contacts are local.
         """
+
         if not is_group:
-            args = ["org.asamk.Signal.setContactName",
+            args = [
+                    "org.asamk.Signal.setContactName",
                     "string:" + contact_id,
-                    "string:" + new_name]
+                    "string:" + new_name,
+                    ]
         else:
-            args = ["org.asamk.Signal.updateGroup",
+            args = [
+                    "org.asamk.Signal.updateGroup",
                     "array:byte:" + b64_to_bytearray(contact_id),
                     "string:" + new_name,
                     "array:string:" + '',   # members
-                    "string:" + '']         # avatar
-        self.dbus_send_signal_cli(args, *proc_args, **proc_kwargs)
+                    "string:" + ''         # avatar
+                    ]
+        self._dbus_send_signal_cli(args, *proc_args, **proc_kwargs)
 
     def get_group_name(self, group_id, callback, *cb_args, **cb_kwargs):
         def proc_callback(proc):
             name = proc.output.split('\n')[1][11:-1]   # Ad-hoc parsing of `dbus-send` output
             callback(name, *cb_args, **cb_kwargs)
-        args = ["org.asamk.Signal.getGroupName",
-                "array:byte:" + b64_to_bytearray(group_id)]
-        self.dbus_send_signal_cli(args, callback=proc_callback)
+        args = [
+                "org.asamk.Signal.getGroupName",
+                "array:byte:" + b64_to_bytearray(group_id)
+                ]
+        self._dbus_send_signal_cli(args, callback=proc_callback)
 
     def get_group_members(self, group_id, callback, *cb_args, **cb_kwargs):
         def proc_callback(proc):
@@ -1067,9 +1102,11 @@ class Daemon(AsyncProc):
                 num = line[14:-1]
                 members.append({"number": num})
             callback(members, *cb_args, **cb_kwargs)
-        args = ["org.asamk.Signal.getGroupMembers",
-                "array:byte:" + b64_to_bytearray(group_id)]
-        self.dbus_send_signal_cli(args, callback=proc_callback)
+        args = [
+                "org.asamk.Signal.getGroupMembers",
+                "array:byte:" + b64_to_bytearray(group_id)
+                ]
+        self._dbus_send_signal_cli(args, callback=proc_callback)
 
     def get_signal_cli_version(self, callback, *cb_args, **cb_kwargs):
         def proc_callback(proc):
@@ -1079,22 +1116,20 @@ class Daemon(AsyncProc):
     @property
     def is_dbus_service_running(self):
         args = [
-                    '--dest=org.freedesktop.DBus',
-                    '/org/freedesktop/DBus',
-                    'org.freedesktop.DBus.ListNames'
+                '--dest=org.freedesktop.DBus',
+                '/org/freedesktop/DBus',
+                'org.freedesktop.DBus.ListNames'
                 ]
-        proc = self.dbus_send(args, async_proc=False, stdout=subprocess.PIPE, text=True)
+        proc = self._dbus_send(args, async_proc=False, capture_output=True, text=True, check=True)
         signal_cli_str = 'string "org.asamk.Signal"'
         return signal_cli_str in proc.stdout
 
-    def run_when_dbus_service_started(self, callback):
-        POLL_FREQ = 1       # seconds between polls
-        def set_alarm(urwid_loop, _user_data=None):
+    def _run_when_dbus_service_started(self, callback):
+        poll_freq = 1       # seconds between polls
+        def set_alarm(main_loop, _user_data=None):
             if self.is_dbus_service_running:
                 callback()
             else:
-                self._alarm_handle = urwid_loop.set_alarm_in(POLL_FREQ, set_alarm)
-        set_alarm(self._urwid_loop)
 
 # #############################################################################
 # commands
@@ -1322,6 +1357,8 @@ class Commands:
 
     def quit(self):
         raise urwid.ExitMainLoop()
+                main_loop.set_alarm_in(poll_freq, set_alarm)
+        set_alarm(self.main_loop)
 
 
 # #############################################################################
@@ -1368,15 +1405,15 @@ class SignalData:
         # This is a crude hack to extract a group name from the group-cache's protobuf binary file without dealing with protobuf or querying signal-cli's `getGroupName`.
         # See
         # https://github.com/AsamK/signal-cli/issues/386
-        bs = None
+        cache = None
         for filename in (
                 group_id.replace("/", "_"),
                 b64_to_hex_str(group_id)
                 ):
             # Since signal-cli v0.7.2, group-cache files' names are `group_id`s with `/` replaced with `_`. Existing group-cache filenames (hex-formatted) from v0.7.{0,1} are kept without renaming, so here we have to try both.
-            path = os.path.join(self._path + '.d', 'group-cache', filename)
+            path = os.path.join(self._file_path + '.d', 'group-cache', filename)
             try:
-                bs = open(path, 'br').readline()
+                cache = open(path, 'br').read()
             except FileNotFoundError:
                 logging.warning(
                         "Could not open v2 group cache file\n\t"
@@ -1387,13 +1424,13 @@ class SignalData:
                 continue
             else:
                 break
-        if bs is None:
+        if cache is None:
             return None
         for name_end_str in (b'\x1aI', b'"'):
-            name_end = bs.find(name_end_str)
+            name_end = cache.find(name_end_str)
             if name_end != -1:
                 break
-        grp_name = bs[2:name_end].decode()
+        grp_name = cache[2:name_end].decode()
         return grp_name
 
     def _set_v2_groups_info_async(self):
@@ -1752,10 +1789,11 @@ class BracketedPasteEdit(Edit):
         elif key == 'enter' and not (self._multiline_arg or self._paste_mode_on):
             return key
         elif key == 'meta enter':
-            # Allow inserting new lines with Alt+Enter. This is not a part of "bracketed mode paste" functionality.
+            # Allow inserting new lines with Alt+Enter. This is not a part of "bracketed paste mode" functionality.
             return super().keypress(size, 'enter')
         else:
             return super().keypress(size, key)
+        return None
 
 
 class ChatWindow(urwid.Frame):
