@@ -129,23 +129,31 @@ def get_urls(txt):
     return re.findall(r'(https?://[^\s]+)', txt)
 
 
-def callf(cmd, rmap=None, background=False, capture_output=True, shell=False):
+def callf(cmd, rmap=None, background=False, **subprocess_kwargs):
     if rmap:
         for key, val in rmap.items():
             cmd = cmd.replace(key, val)
 
-    if not shell:
+    if not subprocess_kwargs.get('shell'):
         cmd = shlex.split(cmd)
     logging.info('callf: `%s`', cmd)
 
     if background:
-        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=shell)
+        for arg in ('stdin', 'stdout', 'stderr'):
+            subprocess_kwargs.setdefault(arg, subprocess.DEVNULL)
+        proc = subprocess.Popen(cmd, **subprocess_kwargs)
         return proc
 
-    proc = subprocess.run(cmd, capture_output=capture_output, shell=shell, text=True)
+    subprocess_kwargs.setdefault('text', True)
+    proc = subprocess.run(cmd, **subprocess_kwargs)
 
     if proc.returncode != 0:
-        logging.error('callf: exit code: %d, stderr: %s', proc.args, proc.returncode, proc.stderr)
+        logging.error(
+                'callf: %s: exit code: %d, stderr: %s',
+                proc.args,
+                proc.returncode,
+                proc.stderr
+                )
     elif proc.stdout:
         logging.info('callf: %s', proc.stdout)
 
