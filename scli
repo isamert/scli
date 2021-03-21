@@ -277,54 +277,8 @@ def strftimestamp(timestamp, strformat='%H:%M:%S (%Y-%m-%d)'):
 # #############################################################################
 
 
-def hash_contact(x):
-    h = get_contact_id(x)
-    if h is None:
-        logging.critical('hash_contact:No number or groupId')
-    return h
-
-
-def get_contact_name(x):
-    if not x:
-        logging.critical('get_contact_name:empty sender')
-        return "NULL"
-
-    if isinstance(x, str):
-        return x
-
-    name = x.get('name')
-    if name and not name.isspace():
-        return name
-
-    return get_contact_number(x)
-
-
-def get_contact_number(x):
-    if not x:
-        logging.critical('get_contact_number:empty sender')
-        return "NULL"
-
-    number = x.get('number')
-    if number:
-        return number
-
-    return "NULL"
-
-
-def get_contact_id(contact):
-    if not contact:
-        logging.critical('get_contact_number:empty sender')
-        return "NULL"
-
-    return contact.get('number') or contact.get('groupId')
-
-
-def get_contact_color(x):
-    color = x.get('color')
-    if color or color.strip(' ') != '':
-        return color
-
-    return 'white'
+def get_contact_id(contact_dict):
+    return contact_dict.get('number') or contact_dict.get('groupId')
 
 
 def get_group_members(group, exclude=None):
@@ -346,12 +300,13 @@ def get_group_members(group, exclude=None):
     return ret
 
 
-def is_contact_group(contact):
-    return has_key('groupId', contact)
+def is_contact_group(contact_dict):
+    return 'groupId' in contact_dict
 
 
-def is_group_v2(group):
-    return len(group['groupId']) == 44
+def is_group_v2(group_dict):
+    gid = group_dict['groupId']
+    return len(gid) == 44
 
 
 def get_envelope_data_val(envelope, *keys, default=None, return_tuple=False):
@@ -1476,9 +1431,12 @@ class SignalData:
         return self._data['username']
 
 
+class Contact:
 
     def get_contact(self, contact_id):
         return self.contacts_map.get(contact_id)
+    # A `Contact` can be either an individual contact or a group.
+    # This class uses the _record dict with contact's details, which is what is obtained from contactsStore and groupsStore in signal-cli data file's json structure.
 
     def get_envelope_contact(self, envelope):
         contact_id = get_envelope_contact_id(envelope)
@@ -1486,6 +1444,11 @@ class SignalData:
         if not contact:
             logging.critical('NULL_CONTACT:%s', envelope)
         return contact
+    def __init__(self, record):
+        self._record = record
+        if self.is_group:
+            self.members_ids = set()
+            self.member_contacts = set()
 
     def get_contact_profile_name(self, contact):
         try:
@@ -1495,6 +1458,29 @@ class SignalData:
             return profiles_map[contact_id]['profile']['name']
         except (KeyError, TypeError):
             return None
+    def __getattr__(self, attr):
+        # A helper function to access values in contact's dict `record`.
+        return self._record.get(attr)
+
+    def update_record(self, update_dict):
+        self._record.update(update_dict)
+
+    @property
+    def is_group(self):
+        return is_contact_group(self._record)
+
+    @property
+    def is_group_v2(self):
+        return is_group_v2(self._record)
+
+    @property
+    def id(self):
+        return get_contact_id(self._record)
+
+    @property
+    def name_or_id(self):
+        return self.name or self.profile_name or self.id
+
 
 
 # #############################################################################
