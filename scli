@@ -428,13 +428,14 @@ def get_attachment_name(attachment):
 
 
 def get_attachment_path(attachment):
-    if isinstance(attachment, dict):
-        received_attachment = os.path.join(SIGNALCLI_ATTACHMENT_FOLDER, str(attachment['id']))
-        if not os.path.exists(received_attachment):
-            received_attachment = os.path.join(SIGNALCLI_LEGACY_ATTACHMENT_FOLDER, str(attachment['id']))
-        return received_attachment
-    elif isinstance(attachment, str) and os.path.exists(attachment):
+    try:
+        aid = attachment['id']
+    except TypeError:
         return attachment
+    received_attachment = os.path.join(SIGNALCLI_ATTACHMENT_FOLDER, aid)
+    if not os.path.exists(received_attachment):
+        received_attachment = os.path.join(SIGNALCLI_LEGACY_ATTACHMENT_FOLDER, aid)
+    return received_attachment
 
 
 def b64_to_bytearray(group_id):
