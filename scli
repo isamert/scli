@@ -3863,25 +3863,7 @@ class Config:
 
 cfg = Config(None)
 
-def detect_user_name():
-    ulist = []
-    for folder in [SIGNALCLI_DATA_FOLDER, SIGNALCLI_LEGACY_DATA_FOLDER]:
-        try:
-            users = [x for x in os.listdir(folder) if os.path.isfile(os.path.join(folder, x))]
-            ulist.extend(users)
-        except FileNotFoundError:
-            pass
 
-    if not ulist:
-        print("Couldn't find any linked device.", file=sys.stderr)
-        sys.exit(1)
-    elif len(ulist) == 1:
-        return ulist[0]
-    else:
-        print("Use one of these:", file=sys.stderr)
-        for u in ulist:
-            print("\tscli --username=" + u, file=sys.stderr)
-        sys.exit(1)
 # #############################################################################
 # argparse
 # #############################################################################
@@ -4266,6 +4248,27 @@ def link_device(device_name):
 
     print('Done.')
     sys.exit(0)
+
+
+def detect_user_name():
+    ulist = []
+    for folder in [SIGNALCLI_DATA_FOLDER, SIGNALCLI_LEGACY_DATA_FOLDER]:
+        try:
+            users = [x for x in os.listdir(folder) if os.path.isfile(os.path.join(folder, x))]
+            ulist.extend(users)
+        except FileNotFoundError:
+            pass
+
+    if not ulist:
+        print("Couldn't find any linked device.", file=sys.stderr)
+        sys.exit(1)
+    elif len(ulist) == 1:
+        return ulist[0]
+    else:
+        print("Use one of these:", file=sys.stderr)
+        for user in ulist:
+            print("\tscli --username=" + user, file=sys.stderr)
+        sys.exit(1)
 
 
 def main():
