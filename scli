@@ -3543,9 +3543,90 @@ class LazyEvalMessageListWalker(LazyEvalListWalker):
             count = self.notify_counts.get(contact_id, 0) + 1
         self.notify_counts[contact_id] = count
 
-    def show_dialog(self, w):
-        urwid.emit_signal(self, 'dialog_requested', w)
+class ChatView(ListBoxPlus):
+    def __init__(self):
+        lw = LazyEvalMessageListWalker(urwid.MonitoredList())
+        super().__init__(lw)
 
+
+    def _update_search_results(self, txt, old_txt=''):
+        if not txt:
+            return
+        scope = self.contents if old_txt in txt else None
+            # Incremental search: only search through the current search results, rather then the whole chat.
+        def test_match(msg):
+            if not msg.text:
+                return None
+            return txt in msg.text.casefold()
+        self.filter_contents(test_match, scope)
+        self.try_set_focus(-1)
+
+    def _reset_search(self, keep_curr_focused=False):
+        """Restore the pre-search contents.
+
+        If keep_curr_focused is false, the focus is restored to the widget that was in focus before the search was started.
+        Otherwise, place the focus on the same message that was in focus before the search is removed.
+        """
+        curr_focused_msg_w = self.focus
+        self.filter_contents(None)
+        if keep_curr_focused:
+            focus_position = self.contents.index(curr_focused_msg_w.msg)
+            self.try_set_focus(focus_position)
+
+    def on_input_line_change(self, input_line_w, old_text):
+        txt = input_line_w.get_edit_text()
+        if txt.startswith('/'):
+            self._update_search_results(txt[1:], old_text[1:])
+        elif self.is_filter_on:
+            self._reset_search()
+
+    def _delete_message(self, msg):
+        index = self.focus_position if not self.is_filter_on else None
+        action_request.delete_message(msg, index)
+        if self.is_filter_on:
+            del self.contents[self.focus_position]
+
+    def _resend_message(self, msg):
+        focus_position = self.focus_position  # Saving it because it'll shift after resend_message().
+        index = focus_position if not self.is_filter_on else None
+        try:
+            action_request.resend_message(msg, index)
+        except TypeError:
+            return
+        if self.is_filter_on:
+            del self.contents[focus_position]
+            self.contents.append(self._contents_pre_filter[-1])
+                # The `_contents_pre_filter` for this class always points to the `current_chat` list. So after `resend()` action, its last element is the new message.
+            self.try_set_focus(-1)
+
+    def keypress(self, size, key):
+        key = super().keypress(size, key)
+        message_widget = self.focus
+        if message_widget is None:
+            return key
+        envelope = message_widget.msg.envelope
+
+        if key in ('enter', 'l'):
+            if self.is_filter_on:
+                self._reset_search(keep_curr_focused=True)
+            elif get_envelope_msg(envelope) is not None:
+                action_request.open_attach(envelope) or action_request.open_urls(envelope)    # pylint: disable=expression-not-assigned
+        elif key == 'o':
+            action_request.open_urls(envelope) or action_request.open_attach(envelope)      # pylint: disable=expression-not-assigned
+        elif key == 'y':
+            txt = get_envelope_msg(envelope)
+            clip.put(txt)
+        elif key == 'd':
+            self._delete_message(message_widget.msg)
+        elif key == 'r':
+            self._resend_message(message_widget.msg)
+        elif key == 'q':
+            # Replying / quoting not supported by signal-cli
+            # https://github.com/AsamK/signal-cli/issues/213
+            pass
+        else:
+            return key
+        return None
 
 
 
