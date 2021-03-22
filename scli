@@ -4290,19 +4290,17 @@ def main():
                 print("Can't create data directory.", file=sys.stderr)
                 sys.exit(3)
 
-    state = State(ObservableConfig(args))
-    window = MainWindow(state)
+    cfg.set(args)
 
-    state.loop = state.signal.daemon._urwid_loop = loop
+    coord = Coordinate()
+    loop = coord.daemon.main_loop
 
     if not args.no_daemon:
-        proc = state.signal.start_daemon()
+        proc = coord.daemon.start()
         atexit.register(proc.kill)
-        state.set_notification("Initializing signal-cli daemon... ")
+        action_request.set_status_line("Initializing signal-cli daemon... ")
         if args.debug:
-            state.signal.daemon.get_signal_cli_version(
-                    callback=lambda ver: logging.info(ver)
-                    )
+            coord.daemon.get_signal_cli_version(callback=logging.info)
 
     with BracketedPasteMode():
         loop.run()
