@@ -4089,6 +4089,12 @@ def make_arg_parser():
     )
 
     parser.add_argument(
+        '--daemon-command',
+        default='signal-cli -u %u --output=json daemon',
+        help='Command for starting signal-cli daemon. The `%%u` in command will be replaced with username (phone number).',
+    )
+
+    parser.add_argument(
         '--no-daemon',
         action='store_true',
         help='Do not start signal-cli daemon. Only useful for debugging scli.',
