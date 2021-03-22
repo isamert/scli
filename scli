@@ -2447,7 +2447,7 @@ class InputLine(BracketedPasteEdit):
             possible_paths = [x for x in os.listdir(dirname) if os.path.join(dirname, x).startswith(fullpath)]
             commonprefix = os.path.commonprefix(possible_paths)
 
-            self.state.set_notification('|'.join(possible_paths))
+            action_request.set_status_line('|'.join(possible_paths))
 
             completion = ''
             if commonprefix != '':
@@ -2462,12 +2462,12 @@ class InputLine(BracketedPasteEdit):
         else:
             all_commands = [
                 cmd
-                for cmd in [tupl[0][0] for tupl in self.state.commands.cmd_mapping]
+                for cmd in [tupl[0][0] for tupl in self._cmds.cmd_mapping]
                 if cmd.lower().startswith(txt[1:].lower())
             ]
             commonprefix = os.path.commonprefix(all_commands)
 
-            self.state.set_notification('{' + '|'.join(all_commands) + '}')
+            action_request.set_status_line('{' + '|'.join(all_commands) + '}')
 
             if len(all_commands) == 1:
                 self._set_edit_text_move_cursor(':' + all_commands[0] + ' ')
@@ -3826,6 +3826,23 @@ class BracketedPasteMode:
     @staticmethod
     def quit():
         raise urwid.ExitMainLoop()
+
+
+class ActionRequest:
+    # The idea of having this class & its instance is to make a *globally accessible* function for all UI classes to call to request an action (e.g. setting status line text), without having to pass `Actions` instances down the class stack to every UI class that needs (or might need) it.
+    # There might be a better OO way of doing this though.
+
+    def __init__(self, actions=None):
+        self._actions = actions
+
+    def set_actions(self, actions):
+        self._actions = actions
+
+    def __getattr__(self, method):
+        return getattr(self._actions, method)
+
+
+action_request = ActionRequest()
 
 
 def link_device(device_name):
