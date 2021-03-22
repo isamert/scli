@@ -2024,6 +2024,18 @@ class Chats:
         return envelopes
 
 
+class UnreadCounts(collections.defaultdict):
+    def __init__(self, *args, **kwargs):
+        super().__init__(int, *args, **kwargs)
+
+    @property
+    def total(self):
+        return sum(self.values())
+
+    def serialize(self):
+        return {contact_id: count for contact_id, count in self.items() if count != 0}
+
+
 # #############################################################################
 # ChatWindow
 # #############################################################################
