@@ -954,7 +954,7 @@ class Daemon(AsyncProc):
                 ]
         return self.dbus_send(args, *proc_args, **proc_kwargs)
 
-    def send_message(self, message, attachments, recipient, is_group=False, *proc_args, **proc_kwargs):
+    def _send_message_dbus_cmd(self, message, attachments, recipient, is_group=False, *proc_args, **proc_kwargs):
         args = [
                 ('org.asamk.Signal.sendMessage'
                     if not is_group else
@@ -967,6 +967,72 @@ class Daemon(AsyncProc):
                 ]
 
         self.dbus_send_signal_cli(args, *proc_args, **proc_kwargs)
+
+    def send_message(self, contact_id, message="", attachments=None):
+        is_group = not is_number(contact_id)
+
+        if attachments is None:
+            attachments = []
+        attachment_paths = [os.path.expanduser(attachment) for attachment in attachments]
+        if not all(os.path.exists(attachment_path) for attachment_path in attachment_paths):
+            logging.warning('send_message: Attached file(s) does not exist.')
+            return
+
+        timestamp = int(datetime.now().timestamp() * 1000)
+        envelope = {
+            'source': self._username,
+            'target': contact_id,
+            'timestamp': timestamp,
+            'dataMessage': {
+                'message': message,
+                'attachments': attachments,
+                'timestamp': timestamp,
+                },
+        }
+
+        def after_send_proc_returns(proc):
+            # Remove temproary attachments
+            for attachment in envelope['dataMessage']['attachments']:
+                if attachment.startswith(
+                        os.path.join(tempfile.gettempdir(), clip.tempfile_prefix)
+                        ):
+                    os.remove(attachment)
+
+            # Check if send command succeeded
+            if proc.returncode != 0:
+                if is_group and 'Unregistered user' in proc.output:
+                    # Workaround for
+                    #     https://github.com/AsamK/signal-cli/issues/348
+                    # Can't check whether _all_ members in group have uninstalled signal (like in b912161), since in this function we don't have access to group's membership information.
+                    output_lines = proc.output.strip().rsplit('\n')
+                    timestamp_adj = int(output_lines[0].rsplit(':')[1])
+                    logging.warning("send_message: some group members have uninstalled signal: %s", output_lines[2:])
+                        # 2 lines for error explanation, rest are failed numbers
+                    self.callbacks['ignore_receipts'](envelope, 'sent', timestamp_adj)
+                else:
+                    self.callbacks['sending_done'](envelope, 'send_failed')
+                return
+
+            # Set envelope timestamp to that returned by signal-cli
+            try:
+                timestamp_adj = int(proc.output.rsplit(maxsplit=1)[1])
+            except (IndexError, AttributeError) as err:
+                logging.error("send_message: Failed to get adjusted envelope timestamp")
+                logging.exception(err)
+                self.callbacks['sending_done'](envelope)
+            else:
+                self.callbacks['sending_done'](envelope, 'sent', timestamp_adj)
+
+        self._send_message_dbus_cmd(
+                message,
+                attachment_paths,
+                contact_id,
+                is_group,
+                callback=after_send_proc_returns,
+                )
+
+        logging.info('send_message: %s', envelope)
+        self.callbacks['sending_message'](envelope)
 
     def rename_contact(self, contact_id, new_name, is_group=False, *proc_args, **proc_kwargs):
         """Rename a contact or group.
@@ -1380,66 +1446,7 @@ class Signal:
                 callback=on_v2_groups_updated
                 )
 
-    def send_message(self, contact, message="", attachments=[]):
-        target = contact.get('number')
-        is_group = target is None
-        if is_group:
-            target = contact.get('groupId')
 
-        attachment_paths = [os.path.expanduser(attachment) for attachment in attachments]
-        if not all([os.path.exists(attachment_path) for attachment_path in attachment_paths]):
-            logging.warning('send_message: Attached file(s) does not exist.')
-            return
-
-        ts = int(datetime.now().timestamp() * 1000)
-        envelope = {
-            'source': self.user,
-            'target': target,
-            'timestamp': ts,
-            'dataMessage': {'message': message, 'attachments': attachments, 'timestamp': ts},
-        }
-
-        def after_send_proc_returns(proc):
-            # Remove temproary attachments
-            for attachment in envelope['dataMessage']['attachments']:
-                if attachment.startswith(os.path.join(tempfile.gettempdir(), clip.tempfile_prefix)):
-                    os.remove(attachment)
-
-            timestamp_adj = None
-            # Check if send command succeeded
-            if proc.returncode != 0:
-                # Workaround for
-                #     https://github.com/AsamK/signal-cli/issues/348
-                # If group has some members with deleted accounts, some of the envelopes may fail to deliver
-                if is_group and 'Unregistered user' in proc.output:
-                    output_lines = proc.output.strip().rsplit('\n')
-                    member_count = len(contact['members'])
-                    failed_count = len(output_lines) - 2 # 2 lines for error explanation, rest are failed numbers
-                    if member_count > failed_count:
-                        timestamp_adj = int(output_lines[0].rsplit(':')[1])
-                        logging.warning('send_message: Failed to send %s people out of %s. Timestamp: %s', failed_count, member_count, timestamp_adj)
-                    else:
-                        return urwid.emit_signal(self, 'sending_done', envelope, 'send_failed')
-                else:
-                    return urwid.emit_signal(self, 'sending_done', envelope, 'send_failed')
-
-
-            # Set envelope timestamp to that returned by signal-cli
-            try:
-                if timestamp_adj == None:
-                    timestamp_adj = int(proc.output.rsplit(maxsplit=1)[1])
-            except Exception as e:
-                logging.error("send_message: Failed to get adjusted envelope timestamp")
-                logging.exception(e)
-                urwid.emit_signal(self, 'sending_done', envelope)
-            else:
-                urwid.emit_signal(self, 'sending_done', envelope, 'sent', timestamp_adj)
-
-
-        self.daemon.send_message(message, attachment_paths, target, is_group, callback=after_send_proc_returns)
-
-        logging.info('send_message:%s', envelope)
-        urwid.emit_signal(self, 'send_message', envelope)
 
     def get_contact(self, contact_id):
         return self.contacts_map.get(contact_id)
@@ -1459,7 +1466,6 @@ class Signal:
             return profiles_map[contact_id]['profile']['name']
         except (KeyError, TypeError):
             return None
-
 
 
 # #############################################################################
