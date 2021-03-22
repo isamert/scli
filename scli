@@ -3405,7 +3405,49 @@ class MessageWidget(urwid.WidgetWrap):
 # #############################################################################
 # state
 # #############################################################################
+class MessageWidgetsCache:
+    """Create and cache widgets for LazyEvalMessageListWalker"""
 
+    def __init__(self):
+        self._cache = {}
+        #self._cache = weakref.WeakValueDictionary()
+            # Using a weak reference dictionary would save memory, but at the cost of using cpu to (re)create MessageWidget objects after switching back and forth between the chats.
+
+    def get(self, msg, _position=None):
+        key = self._hash(msg)
+        try:
+            # Not using
+            #   return self._cache.setdefault(key, MessageWidget(msg))
+            # insted of this try..except, because it would (re)create a new MessageWidget(msg) obj every time, even if it's already in the cache.
+            w = self._cache[key]
+        except KeyError:
+            w = MessageWidget(msg)
+            self._cache[key] = w
+        return w
+
+    @staticmethod
+    def _hash(msg):
+        return hash((msg.sender_num, msg.timestamp))
+
+    def on_delivery_status_changed(self, timestamp, _status):
+        key = hash((cfg.username, timestamp))
+        try:
+            msg_w = self._cache[key]
+        except KeyError:
+            # This is not necessarily an error:
+                # Happens when the msg's delivery status is set before the message widget is created. For instance, when status = sending, or before the chat is opened and the widgets for it are created.
+            return
+        msg_w.update_status()
+
+    def adjust_timestamp(self, msg, timestamp_adj):
+        """Save memory by purging entry with old timestamp from cache.
+
+        Also, saves cpu by not re-creating new MessageWidgets.
+        """
+        # This method is not be needed if self._cache is a weakref dictionary.
+        key = self._hash(msg)
+        key_adj = hash((msg.sender_num, timestamp_adj))
+        self._cache[key_adj] = self._cache.pop(key)
 
 class State:
     signals = [
@@ -3450,6 +3492,10 @@ class State:
         urwid.connect_signal(self.signal, 'remote_delete', self.on_remote_delete)
         urwid.connect_signal(self.signal, 'contacts_sync', self.reload)
         urwid.connect_signal(self.signal, 'call_message', self.on_call_message)
+class LazyEvalMessageListWalker(LazyEvalListWalker):
+    def __init__(self, contents, init_focus_pos=-1):
+        self.msg_ws_cache = MessageWidgetsCache()
+        super().__init__(contents, self.msg_ws_cache.get, init_focus_pos)
 
     def reload(self):
         self.signal.reload()
