@@ -3529,14 +3529,6 @@ class Actions:
             new_name = args
         self._daemon.rename_contact(contact_id, new_name, is_group, lambda *i: self.reload())
 
-class BracketedPasteMode:
-    """Context manager for enabling/disabling bracketed paste mode."""
-    # Same as tdryer's code
-    # https://github.com/urwid/urwid/issues/119#issuecomment-761424363
-    def __enter__(self):
-        sys.stdout.write('\x1b[?2004h')
-    def __exit__(self, exc_type, exc_value, traceback):
-        sys.stdout.write('\x1b[?2004l')
     def delete_message(self, msg, index=None):
         self._chats_data.chats.delete_message(msg, index)
         self._chats_data.delivery_status.delete(msg.timestamp)
@@ -4241,6 +4233,18 @@ def parse_args():
 # #############################################################################
 # main
 # #############################################################################
+
+
+class BracketedPasteMode:
+    """Context manager for enabling/disabling bracketed paste mode."""
+    # Same as tdryer's code
+    # https://github.com/urwid/urwid/issues/119#issuecomment-761424363
+
+    def __enter__(self):
+        sys.stdout.write('\x1b[?2004h')
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        sys.stdout.write('\x1b[?2004l')
 
 
 def main():
