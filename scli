@@ -827,19 +827,25 @@ class AsyncProc:
 
 
 class Daemon(AsyncProc):
-
-    def start(self, username, envelope_handler, log_handler):
-        self._envelope_handler = envelope_handler
-        self._log_handler = log_handler
         self._buffer = b''
 
-        stdout_fd = self._urwid_loop.watch_pipe(self._daemon_handler)
-        stderr_fd = self._urwid_loop.watch_pipe(self._daemon_stderr_handler)
-        cmd_args = ['signal-cli', '-u', username, '--output=json', 'daemon']
+    def start(self):
+        stdout_fd = self.main_loop.watch_pipe(self._daemon_stdout_handler)
+        stderr_fd = self.main_loop.watch_pipe(self._daemon_stderr_handler)
+        logging.debug("Daemon cmd = `%s`", cfg.daemon_command)
         try:
-            proc = Popen(cmd_args, stdout=stdout_fd, stderr=stderr_fd, close_fds=True)
+            proc = callf(
+                    cfg.daemon_command,
+                    {'%u': self._username},
+                    background=True,
+                    stdout=stdout_fd,
+                    stderr=stderr_fd,
+                    )
         except FileNotFoundError:
-            sys.exit(f"Error: could not find `{cmd_args[0]}` executable. Make sure it is on system path.")
+            sys.exit(
+                    f"Error: could not find `{cfg.daemon_command.split()[0]}` executable. "
+                    "Make sure it is on system path."
+                    )
         return proc
 
     def _daemon_handler(self, line):
