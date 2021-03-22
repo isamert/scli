@@ -3501,10 +3501,6 @@ class Actions:
     def rename_contact(self, args):
         """Rename contact.
 
-
-# #############################################################################
-# main
-# #############################################################################
         :renameContact +NUMBER new name here  -> use +NUMBER number
         :renameContact "Old Name" new name here  -> use contact named "Old Name"
         :renameContact new name here          -> rename current contact or group
@@ -3863,6 +3859,9 @@ def link_device(device_name):
         msg_w.reload_markup()
 
 
+# #############################################################################
+# config
+# #############################################################################
 
     print('Scan the QR code with Signal app on your phone and wait for the linking process to finish.\nYou might need to zoom out for the QR code to display properly.\nThis may take a moment...')
 
@@ -3919,6 +3918,10 @@ def detect_user_name():
         for u in ulist:
             print("\tscli --username=" + u, file=sys.stderr)
         sys.exit(1)
+# #############################################################################
+# argparse
+# #############################################################################
+
 
 class CustomDefaultsHelpFormatter(argparse.ArgumentDefaultsHelpFormatter):
     """Show default values in `--help` output for custom-set default values.
@@ -4200,6 +4203,11 @@ def parse_args():
     args.partition_contacts = args.partition_contacts or args.group_contacts
     del args.__dict__['group_contacts']
     return args
+
+
+# #############################################################################
+# main
+# #############################################################################
 
 
 def main():
