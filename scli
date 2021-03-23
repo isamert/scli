@@ -546,18 +546,29 @@ class AsyncProc:
         self._callback_queue.add_proc(proc)
         return proc
 
-    def func_watch(self, fn, *args, callback=None, callback_kwargs=None, proc_callback=None, proc_callback_kwargs=None, **kwargs):
-        """Watch background processes started by function.
+    @contextlib.contextmanager
+    def callback_finally(
+            self,
+            callback=None,
+            proc_callback=None,
+            proc_callback_kwargs=None,
+            **callback_kwargs
+            ):
+        """Execute callback function after all background processes started inside this context have finished.
 
-        Call function `fn` and watch background processes started with `AsyncProc.run` by `fn` or by functions `fn` calls; run `proc_callback` when each background process exits; run `callback` when all the background processes exit.
+        Optionally, run `proc_callback` after every background processes that exits.
         """
 
-        callback_kwargs = callback_kwargs or {}
         proc_callback_kwargs = proc_callback_kwargs or {}
-        self._callback_queue.new_item(callback, callback_kwargs, proc_callback, proc_callback_kwargs)
-        fn_ret = fn(*args, **kwargs)
-        self._callback_queue.finalize_item()
-        return fn_ret
+        try:
+            yield self._callback_queue.new_item(
+                    callback,
+                    callback_kwargs,
+                    proc_callback,
+                    proc_callback_kwargs,
+                    )
+        finally:
+            self._callback_queue.finalize_item()
 
 
 class Daemon(AsyncProc):
