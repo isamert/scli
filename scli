@@ -2455,6 +2455,93 @@ class FocusableText(urwid.WidgetWrap):
         return getattr(self._text_w, attr)
 
 
+class LazyEvalListWalker(urwid.ListWalker):
+
+    """A ListWalker that creates widgets only as they come into view.
+
+    This ListWalker subclass saves resources by deferring widgets creation until they are actually visible. For large `contents` list, most of the items might not be viewed in a typical usage.
+
+    "If you need to display a large number of widgets you should implement your own list walker that manages creating widgets as they are requested and destroying them later to avoid excessive memory use."
+    https://urwid.readthedocs.io/en/latest/manual/widgets.html#list-walkers
+    """
+
+    def __init__(self, contents, eval_func, init_focus_pos=0):
+        if not getattr(contents, '__getitem__', None):
+            raise urwid.ListWalkerError("ListWalker expecting list like object, got: %r" % (contents,))
+        self._init_focus_pos = init_focus_pos
+        self._eval_func = eval_func
+        self.contents = contents
+        super().__init__()  # Not really needed, just here to make pylint happy.
+
+    @property
+    def contents(self):
+        return self._contents
+
+    @contents.setter
+    def contents(self, contents_new):
+        self._remove_contents_modified_callback()
+        self._contents = contents_new
+        self._set_contents_modified_callback(self._modified)
+
+        if self._init_focus_pos < 0:
+            self.focus = max(0, len(self.contents) + self._init_focus_pos)
+        else:
+            self.focus = self._init_focus_pos
+
+        self._modified()
+
+    def _set_contents_modified_callback(self, callback):
+        try:
+            self.contents.set_modified_callback(callback)
+        except AttributeError:
+            logging.warning(
+                    "Changes to object will not be automatically updated: %s",
+                    textwrap.shorten(str(self.contents), 150),
+                    )
+
+    def _remove_contents_modified_callback(self):
+        try:
+            self.contents.set_modified_callback(noop)
+        except AttributeError:
+            pass
+
+    def _modified(self):
+        if self.focus >= len(self.contents):
+            # Making sure that if after some items are removed from `contents` it becomes shorter then the current `focus` position, we don't crash.
+            self.focus = max(0, len(self.contents) - 1)
+        super()._modified()
+
+    def __getitem__(self, position):
+        item = self.contents[position]
+        widget = self._eval_func(item, position)
+        return widget
+
+    def next_position(self, position):
+        if position >= len(self.contents) - 1:
+            raise IndexError
+        return position + 1
+
+    def prev_position(self, position):  # pylint: disable=no-self-use
+        if position <= 0:
+            raise IndexError
+        return position - 1
+
+    def set_focus(self, position):
+        if position < 0 or position >= len(self.contents):
+            # NOTE: there is crash in this method that I can not reliably recproduce:
+                # Happens when I start a search through message widgets w `/` and mash the keyboard. Seems to only happen if I push many keys fast enough..
+                # This might well be an urwid bug
+            raise IndexError
+        self.focus = position
+        self._modified()
+
+    def positions(self, reverse=False):
+        ret = range(len(self.contents))
+        if reverse:
+            ret = reversed(ret)
+        return ret
+
+
 # #############################################################################
 # ChatWindow
 # #############################################################################
