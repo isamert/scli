@@ -116,6 +116,10 @@ def has_key(key, x):
     return False
 
 
+def noop(*_args, **_kwargs):
+    pass
+
+
 def get_nested(dct, *keys, default=None):
     for key in keys:
         try:
@@ -828,7 +832,26 @@ class AsyncProc:
 
 
 class Daemon(AsyncProc):
+    def __init__(self, main_loop, username):
+        super().__init__(main_loop)
+        self._username = username
         self._buffer = b''
+        self.callbacks = {
+                cb_name: noop for cb_name in [
+                    'daemon_started',
+                    'daemon_log',
+                    'receive_message',
+                    'receive_sync_message',
+                    'receive_receipt',
+                    'receive_reaction',
+                    'sending_message',
+                    'sending_done',
+                    'contact_typing',
+                    'call_message',
+                    'contacts_sync',
+                    'remote_delete',
+                ]
+            }
 
     def start(self):
         stdout_fd = self.main_loop.watch_pipe(self._daemon_stdout_handler)
@@ -877,7 +900,36 @@ class Daemon(AsyncProc):
         if not line:
             return
         logging.info('daemon_log: %s', line)
-        self._log_handler(line)
+        self.callbacks['daemon_log'](line)
+        if line == "INFO DaemonCommand - Exported dbus object: /org/asamk/Signal":
+            self._run_when_dbus_service_started(
+                    self.callbacks['daemon_started']
+                    )
+
+    def _envelope_handler(self, envelope):
+        logging.debug("Daemon: envelope = \n%s", pprint.pformat(envelope))
+        if get_envelope_msg(envelope) or get_envelope_attachments(envelope):
+            if get_nested(envelope, 'syncMessage', 'sentMessage') is not None:
+                self.callbacks['receive_sync_message'](envelope)
+            else:
+                self.callbacks['receive_message'](envelope)
+        elif envelope.get('receiptMessage') is not None:
+            # In signal-cli >=0.7.3, above check can be replaced with just
+            #   'receiptMessage' in envelope
+            # Keeping `is not None` for compatiability with envelopes in history from older signal-cli versions.
+            self.callbacks['receive_receipt'](envelope)
+        elif 'typingMessage' in envelope:
+            self.callbacks['contact_typing'](envelope)
+        elif get_envelope_reaction(envelope):
+            self.callbacks['receive_reaction'](envelope)
+        elif envelope.get('callMessage') is not None:
+            self.callbacks['call_message'](envelope)
+        elif get_nested(envelope, 'syncMessage', 'type') in ('CONTACTS_SYNC', 'GROUPS_SYNC'):
+            self.callbacks['contacts_sync']()
+        elif get_envelope_remote_delete(envelope):
+            self.callbacks['remote_delete'](envelope)
+        else:
+            logging.info('No action for received envelope: %s', pprint.pformat(envelope))
 
     def dbus_send(self, args, *proc_args, async_proc=True, **proc_kwargs):
         args = [
@@ -1212,7 +1264,6 @@ class Commands:
 
 
 class Signal:
-    signals = ['receive_message', 'send_message', 'sending_done', 'receive_receipt', 'daemon_started', 'groups_updated', 'daemon_log', 'contact_typing', 'receive_reaction', 'remote_delete', 'contacts_sync', 'call_message']
 
     def __init__(self, user):
         self.user = user
@@ -1231,28 +1282,6 @@ class Signal:
     def start_daemon(self):
         return self.daemon.start(self.user, self.envelope_handler, self.daemon_log_handler)
 
-    def envelope_handler(self, envelope):
-        if get_nested(envelope, 'syncMessage', 'sentMessage') is not None:
-            urwid.emit_signal(self, 'send_message', envelope)
-            urwid.emit_signal(self, 'sending_done', envelope)
-        elif get_envelope_msg(envelope) or get_envelope_attachments(envelope):
-            urwid.emit_signal(self, 'receive_message', envelope)
-        elif envelope.get('receiptMessage') is not None:
-            # In signal-cli >=0.7.3, above check can be replaced with just
-            #   'receiptMessage' in envelope
-            urwid.emit_signal(self, 'receive_receipt', envelope)
-        elif 'typingMessage' in envelope:
-            urwid.emit_signal(self, 'contact_typing', envelope)
-        elif get_envelope_reaction(envelope):
-            urwid.emit_signal(self, 'receive_reaction', envelope)
-        elif get_nested(envelope, 'dataMessage', 'remoteDelete') is not None:
-            urwid.emit_signal(self, 'remote_delete', envelope)
-        elif get_nested(envelope, 'syncMessage', 'type') in ('CONTACTS_SYNC', 'GROUPS_SYNC'):
-            urwid.emit_signal(self, 'contacts_sync')
-        elif envelope.get('callMessage') is not None:
-            urwid.emit_signal(self, 'call_message', envelope)
-        else:
-            logging.info('NOT_A_MESSAGE:%s', envelope)
 
     def daemon_log_handler(self, log_line):
         urwid.emit_signal(self, 'daemon_log', log_line)
@@ -1432,7 +1461,6 @@ class Signal:
             return None
 
 
-urwid.register_signal(Signal, Signal.signals)
 
 # #############################################################################
 # ContactsWindow
