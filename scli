@@ -830,50 +830,6 @@ class Daemon(AsyncProc):
             if self.is_dbus_service_running:
                 callback()
             else:
-
-# #############################################################################
-# commands
-# #############################################################################
-
-
-class Commands:
-    def __init__(self, state):
-        self.state = state
-        self.cmd_mapping = [
-            (['attach', 'a'], self.attach),
-            (['edit', 'e'], self.external_edit),
-            (['read', 'r'], self.read),
-            (['attachClip', 'c'], self.attach_clip),
-            (['openAttach', 'o'], self.open_last_attach),
-            (['openUrl', 'u'], self.open_last_url),
-            (['toggleNotifications', 'n'], self.toggle_notifications),
-            (['toggleAutohide', 'h'], self.toggle_autohide),
-            (['toggleContactsSort', 's'], self.toggle_sort_contacts),
-            (['renameContact'], self.rename_contact),
-            (['addContact'], self.add_contact),
-            (['reload'], self.reload),
-            (['quit', 'q'], self.quit),
-        ]
-        self.map = {cmd.lower(): fn for cmds, fn in self.cmd_mapping for cmd in cmds}
-
-    def exec(self, cmd, *args):
-        fn = self.map.get(cmd.lower())
-        if fn is None:
-            self.state.set_error(f"Command `{cmd}` not found")
-            return
-        try:
-            return fn(*args)
-        except TypeError as err:
-            # Handle only the exceptions produced by giving the wrong number of arguments to `fn()`, not any exceptions produced inside executing `fn()` (i.e. deeper in the stack trace)
-            if err.__traceback__.tb_next is not None:
-                raise
-            if re.search(r"missing \d+ required positional argument", str(err)):
-                self.state.set_error(f':{cmd} missing arguments')
-            elif re.search(r"takes \d+ positional arguments? but \d+ were given", str(err)):
-                self.state.set_error(f':{cmd} extra arguments')
-            else:
-                raise
-
                 main_loop.set_alarm_in(poll_freq, set_alarm)
         set_alarm(self.main_loop)
 
@@ -3510,6 +3466,56 @@ class UrwidUI:
         self.contacts = self.main_w.contacts_w.contacts_list_w
         self.chat = self.main_w.chat_w.chat_view
         self.msg_ws_cache = self.chat.body.msg_ws_cache
+
+
+# #############################################################################
+# commands
+# #############################################################################
+
+
+class Commands:
+    def __init__(self, actions):
+        self._actions = actions
+        self.cmd_mapping = [
+            (['attach', 'a'], self._actions.attach),
+            (['edit', 'e'], self._actions.external_edit),
+            (['read', 'r'], self._actions.read),
+            (['attachClip', 'c'], self._actions.attach_clip),
+            (['openAttach', 'o'], self._actions.open_last_attach),
+            (['openUrl', 'u'], self._actions.open_last_url),
+            (['toggleNotifications', 'n'], self._actions.toggle_notifications),
+            (['toggleAutohide', 'h'], self._actions.toggle_autohide),
+            (['toggleContactsSort', 's'], self._actions.toggle_sort_contacts),
+            (['renameContact'], self._actions.rename_contact),
+            (['addContact'], self._actions.add_contact),
+            (['reload'], self._actions.reload),
+            (['help'], self._actions.show_help),
+            (['quit', 'q'], self._actions.quit),
+        ]
+        self._map = {cmd.lower(): fn for cmds, fn in self.cmd_mapping for cmd in cmds}
+
+    def exec(self, cmd, *args):
+        fn = self._map.get(cmd.lower())
+        if fn is None:
+            self._actions.set_status_line(f"Command `{cmd}` not found")
+            return None
+        if not self._actions.check_cmd_for_current_contact(fn):
+            self._actions.set_status_line(f":{cmd} Error: no contact currently selected")
+            return None
+        try:
+            return fn(*args)
+        except TypeError as err:
+            # Handle only the exceptions produced by giving the wrong number of arguments to `fn()`, not any exceptions produced inside executing `fn()` (i.e. deeper in the stack trace)
+            if err.__traceback__.tb_next is not None:
+                raise
+            if re.search(r"missing \d+ required positional argument", str(err)):
+                self._actions.set_status_line(f':{cmd} missing arguments')
+                return None
+            elif re.search(r"takes \d+ positional arguments? but \d+ were given", str(err)):
+                self._actions.set_status_line(f':{cmd} extra arguments')
+                return None
+            else:
+                raise
 
 
 class Actions:
