@@ -54,40 +54,11 @@ SCLI_LOG_FILE = os.path.join(SCLI_DATA_FOLDER, 'log')
 FORMAT_MAP = {'_': 'italic', '*': 'bold', '~': 'strikethrough'}
 
 
-def ibtxt(txt):
-    return ('bolditalic', txt)
-
-
-def ntxt(txt):
-    return ('normal', txt)
-
-
-def btxt(txt):
-    return ('bold', txt)
-
-
-def itxt(txt):
-    return ('italic', txt)
-
-
-def to_txt(txt):
-    if isinstance(txt, str):
-        return txt
-    elif isinstance(txt, tuple):
-        return txt[1]
-    else:
-        return ''.join([to_txt(t) for t in txt])
 
 
 # #############################################################################
 # utility
 # #############################################################################
-
-
-def has_key(key, x):
-    if x:
-        return key in x
-    return False
 
 
 def noop(*_args, **_kwargs):
@@ -382,13 +353,6 @@ def b64_to_hex_str(group_id):
     return base64.b64decode(group_id.encode()).hex()
 
 
-
-
-# #############################################################################
-# ui utility
-# #############################################################################
-
-
 def listbox_focus_prev(listbox):
     try:
         listbox.focus_position = listbox.focus_position - 1
@@ -401,33 +365,6 @@ def listbox_focus_next(listbox):
         listbox.focus_position = listbox.focus_position + 1
     except IndexError:
         pass
-
-
-def get_text_markup(text_widget):
-    """Get urwid.Text widget text, in markup format.
-
-    Like urwid.Text.get_text(), but returns a text markup that can be passed on to urwid.Text.set_text() or to urwid.Text() for creating a new text object"""
-
-    text, display_attributes = text_widget.get_text()
-    if not display_attributes:
-        return text
-    markup = []
-    run_len_pos = 0
-    for attr, attr_run_len in display_attributes:
-        attr_run_end = run_len_pos + attr_run_len
-        markup.append((attr, text[run_len_pos: attr_run_end]))
-        run_len_pos = attr_run_end
-    if run_len_pos != len(text):
-        markup.append(text[run_len_pos:])
-    return markup
-
-
-def listbox_set_body(listbox, body_new):
-    # Can't just do `listbox.body = body_new`:
-    # https://github.com/urwid/urwid/issues/428
-    urwid.disconnect_signal(listbox.body, "modified", listbox._invalidate)
-    listbox.body = body_new
-    urwid.connect_signal(listbox.body, "modified", listbox._invalidate)
 
 
 class FocusableText(urwid.AttrMap):
@@ -2460,6 +2397,52 @@ class Color:
         except TypeError:
             # In case `sender` is not in `Contacts`
             return 'default'
+
+
+# #############################################################################
+# ui utility
+# #############################################################################
+
+
+def markup_to_text(markup):
+    # This is useful when we have only the markup; if we have the urwid.Text instance, can use its `.text` property instead.
+    # Not currently used anywhere.
+    if isinstance(markup, str):
+        return markup
+    elif isinstance(markup, tuple):
+        return markup[1]
+    else:
+        return ''.join([markup_to_text(t) for t in markup])
+
+
+def get_text_markup(text_widget):
+    """Get urwid.Text widget text, in markup format.
+
+    Like urwid.Text.get_text(), but returns a text markup that can be passed on to urwid.Text.set_text() or to urwid.Text() for creating a new text object"""
+
+    text, display_attributes = text_widget.get_text()
+    if not display_attributes:
+        return text
+    markup = []
+    run_len_pos = 0
+    for attr, attr_run_len in display_attributes:
+        attr_run_end = run_len_pos + attr_run_len
+        markup.append((attr, text[run_len_pos:attr_run_end]))
+        run_len_pos = attr_run_end
+    if run_len_pos != len(text):
+        markup.append(text[run_len_pos:])
+    return markup
+
+
+def listbox_set_body(listbox, body_new):
+    # Can't just do `listbox.body = body_new`:
+    # https://github.com/urwid/urwid/issues/428
+    # pylint: disable=protected-access
+    if body_new is listbox.body:
+        return
+    urwid.disconnect_signal(listbox.body, "modified", listbox._invalidate)
+    listbox.body = body_new
+    urwid.connect_signal(listbox.body, "modified", listbox._invalidate)
 
 
 # #############################################################################
