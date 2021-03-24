@@ -1382,33 +1382,14 @@ class Message:
         else:
             return get_envelope_msg(self.envelope)
 
-class LeftWindow(urwid.Frame):
-    def __init__(self, state):
-        self.state = state
-        self._wcontacts = ContactsWindow(self.state)
-        self._wsearch = Edit(('bold', '> '))
-
-        urwid.connect_signal(self._wsearch, 'postchange', self.on_search_text_changed)
-
-        super().__init__(self._wcontacts, footer=None)
-
-        if not self.state.cfg.partition_contacts:
-            self.header = urwid.Pile([urwid.Text(btxt('Contacts'), align='center'), urwid.Divider('-')])
     @property
     def attachments(self):
         return get_envelope_attachments(self.envelope)
 
-    def start_search(self):
-        self.footer = self._wsearch
-        self.focus_position = 'footer'
-        self._formatted_contacts = self._wcontacts.make_formatted_contacts_list()
     @property
     def mentions(self):
         return get_envelope_mentions(self.envelope)
 
-    def hide_search(self):
-        self.focus_position = 'body'
-        self.footer = None
     @property
     def delivery_status(self):
         if is_envelope_outgoing(self.envelope):
@@ -1416,50 +1397,27 @@ class LeftWindow(urwid.Frame):
         else:
             return 'received_by_me'
 
-    def clear_search(self):
-        self._formatted_contacts = self._wcontacts.make_formatted_contacts_list()
-        self._wsearch.set_edit_text('')
     @property
     def delivery_status_detailed(self):
         return self._get_delivery_status(self.timestamp)
 
-    def set_contacts(self, contacts):
-        self._wcontacts.set_contacts(contacts)
     @property
     def contact_id(self):
         return get_envelope_contact_id(self.envelope)
 
-    def on_search_text_changed(self, _sender, _old_text):
-        txt = self._wsearch.get_edit_text()
     @property
     def sender_num(self):
         return get_envelope_sender_id(self.envelope)
 
-        def contact_match(contact):
-            if isinstance(contact, str):
-                return True
-            return (txt.lower() in get_contact_name(contact).lower()) or (txt in get_contact_number(contact))
     @property
     def sender(self):
         return self._get_contact(self.sender_num)
 
-        results = [c for c in self._formatted_contacts if contact_match(c)]
-        self.set_contacts(results)
     def add_reaction(self, envelope):
         self.reactions = getattr(self, 'reactions', {})  # pylint: disable=attribute-defined-outside-init
             # Don't want to add `reactions` attribute to every Message instance; only to those that actually have reactions.
         self.reactions[get_envelope_sender_id(envelope)] = envelope
 
-    def keypress(self, size, key):
-        key = super().keypress(size, key)
-        if key == '/':
-            self.start_search()
-        elif key == 'enter' and self.focus_position == 'footer':
-            self.hide_search()
-        elif key == 'esc':
-            self.hide_search()
-            self.clear_search()
-        return key
     def text_w_mentions(self, bracket_char=''):
         # See also: What is the Mention's "length" parameter?
         # https://github.com/AsamK/signal-cli/discussions/409
@@ -2654,6 +2612,60 @@ class ContactsListWidget(ListBoxPlus):
             self._select_focused_contact(focus_widget='input')
         elif key == 'l':
             self._select_focused_contact()
+        else:
+            return key
+        return None
+
+
+class ContactsWindow(urwid.Frame):
+    def __init__(self, contacts, chats_data):
+        self.contacts_list_w = ContactsListWidget(contacts, chats_data)
+        self._wsearch = Edit(('bold', '/ '))
+
+        urwid.connect_signal(self._wsearch, 'postchange', self._on_search_text_changed)
+
+        super().__init__(self.contacts_list_w, footer=None)
+
+        if not cfg.partition_contacts:
+            self.header = urwid.Pile([
+                urwid.Text(('bold', 'Contacts'), align='center'),
+                urwid.Divider('-')
+                ])
+
+    def _start_search(self):
+        self.footer = self._wsearch
+        self.focus_position = 'footer'
+
+    def _remove_search(self):
+        self._wsearch.set_edit_text('')
+        self.focus_position = 'body'
+        self.footer = None
+
+    def _on_search_text_changed(self, input_w, _old_text):
+        def match_test(contact_w):
+            try:
+                contact = contact_w.contact
+            except AttributeError:
+                # Keep the `partition_contacts` headers / dividers
+                return True
+            return (
+                    txt.casefold() in contact.name_or_id.casefold()
+                    or
+                    not contact.is_group and txt in contact.id
+                    )
+        txt = input_w.get_edit_text()
+        match_test = None if not txt else match_test
+        self.contacts_list_w.filter_contents(match_test)
+
+    def keypress(self, size, key):
+        key = super().keypress(size, key)
+        if key == '/':
+            self._start_search()
+        elif key == 'enter' and self.focus_position == 'footer':
+            self.focus_position = 'body'
+            self.contacts_list_w.try_set_focus(0)
+        elif key == 'esc':
+            self._remove_search()
         else:
             return key
         return None
