@@ -51,6 +51,8 @@ SCLI_HISTORY_FILE = os.path.join(SCLI_DATA_FOLDER, 'history')
 SCLI_CFG_FILE = os.path.join(CFG_FOLDER, 'sclirc')
 SCLI_LOG_FILE = os.path.join(SCLI_DATA_FOLDER, 'log')
 
+SCLI_EXEC_FOLDER = os.path.dirname(os.path.realpath(__file__))
+SCLI_README_FILE = os.path.join(SCLI_EXEC_FOLDER, 'README.md')
 
 
 # #############################################################################
@@ -348,14 +350,6 @@ def b64_to_bytearray(group_id):
 
 def b64_to_hex_str(group_id):
     return base64.b64decode(group_id.encode()).hex()
-
-
-class HelpDialog(urwid.ListBox):
-    def __init__(self):
-        items = []
-        items.append(urwid.Text(btxt("Keybindings")))
-        items.append(urwid.Text(btxt("Commands")))
-        super().__init__(urwid.SimpleFocusListWalker(items))
 
 
 # #############################################################################
@@ -3686,6 +3680,27 @@ class MessageInfo(ListBoxPlus):
         else:
             return key
         return None
+
+
+class HelpDialog(ListBoxPlus):
+    def __init__(self):
+        items = [
+                urwid.Divider(),
+                urwid.Text(
+                    "Please see README for the full list of commands and key bindings.",
+                    align='center',
+                    ),
+                urwid.Divider(),
+                ]
+
+        def open_readme(_button):
+            action_request.open_file(SCLI_README_FILE)
+
+        btn_open_readme = urwid.Button('Open README', on_press=open_readme)
+        pad = urwid.Padding(btn_open_readme, align='center', width=len(btn_open_readme.label)+4)
+        items.append(pad)
+
+        super().__init__(items)
 
 
 urwid.register_signal(State, State.signals)
