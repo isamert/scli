@@ -2036,6 +2036,223 @@ class UnreadCounts(collections.defaultdict):
         return {contact_id: count for contact_id, count in self.items() if count != 0}
 
 
+class DeliveryStatus:
+
+    DelivReadConts = collections.namedtuple('DelivReadConts', ['delivered', 'read'])
+
+    class DetailedStatus:
+
+        __slots__ = ("str", "when", "grp_memb_remain_un")
+
+        def __init__(self, status='', when=0, grp_memb_remain_un=None):
+            self.str = status
+            self.when = when
+            if grp_memb_remain_un:
+                self.grp_memb_remain_un = DeliveryStatus.DelivReadConts(
+                    *(
+                        set(contacts) if contacts else set()
+                        for contacts in grp_memb_remain_un
+                    )
+                )
+
+        def set_grp_memb_status(self, grp_member, status):
+            try:
+                grp_memb_remain_un = self.grp_memb_remain_un
+            except AttributeError:
+                return None
+            grp_memb_remaining = getattr(grp_memb_remain_un, status)
+            try:
+                grp_memb_remaining.remove(grp_member)
+            except (KeyError, AttributeError):
+                # This happens when 'read' receipt arrives before 'delivered', or after getting multiple copies of the same receipt message.
+                grp_memb_remaining = grp_memb_remain_un.delivered
+                try:
+                    grp_memb_remaining.remove(grp_member)
+                except (KeyError, AttributeError):
+                    return None
+                if not grp_memb_remain_un.delivered and grp_memb_remain_un.read:
+                    return 'delivered'
+
+            if status == 'delivered':
+                remaining_unread = grp_memb_remain_un.read
+                remaining_unread.add(grp_member)
+                if grp_memb_remaining:
+                    return None
+                return status
+
+            if any(grp_memb_remain_un):
+                return None
+            del self.grp_memb_remain_un
+            return status
+
+        def serialize(self):
+            ret = []
+            for attr in self.__slots__:
+                val = getattr(self, attr, None)
+                ret.append(val)
+
+            # Skip empty values at the end
+            for ind, val in enumerate(reversed(ret)):
+                if val:
+                    if ind != 0:
+                        ret = ret[:-ind]
+                    break
+            else:
+                ret = []
+
+            return ret
+
+    def _make_markup_map():     # pylint: disable=no-method-argument
+        status_text = {
+                # Order matters: 'higher' status can't be 're-set' to a 'lower' one.
+                '':                 '<<',
+                'received_by_me':   '>>',
+                'sending':          '',
+                'send_failed':      '✖',
+                'sent':             '✓',
+                'delivered':        '✓✓',
+                'read':             '✓✓',
+                'ignore_receipts':  '✓',
+                }
+        max_len = max([len(text) for text in status_text.values()])
+        markup_map = {}
+        for status, text in status_text.items():
+            markup_map[status] = (
+                    ('bold', text)
+                    if status not in ('read', 'ignore_receipts')
+                    else ('strikethrough', text)
+                    )
+        return (markup_map, max_len)
+
+    MARKUP_MAP, MARKUP_WIDTH = _make_markup_map()
+    MAX_GROUP_SIZE = 15
+
+    def __init__(self):
+        self._status_map = {}
+        self._buffered = {}
+
+        self._status_order = {key: ind for ind, key in enumerate(self.MARKUP_MAP)}
+
+        self.on_status_changed = noop
+
+    def get_detailed(self, timestamp):
+        return self._status_map.get(timestamp, self.DetailedStatus())
+
+    def get_str(self, timestamp):
+        return self.get_detailed(timestamp).str
+
+    def on_receive_receipt(self, envelope):
+        receipt_contact = get_envelope_sender_id(envelope)
+        receipt_message = envelope['receiptMessage']
+        if receipt_message['isDelivery']:
+            status = 'delivered'
+        elif receipt_message['isRead']:
+            status = 'read'
+        else:
+            logging.error('on_receive_receipt: unknown receipt type in envelope %s', envelope)
+            return
+        timestamps = receipt_message['timestamps']
+        when = receipt_message['when']
+        for timestamp in timestamps:
+            if timestamp not in self._status_map:
+                # Receipt is received before 'sent' status set (e.g. because receipt received before a `sync` message for a message sent from another device)
+                self._buffer_receipt(timestamp, status, receipt_contact)
+            else:
+                self._set(timestamp, status, when, receipt_contact)
+
+    def on_sending_message(self, envelope, group_members=None):
+        timestamp = get_envelope_time(envelope)
+        self._set(timestamp, 'sending')
+        if group_members is not None:
+            self._set_group_members(timestamp, group_members)
+
+    def on_sending_done(self, envelope, status='sent', timestamp_adj=None):
+        timestamp = get_envelope_time(envelope)
+        if timestamp not in self._status_map:
+            logging.error("DeliveryStatus: on_sending_done(): no corresponding timestamp in _status_map for envelope = %s", envelope)
+            return
+        self._set(timestamp, status)
+        if status == 'send_failed':
+            return
+        if timestamp_adj is not None:
+            self._adjust_timestamp(timestamp, timestamp_adj)
+            timestamp = timestamp_adj
+        self._process_buffered_receipts(timestamp)
+
+    def _adjust_timestamp(self, timestamp_orig, timestamp_adj):
+        self._status_map[timestamp_adj] = self._status_map.pop(timestamp_orig)
+
+    def _set(self, timestamp, status, when=None, receipt_contact=None):
+        curr_status_detailed = self._status_map.setdefault(
+                timestamp, self.DetailedStatus()
+                )
+        curr_status = curr_status_detailed.str
+
+        if self._status_order[status] <= self._status_order[curr_status]:
+            return
+
+        is_group = getattr(curr_status_detailed, 'grp_memb_remain_un', False)
+        if is_group and receipt_contact is not None:
+            status = curr_status_detailed.set_grp_memb_status(receipt_contact, status)
+            if status is None:
+                return
+
+        logging.info("Setting status = `%s` for timestamp = %s", status, timestamp)
+        curr_status_detailed.str = status
+        if when is not None:
+            curr_status_detailed.when = when
+        self.on_status_changed(timestamp, status)
+
+    def _set_group_members(self, timestamp, group_members):
+        status_detailed = self._status_map[timestamp]
+
+        if len(group_members) > self.MAX_GROUP_SIZE:
+            self._set(timestamp, 'ignore_receipts')
+            return
+
+        status_detailed.grp_memb_remain_un = self.DelivReadConts(set(group_members), set())
+
+    def _buffer_receipt(self, timestamp, status, contact):
+        logging.debug("DeliveryStatus: buffering timestamp = %s", timestamp)
+        buffered = self._buffered.setdefault(
+                timestamp,
+                self.DelivReadConts(
+                    set(), set()
+                    )
+                )
+        buffered_contacts = getattr(buffered, status)
+        buffered_contacts.add(contact)
+
+    def _process_buffered_receipts(self, timestamp):
+        buffered = self._buffered.get(timestamp)
+        if buffered is None:
+            return
+        logging.debug("Processing buffered receipts: timestamp = %s, self._buffered = %s", timestamp, self._buffered)
+        for status in buffered._fields:
+            buffered_contacts = getattr(buffered, status) or []
+            for contact in buffered_contacts:
+                self._set(timestamp, status, receipt_contact=contact)
+        del self._buffered[timestamp]
+
+    def delete(self, timestamp):
+        try:
+            del self._status_map[timestamp]
+        except KeyError:
+            pass
+
+    def dump(self):
+        ret = {}
+        for timestamp, status_detailed in self._status_map.items():
+            status_serialized = status_detailed.serialize()
+            if status_serialized:
+                ret[timestamp] = status_serialized
+        return ret
+
+    def load(self, status_map):
+        for timestamp, status_detailed in status_map.items():
+            self._status_map[int(timestamp)] = self.DetailedStatus(*status_detailed)
+
+
 # #############################################################################
 # ChatWindow
 # #############################################################################
@@ -2964,188 +3181,6 @@ class State:
 
 
 urwid.register_signal(State, State.signals)
-
-
-# #############################################################################
-# DeliveryStatus
-# #############################################################################
-
-
-class DeliveryStatus:
-
-    DelivReadConts = collections.namedtuple('DelivReadConts', ['delivered', 'read'])
-
-    class DetailedStatus:
-
-        __slots__ = ("str", "when", "grp_memb_remain_un")
-
-        def __init__(self, status='', when=0, grp_memb_remain_un=None):
-            self.str = status
-            self.when = when
-            if grp_memb_remain_un:
-                self.grp_memb_remain_un = DeliveryStatus.DelivReadConts(*(set(contacts) if contacts else set() for contacts in grp_memb_remain_un))
-
-        def set_grp_memb_status(self, grp_member, status):
-            try:
-                grp_memb_remain_un = self.grp_memb_remain_un
-            except AttributeError:
-                return None
-            grp_memb_remaining = getattr(grp_memb_remain_un, status)
-            try:
-                grp_memb_remaining.remove(grp_member)
-            except (KeyError, AttributeError):
-                # This happens when 'read' receipt arrives before 'delivered', or after getting multiple copies of the same receipt message.
-                grp_memb_remaining = grp_memb_remain_un.delivered
-                try:
-                    grp_memb_remaining.remove(grp_member)
-                except (KeyError, AttributeError):
-                    return None
-                if not grp_memb_remain_un.delivered and grp_memb_remain_un.read:
-                    return 'delivered'
-
-            if status == 'delivered':
-                remaining_unread = grp_memb_remain_un.read
-                remaining_unread.add(grp_member)
-                if grp_memb_remaining:
-                    return None
-                return status
-
-            if any(grp_memb_remain_un):
-                return None
-            del self.grp_memb_remain_un
-            return status
-
-        def serialize(self):
-            ret = []
-            for attr in self.__slots__:
-                val = getattr(self, attr, None)
-                ret.append(val)
-
-            # Skip empty values at the end
-            for ind, val in enumerate(reversed(ret)):
-                if val:
-                    if ind != 0:
-                        ret = ret[:-ind]
-                    break
-            else:
-                ret = []
-
-            return ret
-
-
-    def __init__(self, one_sided):
-        self._one_sided = one_sided
-        self._status_map = {}
-        self._buffered = {}
-        self._init_markup_text()
-        self.MAX_GROUP_SIZE = 15
-
-    def _init_markup_text(self):
-        status_text = {
-                # Order matters: 'higher' status can't be 're-set' to a 'lower' one.
-                '':                 '>>' if self._one_sided else '<<',
-                'sending':          '',
-                'send_failed':      '✖',
-                'sent':             '✓',
-                'delivered':        '✓✓',
-                'read':             '✓✓',
-                'ignore_receipts':  '✓',
-                }
-        status_text_len = max([len(text) for text in status_text.values()])
-
-        self._markup_map = {}
-        for status, text in status_text.items():
-            padding = ' ' * (status_text_len - len(text))
-            text = (text + padding) if self._one_sided else (padding + text)
-            self._markup_map[status] = ('bold', text) if status not in ('read', 'ignore_receipts') else ('strikethrough', text)
-
-        self._markup_index = {key: ind for ind, key in enumerate(status_text.keys())}
-
-    def get_markup(self, status_str):
-        return self._markup_map[status_str]
-
-    def get_markup_for_envelope(self, envelope):
-        status_str = self.get_str(envelope)
-        return self._markup_map[status_str]
-
-    def get_detailed(self, envelope):
-        return self._status_map.get(get_envelope_time(envelope), self.DetailedStatus())
-
-    def get_str(self, envelope):
-        return self.get_detailed(envelope).str
-
-    def adjust_timestamp(self, timestamp_orig, timestamp_adj):
-        self._status_map[timestamp_adj] = self._status_map.pop(timestamp_orig)
-
-    def _set_widget_status_markup(self, msg_widget, status):
-        status_markup = self._markup_map[status]
-        markup = get_text_markup(msg_widget.original_widget)
-        markup[0 if self._one_sided else -1] = status_markup
-        msg_widget.original_widget.set_text(markup)
-
-    def set(self, msg_widget, status, when=None, receipt_contact=None):
-        envelope = msg_widget.envelope
-        timestamp = get_envelope_time(envelope)
-        curr_status_detailed = self._status_map.setdefault(timestamp, self.DetailedStatus())
-        curr_status = curr_status_detailed.str
-
-        if self._markup_index[status] <= self._markup_index[curr_status]:
-            return
-
-        if receipt_contact is not None and is_envelope_group_message(envelope):
-            status = curr_status_detailed.set_grp_memb_status(receipt_contact, status)
-            if status is None:
-                return
-
-        curr_status_detailed.str = status
-        if when is not None:
-            curr_status_detailed.when = when
-        self._set_widget_status_markup(msg_widget, status)
-
-    def set_group_members(self, msg_widget, group_members):
-        envelope = msg_widget.envelope
-        status_detailed = self._status_map[get_envelope_time(envelope)]
-
-        if len(group_members) > self.MAX_GROUP_SIZE:
-            self.set(msg_widget, 'ignore_receipts')
-            return
-
-        status_detailed.grp_memb_remain_un = self.DelivReadConts(set(group_members), set())
-
-    def buffer_receipt(self, timestamp, status, contact):
-        buffered = self._buffered.setdefault(timestamp, self.DelivReadConts(set(), set()))
-        buffered_contacts = getattr(buffered, status)
-        buffered_contacts.add(contact)
-
-    def process_buffered_receipts(self, msg_widget):
-        timestamp = get_envelope_time(msg_widget.envelope)
-        buffered = self._buffered.get(timestamp)
-        if buffered is None:
-            return
-        status_detailed = self._status_map[timestamp]
-        for status in buffered._fields:
-            buffered_contacts = getattr(buffered, status) or []
-            for contact in buffered_contacts:
-                self.set(msg_widget, status, receipt_contact=contact)
-        del self._buffered[timestamp]
-
-    def delete(self, envelope):
-        try:
-            del self._status_map[get_envelope_time(envelope)]
-        except KeyError:
-            pass
-
-    def dump(self):
-        ret = {}
-        for timestamp, status_detailed in self._status_map.items():
-            status_serialized = status_detailed.serialize()
-            if status_serialized:
-                ret[timestamp] = status_serialized
-        return ret
-
-    def load(self, status_map):
-        for timestamp, status_detailed in status_map.items():
-            self._status_map[int(timestamp)] = self.DetailedStatus(*status_detailed)
 
 
 class TypingIndicators:
