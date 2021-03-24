@@ -1345,247 +1345,42 @@ class Contacts:
 # #############################################################################
 
 
-class ContactsWindow(urwid.ListBox):
-    signals = ['notify_count_changed']
 class Message:
 
-    def __init__(self, state):
-        self.state = state
-        self._body = []
     _get_delivery_status = noop
     _get_contact = noop
 
-        super().__init__(urwid.SimpleFocusListWalker(self._body))
-
-        self.reload()
     @classmethod
     def set_class_functions(cls, get_delivery_status, get_contact):
         cls._get_delivery_status = get_delivery_status
         cls._get_contact = get_contact
 
-        for contact_id, notify_count in self.state.notify_counts.items():
-            try:
-                contact_widget = self.contact_widgets_map[contact_id]
-            except KeyError:
-                continue
-            self.set_contact_widget_notify_count(contact_widget, notify_count)
-
-        urwid.connect_signal(self.state.signal, 'receive_message', self.on_new_message)
-        urwid.connect_signal(self.state.signal, 'send_message', self.on_new_message)
-        urwid.connect_signal(self.state.signal, 'call_message', self.on_call_message)
-        urwid.connect_signal(self.state.signal, 'sending_done', self.on_sending_done)
-        urwid.connect_signal(self.state, 'current_contact_changed', self.on_current_contact_changed)
-
-    def reload(self):
-        self.set_contacts(self.make_formatted_contacts_list())
-
-    def make_formatted_contacts_list(self):
-        def sorter(contact):
-            contact_name = get_contact_name(contact)
-            if self.state.cfg.contacts_sort_alpha:
-                return contact_name.lower()
-            try:
-                chat = self.state.chats[hash_contact(contact)]
-                last_envelope = chat[-1].envelope
-            except (KeyError, IndexError):
-                return (0, contact_name.lower())
-            return (-get_envelope_time(last_envelope), contact_name.lower())
-
-        if not self.state.cfg.partition_contacts:
-            return sorted(self.state.signal.contacts_map.values(), key=sorter)
-        else:
-            grps = sorted(self.state.signal.groups, key=sorter)
-            conts = sorted(self.state.signal.contacts, key=sorter)
-            return [
-                    'Groups',
-                    '---',
-                    *grps,
-                    '---',
-                    'Contacts',
-                    '---',
-                    *conts
-                ]
-
-    def mk_contact_widget_markup(self, contact):
-        notify_count = self.state.notify_counts.get(hash_contact(contact), 0)
-        markup = [] if notify_count == 0 else [('bold', '({}) '.format(notify_count))]
-
-        name = get_contact_name(contact)
-        markup.append(name)
-        if is_number(name):
-            if name == self.state.cfg.username:
-                markup.append(('italic', ' (Self)'))
-            else:
-                profile_name = self.state.signal.get_contact_profile_name(contact)
-                if profile_name:
-                    markup.append(('italic', ' ~' + profile_name))
-
-        if is_contact_group(contact) and not self.state.cfg.partition_contacts:
-            markup.append(('italic', ' [GRP]'))
-
-        return markup
-
-    def set_contact_notify_count(self, contact, count):
-        self.state.set_contact_notify_count(hash_contact(contact), count)
-        total_notify_count = sum(self.state.notify_counts.values())
-        urwid.emit_signal(self, 'notify_count_changed', total_notify_count)
-
-    def set_contact_widget_notify_count(self, w, count):
-        if not w:
-            return
-        self.set_contact_notify_count(w.contact, count)
-        w.original_widget.set_text(self.mk_contact_widget_markup(w.contact))
     __slots__ = ("envelope", "reactions", "remote_delete")
 
-    def on_current_contact_changed(self, _old, _current, _focus=False):
-        self.set_contact_widget_notify_count(self.focus, 0)
     def __init__(self, envelope):
         self.envelope = envelope
 
-    def on_new_message(self, envelope):
-        contact_id = get_envelope_contact_id(envelope)
-        contact = self.state.signal.get_contact(contact_id)
-        contact_widget = self.contact_widgets_map.get(contact_id)
     def __eq__(self, other_msg):
         return self.envelope == other_msg.envelope
 
-        if contact != self.state.current_contact and not is_envelope_outgoing(envelope):
-            if contact_widget is None:
-                self.set_contact_notify_count(contact, '+1')
-            else:
-                self.set_contact_widget_notify_count(contact_widget, '+1')
     def __lt__(self, other_msg):
         return self.timestamp < other_msg.timestamp
 
-        if not self.state.cfg.contacts_sort_alpha and contact_widget is not None:
-            self.move_contact_top(contact_widget)
     @property
     def timestamp(self):
         return get_envelope_time(self.envelope)
 
-    def on_sending_done(self, envelope, status='sent', _timestamp_adj=None):
-        if status != 'send_failed':
-            return
-        contact_id = get_envelope_contact_id(envelope)
-        if contact_id == get_contact_id(self.state.current_contact):
-            return
-        contact_widget = self.contact_widgets_map[contact_id]
-        contact_widget_markup = get_text_markup(contact_widget.original_widget)
-        if isinstance(contact_widget_markup, str):
-            contact_widget_markup = [contact_widget_markup]
-        contact_widget_markup = [self.state.delivery_status.get_markup('send_failed'), ' ', contact_widget_markup]
-        contact_widget.original_widget.set_text(contact_widget_markup)
     @timestamp.setter
     def timestamp(self, ts_new):
         # NOTE: For Message in Chat, use Chat.adjust_timestamp(), rather then this setter directly, to ensure that Chat remains sorted.
         self.envelope['timestamp'] = self.envelope['dataMessage']['timestamp'] = ts_new
 
-    def on_call_message(self, envelope):
-        if get_nested(envelope, 'callMessage', 'offerMessage'):
-            # Incoming call
-            self.on_new_message(envelope)
-
-    def move_contact_top(self, w):
-        if self.state.cfg.partition_contacts:
-            if is_contact_group(w.contact):
-                offset = 2
-            else:
-                txt_ws = [getattr(w.base_widget, "text", "") for w in self.body]
-                offset = 2 + txt_ws.index('~~ Contacts ~~')
     @property
     def text(self):
         if self.mentions:
             return self.text_w_mentions()
         else:
-            offset = 0
-
-        ind = self._body.index(w)
-        if ind == offset:
-            return
-        self._body.insert(offset, self._body.pop(ind))
-
-        self.focus_position = offset
-
-    def set_contacts(self, contacts):
-        self._body.clear()
-
-        def mk_contact(x):
-            widget = None
-            contact = None
-            if x == '---':
-                widget = urwid.Divider('-')
-            elif isinstance(x, str):
-                widget = urwid.Text(('bold', '~~ ' + x + ' ~~'), align='center')
-            else:
-                widget = urwid.Text(self.mk_contact_widget_markup(x))
-                contact = x
             return get_envelope_msg(self.envelope)
-
-            am = urwid.AttrMap(widget, None, focus_map=LIST_FOCUS_MAP)
-            am.contact = contact
-            return am
-
-        contact_widgets = [mk_contact(x) for x in contacts]
-        self._body.extend(contact_widgets)
-        self.contact_widgets_map = {hash_contact(w.contact): w for w in contact_widgets if w.contact}
-
-        self.focus_first()
-
-    def get_focused_contact(self):
-        return self.focus.contact
-
-    def focus_next(self, num=1):
-        try:
-            self.focus_position = self.focus_position + num
-            if not self.get_focused_contact():
-                self.focus_next()
-        except IndexError:
-            pass
-
-    def focus_prev(self, num=1):
-        try:
-            if not self.state.cfg.partition_contacts or self.focus_position > 2:
-                self.focus_position = self.focus_position - num
-                if not self.get_focused_contact():
-                    self.focus_prev()
-        except IndexError:
-            pass
-
-    def focus_first(self):
-        try:
-            if self.state.cfg.partition_contacts:
-                self.focus_position = 2
-            else:
-                self.focus_position = 0
-        except IndexError:
-            pass
-
-    def focus_last(self):
-        try:
-            self.focus_position = len(self._body) - 1
-        except IndexError:
-            pass
-
-    def keypress(self, size, key):
-        if key in ('enter', 'l'):
-            if self.get_focused_contact():
-                self.state.set_current_contact(self.get_focused_contact(), key == 'enter')
-        elif key in ('j', 'down'):
-            self.focus_next()
-        elif key in ('k', 'up'):
-            self.focus_prev()
-        elif key == 'page down':
-            self.focus_next(num=10)
-        elif key == 'page up':
-            self.focus_prev(num=10)
-        elif key == 'g':
-            self.focus_first()
-        elif key == 'G':
-            self.focus_last()
-        elif key == 'r':
-            self.state.reload()
-        return key
-
 
 class LeftWindow(urwid.Frame):
     def __init__(self, state):
@@ -2716,6 +2511,152 @@ class PartitionedContactsListWalker(urwid.SimpleListWalker):
         raise NotImplementedError(
                 'Use connect_signal(list_walker, "modified", ...) instead.'
                 )
+
+
+class ContactsListWidget(ListBoxPlus):
+    signals = ['contact_selected']
+
+    def __init__(self, contacts, chats_data):
+        super().__init__(
+                urwid.SimpleListWalker([])
+                if not cfg.partition_contacts else
+                PartitionedContactsListWalker([])
+                )
+        self._contacts = contacts
+        self._chats_data = chats_data
+        self._contact_widgets_map = {}
+        self.update()
+
+    def _get_sorted_contacts(self):
+        def sorter(contact):
+            contact_name = contact.name_or_id
+            if cfg.contacts_sort_alpha:
+                return contact_name.casefold()
+            try:
+                chat = self._chats_data.chats[contact.id]
+                last_msg = chat[-1]
+            except (KeyError, IndexError):
+                return (0, contact_name.casefold())
+            return (-last_msg.timestamp, contact_name.casefold())
+
+        if not cfg.partition_contacts:
+            return sorted(self._contacts.map.values(), key=sorter)
+        else:
+            grps = sorted(self._contacts.groups, key=sorter)
+            cnts = sorted(self._contacts.indivs, key=sorter)
+            return (grps, cnts)
+
+    def update(self):
+        sorted_contacts = self._get_sorted_contacts()
+        if not cfg.partition_contacts:
+            self.contents = [ContactWidget(contact) for contact in sorted_contacts]
+            self._contact_widgets_map = {w.contact.id: w for w in self.contents}
+        else:
+            group_contact_widgets = [ContactWidget(contact) for contact in sorted_contacts[0]]
+            indiv_contact_widgets = [ContactWidget(contact) for contact in sorted_contacts[1]]
+            div_w = urwid.Divider('-')
+            group_cont_section_title = urwid.Text(('bold', '~~ Groups ~~'), align='center')
+            indiv_cont_section_title = urwid.Text(('bold', '~~ Contacts ~~'), align='center')
+            widgets = (
+                    [group_cont_section_title, div_w]
+                    + group_contact_widgets
+                    + [div_w, indiv_cont_section_title, div_w]
+                    + indiv_contact_widgets
+                    )
+            self._indiv_header_w = indiv_cont_section_title  # Used in _move_contact_top() for getting its index position
+            self.contents = widgets
+            self._contact_widgets_map = {w.contact.id: w for w in group_contact_widgets + indiv_contact_widgets}
+        self._set_all_ws_unread_counts()
+        self.try_set_focus(0)
+
+    def _set_all_ws_unread_counts(self):
+        for contact_id, contact_widget in self._contact_widgets_map.items():
+            unread_count = self._chats_data.unread_counts.get(contact_id, 0)
+            if unread_count:
+                contact_widget.unread_count = unread_count
+
+    def update_contact_unread_count(self, contact_id):
+        contact_widget = self._contact_widgets_map.get(contact_id)
+        if contact_widget is not None:
+            # The widget is None if received a msg from a 'new' contact (one not in the read signal-cli's data file)
+            contact_widget.unread_count = self._chats_data.unread_counts[contact_id]
+
+    def on_new_message(self, msg):
+        contact_widget = self._contact_widgets_map.get(msg.contact_id)
+        if not cfg.contacts_sort_alpha and contact_widget is not None:
+            self._move_contact_top(contact_widget)
+
+    def on_sending_done(self, envelope, status='sent', _timestamp_adj=None):
+        # Show a "send failed" symbol next to the contact, but not if it's the "current" contact (whose chat is opened).
+        if status != 'send_failed':
+            return
+        focused_contact_w = self.focus
+        if cfg.partition_contacts and not isinstance(focused_contact_w, ContactWidget):
+            return
+        contact = focused_contact_w.contact
+        envelope_contact_id = get_envelope_contact_id(envelope)
+        if contact.id == envelope_contact_id:
+            return
+        contact_widget = self._contact_widgets_map[envelope_contact_id]
+        contact_widget.fail_mark_set = True
+
+    def _move_contact_top(self, w):
+        if not cfg.partition_contacts:
+            pos_new = 0
+        else:
+            if w.contact.is_group:
+                pos_new = 2
+            elif not self.is_filter_on:
+                pos_new = len(self._contacts.groups) + 5  # 2 for "Groups" header and 3 for "Contacts"
+            else:
+                pos_new = self.contents.index(self._indiv_header_w) + 2
+        self.move_item(w, pos_new)
+        self.focus_position = pos_new
+
+    def _select_focused_contact(self, focus_widget=None):
+        # The `focus_widget` parameter is passed through from caller to emit_signal. It specifies whether the focus should be set on `input`, `chat` or `contacts` widgets after switching to a new contact.
+        focused_contact_w = self.focus
+        if focused_contact_w is None:
+            # This can happen e.g. when searching through contacts returns no results.
+            return
+        if cfg.partition_contacts and not isinstance(focused_contact_w, ContactWidget):
+            # Widget in focus is urwid.Text (a header) or urwid.Divider. They are normally not supposed to get the focus, but sometimes may: e.g. after pressing `home`, or after doing a search with `/`, or when there are no other widgets (e.g. no search results).
+            return
+        contact = focused_contact_w.contact
+        focused_contact_w.fail_mark_set = False
+        urwid.emit_signal(self, 'contact_selected', contact, focus_widget)
+
+    def select_next_contact(self, reverse=False):
+        try:
+            focus_position_new = (
+                    self.body.next_position(self.focus_position)
+                    if not reverse else
+                    self.body.prev_position(self.focus_position)
+                    )
+        except IndexError:
+            return
+        #focus_position_new = self.focus_position - int((reverse - 0.5) * 2)    # Alternative way of obtaining the new position
+        if (cfg.partition_contacts
+                and reverse
+                and not isinstance(self.contents[focus_position_new], ContactWidget)
+                and focus_position_new != 1):
+            # Jumping over the `~~ Contacts ~~` header when going up.
+            focus_position_new -= 3
+        try:
+            self.set_focus(focus_position_new, coming_from='below' if reverse else 'above')
+        except IndexError:
+            return
+        self._select_focused_contact()
+
+    def keypress(self, size, key):
+        key = super().keypress(size, key)
+        if key == 'enter':
+            self._select_focused_contact(focus_widget='input')
+        elif key == 'l':
+            self._select_focused_contact()
+        else:
+            return key
+        return None
 
 
 # #############################################################################
