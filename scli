@@ -4044,9 +4044,8 @@ def make_arg_parser():
     parser.add_argument(
         '-w',
         '--wrap-at',
-        type=int,
-        default=300,
-        help='Wrap message lines longer then this value',
+        default='85%',
+        help="Wrap messages' text at a given number of columns / percentage of available screen width.",
     )
 
     parser.add_argument(
@@ -4197,6 +4196,26 @@ def parse_cfg_file(parser, cli_args):
     return cfg_file_args
 
 
+def parse_wrap_at_arg(width):
+    def bad_val(width):
+        sys.exit(
+                f"ERROR: Can't parse width value: `{width}`\n"
+                "Width value shoudld look like: `42` or `42.42%`.\n"
+                "See `--help` for additional info."
+                )
+    if width.endswith('%'):
+        try:
+            percent_width = float(width.rstrip('%'))
+        except ValueError:
+            bad_val(width)
+        return ('relative', percent_width)
+    else:
+        try:
+            return int(width)
+        except ValueError:
+            bad_val(width)
+
+
 def parse_args():
     parser = make_arg_parser()
     args = parser.parse_args()
@@ -4215,6 +4234,7 @@ def parse_args():
         args.color = Color(args.color)
     args.partition_contacts = args.partition_contacts or args.group_contacts
     del args.__dict__['group_contacts']
+    args.wrap_at = parse_wrap_at_arg(args.wrap_at)
     return args
 
 
