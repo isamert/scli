@@ -375,47 +375,6 @@ class FocusableText(urwid.AttrMap):
         return get_envelope_time(self.envelope) < get_envelope_time(wtxt.envelope)
 
 
-class PopUpWrapper(urwid.LineBox):
-    signals = ['closed']
-
-    def __init__(self, widget, buttons=True):
-        self._widget = widget
-        self._widget.result = None
-
-        self._buttons = buttons
-        if buttons:
-            btn_ok = urwid.Button('OK')
-            btn_cancel = urwid.Button('Cancel')
-            self.buttons_grid = urwid.GridFlow([btn_ok, btn_cancel], 10, 1, 1, ('relative', 100))
-            super().__init__(urwid.Frame(widget, footer=self.buttons_grid))
-        else:
-            super().__init__(widget)
-
-    def keypress(self, size, key):
-        if self._buttons:
-            if key == 'tab':
-                if self.original_widget.focus_position == 'footer':
-                    if self.buttons_grid.focus_position == 0:
-                        self.buttons_grid.focus_position = 1
-                    else:
-                        self.original_widget.focus_position = 'body'
-                else:
-                    self.buttons_grid.focus_position = 0
-                    self.original_widget.focus_position = 'footer'
-            # I'm not sure why I need to do this:
-            elif self.original_widget.focus_position == 'body':
-                self.original_widget.keypress(size, key)
-            elif key == 'enter':
-                if self.buttons_grid.focus_position == 0:
-                    self._emit('closed', True, self._widget.result)
-                else:
-                    self._emit('closed', False, None)
-                self._emit('closed', False, None)
-
-        if key == 'q':
-            self._emit('closed', False, None)
-
-
 class MessageInfo(urwid.ListBox):
     def __init__(self, state, envelope):
         self.state = state
@@ -2451,6 +2410,37 @@ class LineBoxHighlight(urwid.WidgetWrap):
                     focus_map='line_focused',
                 )
         super().__init__(box_w)
+
+
+class PopUpBox(urwid.WidgetWrap):
+
+    signals = ['closed']
+
+    def __init__(self, widget, title='', buttons=True):
+        self._buttons = buttons
+        if buttons:
+            def handle_click(_button):
+                self._emit('closed')
+            btn_close = urwid.Padding(urwid.Button('Close', on_press=handle_click), align='center', width=9)
+            self._frame_w = urwid.Frame(widget, footer=btn_close, focus_part='footer')
+            box_w = urwid.LineBox(self._frame_w, title)
+        else:
+            box_w = urwid.LineBox(widget)
+        super().__init__(box_w)
+
+    def keypress(self, size, key):
+        key = super().keypress(size, key)
+        if key in ('esc', 'q'):
+            self._emit('closed')
+        elif key in ('tab', 'shift tab'):
+            if self._buttons:
+                if self._frame_w.focus_position == 'footer':
+                    self._frame_w.focus_position = 'body'
+                else:
+                    self._frame_w.focus_position = 'footer'
+        else:
+            return key
+        return None
 
 
 # #############################################################################
