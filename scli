@@ -2694,6 +2694,30 @@ class ContactWidget(FocusableText):
         self.set_text(fail_markup + self._name_markup)
 
 
+class PartitionedContactsListWalker(urwid.SimpleListWalker):
+    """Ensure that when `partition_contacts == True` only the ContactWidget objects can be in focus (not the headers or divider widgets).
+
+    If there are no ContactWidget objects it will focus on the last widget in `self.contents`.
+    """
+
+    def set_focus(self, position):
+        # Overriding the base class's function to make sure only ContactWidget type objects may be in focus.
+        # When the widget at `position` is not a ContactWidget, try the ones below it until we find one or reach the end.
+        for pos in range(position, len(self)):
+            w = self[pos]
+            if type(w) is ContactWidget:      # pylint: disable=unidiomatic-typecheck
+                # Check that widget is of exactly ContactWidget type, not one of its base classes.
+                return super().set_focus(pos)
+        return None
+
+    def set_modified_callback(self, callback):
+        # Abstract method, inherited from urwid.MonitoredList; has to be overriden in the concrete class.
+        # See base class's docs: urwid.SimpleListWalker.set_modified_callback
+        raise NotImplementedError(
+                'Use connect_signal(list_walker, "modified", ...) instead.'
+                )
+
+
 # #############################################################################
 # ChatWindow
 # #############################################################################
