@@ -2758,59 +2758,23 @@ class InputLine(BracketedPasteEdit):
 # #############################################################################
 
 
-class MainWindow(urwid.Frame):
-    def __init__(self, state):
-        self.state = state
-
-        # ui
-        self.current_focus = 'contacts'
-        self._wleft = LeftWindow(self.state)
-        self._wchat = ChatWindow(self.state)
-        self._wstatus = urwid.Text("...")
-        self._wnotify_count = urwid.Text("...")
-
-        self._wrapped_left = NiceBox(self._wleft)
-        self._wrapped_chat = NiceBox(self._wchat)
-        self._widgets = [('weight', 1, self._wrapped_left), ('weight', 3, self._wrapped_chat)]
-        self._wcontext = urwid.Columns(widget_list=self._widgets, dividechars=0, focus_column=0)
-        super().__init__(self._wcontext, footer=urwid.Columns([self._wstatus, ('pack', self._wnotify_count)]))
-
-        # signals
-        urwid.connect_signal(self.state, 'current_contact_changed', self.on_current_contact_changed)
-        urwid.connect_signal(self.state, 'status_changed', self.on_status_changed)
-        urwid.connect_signal(self.state, 'reload_request', self.reload)
-        urwid.connect_signal(self.state, 'notification_changed', self.on_notification_changed)
-        urwid.connect_signal(self.state, 'error_changed', self.on_error_changed)
-        urwid.connect_signal(self.state.cfg, 'changed', self.on_cfg_changed)
-        urwid.connect_signal(self._wleft._wcontacts, 'notify_count_changed', self.on_notify_count_changed)
 class MessageWidget(urwid.WidgetWrap):
 
-    def reload(self):
-        self._wleft._wcontacts.reload()
     MAX_ATTACHS_SHOW = 4
 
-    def set_status(self, txt):
-        self._wstatus.set_text(txt)
     TYPING_INDICATOR_MARKUP = '...'
     REMOTE_DELETE_MARKUP = ('italic', '[deleted]')
 
-    def toggle_contacts(self):
-        if len(self._wcontext.contents) == 2:
-            if self.current_focus == 'contacts':
-                self.focus_next()
     FORMAT_MAP = {'_': 'italic', '*': 'bold', '~': 'strikethrough'}
     MENTION_BRACKET_CHAR = chr(31)  # arbitrary non-printable char
     FORMAT_MENTION = {MENTION_BRACKET_CHAR: 'italic'}
     FORMATTING_RE = None
 
-            self._wcontext.contents.clear()
-            self._wcontext.contents.append((self._wrapped_chat, self._wcontext.options(width_amount=3)))
     @classmethod
     def set_formatting_consants(cls, use_formatting):
         if use_formatting:
             cls.FORMAT_MAP.update(cls.FORMAT_MENTION)
         else:
-            self._wcontext.contents.insert(0, (self._wrapped_left, self._wcontext.options(width_amount=1)))
             cls.FORMAT_MAP = cls.FORMAT_MENTION
         cls.FORMATTING_RE = re.compile(
             # Match text like "_italicised_", where "_" is a char in FORMAT_MAP
@@ -2827,10 +2791,6 @@ class MessageWidget(urwid.WidgetWrap):
             """,
             re.VERBOSE)
 
-    def body_pos(self):
-        if len(self._wcontext.contents) == 1:
-            return 0
-        return 1
     def __init__(self, msg):
         self.msg = msg
         self._align = (
@@ -2877,9 +2837,6 @@ class MessageWidget(urwid.WidgetWrap):
                 self._get_attachments_markup(),
                 )
 
-    def focus_input(self, cmd_mode=False, search_mode=False):
-        if self.current_focus == 'contacts' and self.state.cfg.contacts_autohide:
-            self.toggle_contacts()
         ret = []
         for markup in markups:
             if markup:
@@ -2888,10 +2845,6 @@ class MessageWidget(urwid.WidgetWrap):
                 ret.extend(markup)
         return ret
 
-        self.focus_position = 'body'
-        self._wcontext.set_focus(self.body_pos())
-        self._wchat.focus_input()
-        self.current_focus = 'input'
     def _get_text_markup(self, text=None):
         if text is None:
             text = self.msg.text
@@ -2914,10 +2867,6 @@ class MessageWidget(urwid.WidgetWrap):
             ret.append(text[pos:])
         return ret
 
-        if cmd_mode:
-            self._wchat.set_edit_text(':', True)
-        elif search_mode:
-            self._wchat.set_edit_text('/', True)
     def _get_attachments_markup(self, attachments=None):
         if attachments is None:
             attachments = self.msg.attachments
@@ -2940,9 +2889,6 @@ class MessageWidget(urwid.WidgetWrap):
         sender_name = action_request.get_contact_name(self.msg.sender_num)
         return [('bolditalic', sender_name)]
 
-    def focus_contacts(self):
-        if len(self._wcontext.contents) == 1:
-            self.toggle_contacts()
     def _get_quote_markup(self):
         quote = get_envelope_quote(self.msg.envelope)
         if not quote:
@@ -2971,9 +2917,6 @@ class MessageWidget(urwid.WidgetWrap):
             ret.append(' |')
         return ret
 
-        self.focus_position = 'body'
-        self._wcontext.set_focus(0)
-        self.current_focus = 'contacts'
     def _get_call_message_markup(self):
         call_message = self.msg.envelope['callMessage']
         if 'offerMessage' in call_message:
@@ -2985,80 +2928,17 @@ class MessageWidget(urwid.WidgetWrap):
             return ['📞 ', ('italic', 'Hung up')]
         return None
 
-    def focus_chat(self):
-        self.focus_position = 'body'
-        self._wcontext.set_focus(self.body_pos())
-        self._wchat.focus_chat()
-        self.current_focus = 'chat'
-
-    def focus_next(self):
-        if self.current_focus == 'contacts':
-            self.focus_chat()
-            if self.state.cfg.contacts_autohide:
-                self.toggle_contacts()
-        elif self.current_focus == 'chat':
-            self.focus_input()
-        elif self.current_focus == 'input':
-            self.focus_contacts()
-
-    def focus_prev(self):
-        if self.current_focus == 'contacts':
-            self.focus_input()
-        elif self.current_focus == 'chat':
-            self.focus_contacts()
-        elif self.current_focus == 'input':
-            self.focus_chat()
-
-    def show_help_pop_up(self):
-        if self.current_focus == 'contacts':
-            self._wchat.show_pop_up(HelpDialog())
-        elif self.current_focus == 'chat':
-            self._wchat.show_pop_up(HelpDialog())
-
-    def on_current_contact_changed(self, old, current, focus=False):
-        if self.state.status_data is self.state.current_contact:
-            self.state.set_status('')
-
-        if focus:
-            self.focus_input()
-
-    def on_status_changed(self, status, data):
-        self.set_status(status)
-
-    def on_notification_changed(self, notif, data):
-        self.set_status(notif)
-
-    def on_error_changed(self, err):
-        self.set_status(err)
-
-    def on_cfg_changed(self, key, val):
-        if key == 'contacts_autohide':
-            self.toggle_contacts()
     def _get_status_markup(self):
         return DeliveryStatus.MARKUP_MAP[self.msg.delivery_status]
 
-    def on_notify_count_changed(self, count):
-        self._wnotify_count.set_text(btxt(str(count)))
     def update_status(self):
         status_markup_new = self._get_status_markup()
         self._status_w.set_text(status_markup_new)
 
-    def keypress(self, size, key):
-        key = super().keypress(size, key)
     def reload_markup(self):
         msg_markup = self._get_message_markup()
         self._text_w.set_text(msg_markup or '')
 
-        if key == 'tab':
-            self.focus_next()
-        elif key == 'shift tab':
-            self.focus_prev()
-        elif key == ':':
-            self.focus_input(cmd_mode=True)
-        elif key == '/' and self.current_focus == 'chat':
-            self.focus_input(search_mode=True)
-        elif key == '?':
-            self.show_help_pop_up()
     def update_reactions_w(self):
         try:
             reactions = self.msg.reactions
@@ -3094,7 +2974,6 @@ class MessageWidget(urwid.WidgetWrap):
         react_cols_w = urwid.Columns(cols)
         self._w.original_widget = urwid.Pile([self._w.original_widget, react_cols_w])
 
-        return key
     def _remove_reactions_w(self):
         if self._reactions_w is None:
             return
@@ -3741,6 +3620,106 @@ class PopUpPlaceholder(urwid.WidgetPlaceholder):
         key = super().keypress(size, key)
         if not self._is_popup_shown:
             # When popup is shown, do not pass keys to other widgets until it's closed
+            return key
+        return None
+
+
+class MainWindow(urwid.WidgetWrap):
+    def __init__(self, contacts, chats_data):
+        self._chats_data = chats_data
+        self.contacts_w = ContactsWindow(contacts, self._chats_data)
+
+        self.chat_w = ChatWindow()
+        contacts_box = LineBoxHighlight(self.contacts_w)
+        self._chat_win_box = LineBoxHighlight(self.chat_w)
+        self._popup_ph = PopUpPlaceholder(self._chat_win_box)
+        cols = [('weight', 1, contacts_box), ('weight', 3, self._popup_ph)]
+        self._columns = urwid.Columns(cols)
+        self._contacts_column = self._columns.contents[0]
+
+        total_unread_count = self._chats_data.unread_counts.total
+        self.status_line = StatusLine(total_unread_count)
+
+        w = urwid.Frame(self._columns, footer=self.status_line)
+        super().__init__(w)
+
+    @property
+    def contacts_hidden(self):
+        return self._contacts_column not in self._columns.contents
+
+    @contacts_hidden.setter
+    def contacts_hidden(self, yes_no):
+        if yes_no and not self.contacts_hidden:
+            self._columns.contents.remove(self._contacts_column)
+        elif not yes_no and self.contacts_hidden:
+            self._columns.contents.insert(0, self._contacts_column)
+
+    @property
+    def focus_widget_name(self):
+        if self.contacts_hidden or self._columns.focus_position == 1:
+            return self.chat_w.focus_widget_name
+        return 'contacts'
+
+    @focus_widget_name.setter
+    def focus_widget_name(self, widget_name):
+        if widget_name == 'contacts':
+            self.contacts_hidden = False
+            self._columns.focus_position = 0
+        else:
+            if cfg.contacts_autohide and not self.contacts_hidden:
+                self.contacts_hidden = True
+            self._columns.focus_position = 0 if self.contacts_hidden else 1
+            self.chat_w.focus_widget_name = widget_name
+
+    def _focus_next(self, reverse=False):
+        wnames = ['contacts', 'chat', 'input']
+        curr_wname = self.focus_widget_name
+        if not self.chat_w.chat_view.contents and not curr_wname == 'chat':
+            # If there are no messages in current chat (either because no chat selected, or searching has filtered out all results), don't focus it.
+            wnames.remove('chat')
+        curr_focus_pos = wnames.index(curr_wname)
+        incr = -1 if reverse else 1
+        next_wname = wnames[(curr_focus_pos + incr) % len(wnames)]
+        self.focus_widget_name = next_wname
+
+    def update_unread_count(self, contact_id):
+        self.contacts_w.contacts_list_w.update_contact_unread_count(contact_id)
+        self.status_line.set_unread_count(self._chats_data.unread_counts.total)
+
+    def on_contact_selected(self, contact, focus_widget):
+        self.status_line.set_text('')
+            # NOTE: for now not checking what's currently in the status line, just remove whatever text was there.
+        self.update_unread_count(contact.id)
+        self.chat_w.on_contact_selected(contact)
+        if focus_widget:
+            self.focus_widget_name = focus_widget
+
+    def show_help(self):
+        self._popup_ph.show_help()
+        self.focus_widget_name = 'chat'
+
+    def keypress(self, size, key):
+        key = super().keypress(size, key)
+        if key == 'tab':
+            self._focus_next()
+        elif key == 'shift tab':
+            self._focus_next(reverse=True)
+        elif key == ':':
+            self.focus_widget_name = 'input'
+            self.chat_w.input_line_w.keypress(size, key)
+        elif key == '/' and self.focus_widget_name == 'chat':
+            self.focus_widget_name = 'input'
+            self.chat_w.input_line_w.keypress(size, key)
+        elif key == '?':
+            self.show_help()
+        elif key == 'i':
+            if self.focus_widget_name != 'chat':
+                return key
+            message_widget = self.chat_w.chat_view.focus
+            if message_widget is None:
+                return key
+            self._popup_ph.show_message_info(message_widget)
+        else:
             return key
         return None
 
