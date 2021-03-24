@@ -375,12 +375,6 @@ class FocusableText(urwid.AttrMap):
         return get_envelope_time(self.envelope) < get_envelope_time(wtxt.envelope)
 
 
-class NiceBox(urwid.AttrMap):
-    def __init__(self, w, title=''):
-        box = urwid.AttrMap(urwid.LineBox(urwid.AttrMap(w, 'normal'), title_align='center', title=title), 'box_normal')
-        super().__init__(box, None, focus_map={'box_normal': 'box_focused'})
-
-
 class PopUpWrapper(urwid.LineBox):
     signals = ['closed']
 
@@ -2443,6 +2437,20 @@ def listbox_set_body(listbox, body_new):
     urwid.disconnect_signal(listbox.body, "modified", listbox._invalidate)
     listbox.body = body_new
     urwid.connect_signal(listbox.body, "modified", listbox._invalidate)
+
+
+class LineBoxHighlight(urwid.WidgetWrap):
+    def __init__(self, w, title=''):
+        box_w = urwid.AttrMap(
+                    urwid.LineBox(
+                        urwid.AttrMap(w, ''),  # need to set a "default" attribute, to not color all the contents in `w`
+                        title_align='center',
+                        title=title
+                        ),
+                    None,
+                    focus_map='line_focused',
+                )
+        super().__init__(box_w)
 
 
 # #############################################################################
