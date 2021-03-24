@@ -2253,6 +2253,41 @@ class DeliveryStatus:
             self._status_map[int(timestamp)] = self.DetailedStatus(*status_detailed)
 
 
+class TypingIndicators:
+    def __init__(self, chats):
+        self._chats = chats
+        self._map = {}
+        self.set_alarm_in = self.remove_alarm = noop
+            # In some cases the STOPPED typing message is never sent, e.g. when the last key is `backspace`.
+            #   https://github.com/AsamK/signal-cli/issues/458
+            # So we need to manually set a timeout / alarm to remove the typing indicator in this case.
+
+    def on_typing_message(self, envelope):
+        sender_num = get_envelope_sender_id(envelope)
+        typing_event = get_nested(envelope, 'typingMessage', 'action')
+        self.remove(sender_num)
+        if typing_event == 'STARTED':
+            self._add(sender_num, envelope)
+        elif typing_event != 'STOPPED':
+            logging.error("on_typing_message: unknown `action` type in %s", envelope)
+
+    def _add(self, sender_num, envelope):
+        msg = self._chats.add_envelope(envelope)
+        alarm = self.set_alarm_in(10, lambda *_: self.remove(sender_num))
+        self._map[sender_num] = (msg, alarm)
+
+    def remove(self, sender_num):
+        try:
+            msg, alarm = self._map.pop(sender_num)
+        except KeyError:
+            return
+        self.remove_alarm(alarm)
+        try:
+            self._chats.delete_message(msg)
+        except ValueError:
+            logging.info("TypingIndicators: remove: index not found for envelope = %s", msg.envelope)
+
+
 # #############################################################################
 # ChatWindow
 # #############################################################################
@@ -3181,79 +3216,6 @@ class State:
 
 
 urwid.register_signal(State, State.signals)
-
-
-class TypingIndicators:
-    def __init__(self, state):
-        self._state = state
-        self._map = {}
-        self._alarms = {}
-        urwid.connect_signal(self._state.signal, 'contact_typing', self.on_contact_typing)
-
-    def on_contact_typing(self, envelope):
-        contact_num = envelope['source']
-        typing_message = envelope['typingMessage']
-        action = typing_message['action']
-        chat = self._get_chat(envelope)
-        self.remove(contact_num, chat)
-        if action == 'STARTED':
-            self._add(contact_num, chat, envelope)
-        elif action != 'STOPPED':
-            logging.error("on_contact_typing: typing envelope = %s", envelope)
-
-    def _get_chat(self, envelope):
-        typing_message = envelope.get('typingMessage')
-        if typing_message is None:
-            return self._state.get_chat_for_envelope(envelope)
-        group_id = typing_message.get('groupId')
-        if group_id is not None:
-            return self._state.chats[group_id]
-        contact_num = envelope['source']
-        return self._state.chats[contact_num]
-
-    def _add(self, contact_num, chat, envelope):
-        msg_w = self._make_widget(envelope)
-        bisect.insort(chat, msg_w)
-        self._map[contact_num] = msg_w
-        self._alarms[contact_num] = self._state.loop.set_alarm_in(10,
-                lambda *_: self.remove(contact_num, chat))
-            # Sometimes the STOPPED typing message is never sent. Need to set a timeout to manually remove the typing indicator in this case.
-            # https://github.com/AsamK/signal-cli/issues/458
-
-    def _make_widget(self, envelope):
-        markup = [btxt('>> ')]
-        is_group = 'groupId' in envelope['typingMessage']
-        if is_group or self._state.cfg.show_names:
-            contact_num = envelope['source']
-            contact = self._state.signal.get_contact(contact_num)
-            if contact:
-                markup.append(ibtxt(get_contact_name(contact)))
-            else:
-                markup.append(btxt(contact_num))
-            markup.append(btxt(' | '))
-        markup.append('...')
-        typing_msg_w = FocusableText(markup)
-        typing_msg_w.envelope = envelope
-        return typing_msg_w
-
-    def remove(self, sender, chat=None):
-        self._state.loop.remove_alarm(self._alarms.get(sender))
-        try:
-            msg_w = self._map.pop(sender)
-        except KeyError:
-            return
-        envelope = msg_w.envelope
-        if chat is None:
-            chat = self._get_chat(envelope)
-        try:
-            index = self._state.get_chat_index_for_timestamp(chat, get_envelope_time(envelope), sender)
-        except ValueError:
-            logging.error("TypingIndicators: remove: index not found for envelope = %s", envelope)
-            return
-        if 'typingMessage' in chat[index].envelope:
-            del chat[index]
-        else:
-            logging.error("TypingIndicators: remove: message %s at index = %s is not a tying indicator", chat[index].envelope, index)
 
 
 # #############################################################################
