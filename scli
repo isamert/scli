@@ -1849,6 +1849,92 @@ class LeftWindow(urwid.Frame):
         return ret
 
 
+class Chat(urwid.MonitoredList):
+    # An `urwid.MonitoredList` is a subclass of a regular `list`, that modifies the "mutating" (modifying `self`) methods, so that they call the `self._modified()` method at the end.
+        # The `self._modified()` method is set to simply do `pass`, until a callback is assigned to it in ListWalker's __init__.
+
+    def index(self, msg):
+        """More efficient way to locate an object in the sorted list than just using super().index() method.
+
+        Since Chat should always be sorted, a member object can be located faster using bisect."""
+
+        if self[-1] == msg:
+            # First check the last msg before doing bisect_left, as bisect starts in the middle. See also comment in self.add()
+            return len(self) - 1
+        index = bisect.bisect_left(self, msg)
+        if index != len(self) and self[index] == msg:
+            return index
+        raise ValueError
+
+    def index_ts(self, timestamp, sender_num=None):
+        """Return an index of a message in Chat with a given timestamp, from a given phone number"""
+
+        def match_test(msg):
+            return (
+                    msg.timestamp == timestamp
+                    and
+                    sender_num is None or msg.sender_num == sender_num
+                    )
+
+        msg = self[-1]
+        if match_test(msg):
+            # First check the last msg before doing bisect_left, as bisect starts in the middle. See also comment in self.add()
+            return len(self) - 1
+        dummy_message = Message({'timestamp': timestamp})
+        index = bisect.bisect_left(self, dummy_message)
+        if index != len(self):
+            msg = self[index]
+            if match_test(msg):
+                return index
+        raise ValueError
+
+    def get_msg_for_envelope(self, envelope):
+        dummy_message = Message(envelope)
+        index = self.index(dummy_message)
+        return self[index]
+
+    def get_msg_for_timestamp(self, timestamp, sender_num=None):
+        ind = self.index_ts(timestamp, sender_num)
+        return self[ind]
+
+    def add(self, msg):
+        try:
+            msg_last = self[-1]
+        except IndexError:
+            # The chat is empty
+            self.append(msg)
+            return
+        if msg_last.timestamp < msg.timestamp:
+            # Check first if the message should be appended at the end of Chat container.
+                # This is the case for most of the messages. The exceptions might be the sync messages.
+                # `bisect` starts searching for the place for new item from the middle of the container, which takes more steps.
+            self.append(msg)
+        else:
+            bisect.insort(self, msg)
+
+    def adjust_timestamp(self, msg, timestamp_adj):
+        """Adjust message's timestamp, ensuring that Chat remains sorted"""
+        msg.timestamp = timestamp_adj
+
+        # Ensure that Chat remains sorted
+        # This should rarely be necessary, as signal-cli's timestamp adjustments are small enough (~50ms) to not modify the messages' order.
+        index = self.index(msg)
+        try:
+            if self[index-1].timestamp <= msg.timestamp <= self[index+1].timestamp:
+                return
+        except IndexError:
+            # The `msg` is either the last or the only message in Chat.
+                # In the former case, there's no need to move the msg in chat, because the timestamp_adj seems to always be greater than msg.timestamp original.
+            return
+        logging.debug(
+                "Chat: moving msg to maintain sorted history.\n"
+                "index = %s, timestamps = \n%s\n%s\n%s",
+                index, self[index-1].timestamp, msg.timestamp, self[index+1].timestamp
+                )
+        del self[index]
+        self.add(msg)
+
+
 # #############################################################################
 # ChatWindow
 # #############################################################################
