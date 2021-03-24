@@ -1935,6 +1935,95 @@ class Chat(urwid.MonitoredList):
         self.add(msg)
 
 
+class Chats:
+    def __init__(self):
+        self._dict = collections.defaultdict(Chat)
+
+    def __getitem__(self, contact_id):
+        return self._dict[contact_id]
+
+    def get_chat_for_envelope(self, envelope):
+        return self._dict[get_envelope_contact_id(envelope)]
+
+    def get_msg_for_envelope(self, envelope):
+        try:
+            chat = self.get_chat_for_envelope(envelope)
+            msg = chat.get_msg_for_envelope(envelope)
+            return msg
+        except (KeyError, ValueError, IndexError) as err:
+            logging.error("get_msg_for_envelope(): envelope = %s", envelope)
+            logging.exception(err)
+            raise ValueError from err
+
+    def get_msg_for_timestamp(self, envelope, timestamp, sender_num=None):
+        chat = self.get_chat_for_envelope(envelope)
+        return chat.get_msg_for_timestamp(timestamp, sender_num)
+
+    def add_envelope(self, envelope):
+        msg = Message(envelope)
+        chat = self.get_chat_for_envelope(envelope)
+        chat.add(msg)
+        return msg
+
+    def add_reaction_envelope(self, envelope):
+        reaction = get_envelope_reaction(envelope)
+        try:
+            msg = self.get_msg_for_timestamp(
+                    envelope,
+                    timestamp=reaction['targetSentTimestamp'],
+                    sender_num=reaction['targetAuthor']
+                    )
+        except ValueError:
+            logging.error("Message not found for reaction: %s", envelope)
+            return None
+        msg.add_reaction(envelope)
+        return msg
+
+    def add_remote_delete_envelope(self, envelope):
+        try:
+            msg = self.get_msg_for_timestamp(
+                    envelope,
+                    timestamp=get_envelope_remote_delete(envelope)['timestamp'],
+                    sender_num=get_envelope_sender_id(envelope)
+                    )
+        except ValueError:
+            logging.error("Message not found for remote delete envelope: %s", envelope)
+            return None
+        msg.remote_delete = envelope
+        return msg
+
+    def delete_message(self, msg, index=None):
+        # The `index` is optional, but if known, will save cpu cycles for finding the message in chat.
+        chat = self.get_chat_for_envelope(msg.envelope)
+        try:
+            if index is None:
+                index = chat.index(msg)
+            del chat[index]
+        except (ValueError, IndexError) as err:
+            logging.info("delete_message(): message not found; envelope = %s", msg.envelope)
+            logging.exception(err)
+            raise ValueError from err
+
+    def serialize(self):
+        envelopes = []
+        for chat in self._dict.values():
+            for msg in chat:
+                envelope = msg.envelope
+                if 'typingMessage' in envelope:
+                    continue
+                envelopes.append(envelope)
+                try:
+                    envelopes.extend(msg.reactions.values())
+                except AttributeError:
+                    pass
+                try:
+                    # Currently, the "deleted" messages are saved in the history file.
+                    envelopes.append(msg.remote_delete)
+                except AttributeError:
+                    pass
+        return envelopes
+
+
 # #############################################################################
 # ChatWindow
 # #############################################################################
@@ -2463,46 +2552,8 @@ class State:
     def show_dialog(self, w):
         urwid.emit_signal(self, 'dialog_requested', w)
 
-    def get_chat_for_envelope(self, envelope):
-        return self.chats[get_envelope_contact_id(envelope)]
 
-    def get_chat_index_for_envelope(self, chat, envelope):
-        dummy_widget = FocusableText('')
-        dummy_widget.envelope = envelope
-        index = bisect.bisect_left(chat, dummy_widget)
-        if index != len(chat) and chat[index].envelope == envelope:
-            return index
-        raise ValueError
 
-    def get_chat_index_for_timestamp(self, chat, timestamp, sender=None):
-        dummy_widget = FocusableText('')
-        dummy_widget.envelope = {'timestamp': timestamp}
-
-        index = bisect.bisect_left(chat, dummy_widget)
-        if index != len(chat):
-            envelope = chat[index].envelope
-            if get_envelope_time(envelope) == timestamp and (
-                    sender is None or sender == envelope['source']
-                    ):
-                return index
-
-        raise ValueError
-
-    def get_sent_message_widget(self, contact_num, timestamp):
-        def contact_id_gen():
-            yield contact_num
-            groups_w_contact = self.signal.groups_w_contact.get(contact_num, tuple())
-            for g in groups_w_contact:
-                yield g
-        for contact_id in contact_id_gen():
-            chat = self.chats[contact_id]
-            try:
-                index = self.get_chat_index_for_timestamp(chat, timestamp, sender=self.cfg.username)
-            except ValueError:
-                continue
-            else:
-                return chat[index]
-        raise ValueError
 
     def delete_message(self, envelope, index=None):
         self.delivery_status.delete(envelope)
