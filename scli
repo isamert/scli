@@ -3927,33 +3927,35 @@ class CustomDefaultsHelpFormatter(argparse.ArgumentDefaultsHelpFormatter):
     """Show default values in `--help` output for custom-set default values.
 
     Modified `argparse.ArgumentDefaultsHelpFormatter` class that adds
-    `(default: %(default)s)`
-    to `--help` output, but not for the "implicit" defaults: `None` for `action=store` arguments (default `action` for `argparse.add_argument()`), and `True` for `action=store_true` arguments.
+        `(default: %(default)s)`
+    to `--help` output, but only for the explicitly-set `default`s: not `True` for `action=store_true` arguments, and not `None` for `action=store` arguments (`action=store` is the default action for `argparse.add_argument()`, and `None` its default value).
     """
+
     def _get_help_string(self, action):
         if action.default in (None, False):
             return action.help
         return super()._get_help_string(action)
 
+
 def make_arg_parser():
     parser = argparse.ArgumentParser(
-            formatter_class=CustomDefaultsHelpFormatter,
+        formatter_class=CustomDefaultsHelpFormatter,
     )
 
     subparser = parser.add_subparsers(
-            description='Use `%(prog)s <subcommand> -h` for additional help.',
-            dest='subcommand',
+        description='Use `%(prog)s <subcommand> -h` for additional help.',
+        dest='subcommand',
     )
     parser_link = subparser.add_parser(
-            'link',
-            help='Link to an existing device.',
-            formatter_class=CustomDefaultsHelpFormatter,
+        'link',
+        help='Link to an existing device.',
+        formatter_class=CustomDefaultsHelpFormatter,
     )
     parser_link.add_argument(
-            '-n',
-            '--name',
-            default='scli',
-            help='Device name that will be shown in "Linked devices" list on master device.',
+        '-n',
+        '--name',
+        default='scli',
+        help='Device name that will be shown in "Linked devices" list on master device.',
     )
 
     parser.add_argument(
@@ -3966,7 +3968,7 @@ def make_arg_parser():
     parser.add_argument(
         '-u',
         '--username',
-        help='Phone number starting with "+" followed by country code. If not given, %(prog)s will look for an existing profile in signal-cli\'s data dir.'
+        help='Phone number starting with "+" followed by country code. If not given, %(prog)s will look for an existing profile in signal-cli\'s data dir.',
     )
 
     parser.add_argument(
@@ -3992,7 +3994,7 @@ def make_arg_parser():
     parser.add_argument(
         '-G',
         '--clipboard-get-command',
-        help='Command used by `:attachClip` to get a list of files to send as attachments. Should return one absolute file path per line. If not set, `xclip` is used.'
+        help='Command used by `:attachClip` to get a list of files to send as attachments. Should return one absolute file path per line. If not set, `xclip` is used.',
     )
 
     parser.add_argument(
@@ -4028,7 +4030,7 @@ def make_arg_parser():
         '-f',
         '--use-formatting',
         action='store_true',
-        help='Use _italic_, *bold*, ~strikethrough~ formatting in messages.',
+        help='Show _italic_, *bold*, ~strikethrough~ formatting in messages.',
     )
 
     parser.add_argument(
@@ -4070,7 +4072,7 @@ def make_arg_parser():
 
     parser.add_argument(
         '--partition-contacts',
-       action='store_true',
+        action='store_true',
         help='Separate groups and individual contacts in the contacts list.',
     )
 
@@ -4099,15 +4101,17 @@ def make_arg_parser():
     )
 
     parser.add_argument(
-            '--version',
-            action='version',
-            version='%(prog)s ' + __version__
+        '--version',
+        action='version',
+        version='%(prog)s ' + __version__,
     )
 
     return parser
 
+
 def get_cfg_file_args(file_obj):
-    # Alternatively, can override `ArgumentParser.convert_arg_line_to_args()`
+    # Alternatively, can override `ArgumentParser.convert_arg_line_to_args()`.
+    # Could use `configparser` module if the syntax gets more complicated.
     ret = {}
     for line in file_obj:
         line = line.strip()
@@ -4116,6 +4120,7 @@ def get_cfg_file_args(file_obj):
         name, _, val = line.partition("=")
         ret[name.strip()] = val.strip()
     return ret
+
 
 def get_opt_val_flags(parser):
     """Flags that optionally take values.
@@ -4150,6 +4155,7 @@ def get_opt_val_flags(parser):
                 )
             )
 
+
 def parse_cfg_file(parser, cli_args):
     cfg_file_path = os.path.expanduser(cli_args.config_file)
     try:
@@ -4183,6 +4189,7 @@ def parse_cfg_file(parser, cli_args):
     cfg_file_args = parser.parse_args(args_list)
     parser.parse_args(namespace=cfg_file_args)
     return cfg_file_args
+
 
 def parse_args():
     parser = make_arg_parser()
