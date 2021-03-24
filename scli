@@ -350,94 +350,6 @@ def b64_to_hex_str(group_id):
     return base64.b64decode(group_id.encode()).hex()
 
 
-class MessageInfo(urwid.ListBox):
-    def __init__(self, state, envelope):
-        self.state = state
-
-        source = envelope['source']
-        msg = get_envelope_msg(envelope)
-        timestamp = get_envelope_time(envelope)
-        date = strftimestamp(timestamp)
-        status_detailed = self.state.delivery_status.get_detailed(envelope)
-        mentions = get_envelope_mentions(envelope)
-        if mentions:
-            msg = self.state.insert_mentions(msg, mentions)
-
-        txt_name = FocusableText([btxt('Name   : '), ntxt(get_contact_name(state.signal.get_contact(source)))])
-        txt_source = FocusableText([btxt('Number : '), ntxt(source)])
-        txt_date = FocusableText([btxt('Date   : '), ntxt(date)])
-        txt_msg = FocusableText([btxt('Message: '), ntxt(msg)])
-
-        status_str = status_detailed.str
-        if status_str:
-            status_when = f': {strftimestamp(status_detailed.when)}' if status_detailed.when else ''
-            txt_status = FocusableText([btxt('Status : '), ntxt(status_str), status_when])
-        else:
-            txt_status = FocusableText('')
-
-        txt_urls = FocusableText([btxt('Links')], align='center')
-
-        urls = []
-        for url in get_urls(msg):
-            txt_url = FocusableText([ntxt(url)])
-            txt_url.full_path = url
-            urls.append(txt_url)
-
-        txt_atchs = FocusableText(btxt('Attachments'), align='center')
-
-        atchs = []
-        for atch in get_envelope_attachments(envelope):
-            txt_atch = FocusableText(ntxt(get_attachment_name(atch)))
-            txt_atch.original_widget.full_path = get_attachment_path(atch)
-            atchs.append(txt_atch)
-
-        items = [txt_name, txt_source, txt_date, txt_msg, txt_status, txt_urls, *urls, txt_atchs, *atchs]
-
-        # Reactions
-        chat = self.state.get_chat_for_envelope(envelope)
-        msg_index = self.state.get_chat_index_for_envelope(chat, envelope)
-        reactions = getattr(chat[msg_index], 'reactions', None)
-        if reactions is not None:
-            reactions_heading = FocusableText([btxt('Reactions')], align='center')
-            reactions_markup = []
-            for reaction in reactions:
-                sender_name = get_contact_name(self.state.signal.get_contact(reaction['source']))
-                reactions_markup.append(FocusableText([
-                    sender_name,
-                    ': ',
-                    get_nested(reaction, 'dataMessage', 'reaction', 'emoji'),
-                    ' (',
-                    strftimestamp(get_envelope_time(reaction)),
-                    ')',
-                    ]))
-            items.append(reactions_heading)
-            items.extend(reactions_markup)
-
-        super().__init__(urwid.SimpleFocusListWalker(items))
-
-    def keypress(self, size, key):
-        item = self.body[self.focus_position].original_widget
-
-        if key in ('j', 'down'):
-            listbox_focus_next(self)
-        elif key in ('k', 'up'):
-            listbox_focus_prev(self)
-        elif key == 'y':
-            text, _ = item.get_text()
-            try:
-                clip.put(self.state, item.full_path)
-            except AttributeError:
-                try:
-                    clip.put(self.state, text.split(": ")[1])
-                except IndexError:
-                    clip.put(self.state, text)
-        elif key in ('enter', 'o'):
-            try:
-                self.state.commands.open_file(item.full_path)
-            except (AttributeError, TypeError):
-                pass
-
-
 class HelpDialog(urwid.ListBox):
     def __init__(self):
         items = []
@@ -3573,19 +3485,31 @@ class StatusLine(urwid.WidgetWrap):
             logging.error("on_sending_done(): envelope = %s", envelope)
             logging.exception(e)
             return
+class MessageInfo(ListBoxPlus):
 
         self.delivery_status.set(msg_widget, status)
+    class OpenPath(FocusableText):
+        """Open-able text: file or URL"""
 
         if status == 'send_failed':
             self.set_error(f'Message "{get_envelope_msg(envelope)[:20]}…" failed to send. Press `r` on message to re-send.')
             return
+        def __init__(self, text, *args, fpath=None, **kwargs):
+            super().__init__(text, *args, **kwargs)
+            self.fpath = fpath
 
         if timestamp_adj is not None:
             self.delivery_status.adjust_timestamp(get_envelope_time(envelope), timestamp_adj)
             msg_widget.envelope['timestamp'] = msg_widget.envelope['dataMessage']['timestamp'] = timestamp_adj
             # After adjusting timestamp, msg_widget might need to be moved in `chat`, for `chat` to remain sorted. However, the timestamp_adj is normally within 50ms of the original timestamp, so in practice this is not a problem most of the time.
+        def get_path(self):
+            return self.fpath or self.text
 
         self.delivery_status.process_buffered_receipts(msg_widget)
+        def open_path(self):
+            if self.fpath:
+                return action_request.open_file(self.fpath)
+            return action_request.open_url(self.text)
 
     def on_remote_delete(self, envelope):
         timestamp_del = get_nested(envelope, 'dataMessage', 'remoteDelete', 'timestamp')
@@ -3608,6 +3532,8 @@ class StatusLine(urwid.WidgetWrap):
         markup.append(('italic', '[deleted]'))
         msg_w.base_widget.set_text(markup)
         msg_w.remote_delete = envelope
+    def __init__(self, msg):
+        self._msg = msg
 
     def on_receive_reaction(self, envelope):
         reaction = get_envelope_reaction(envelope)
@@ -3630,10 +3556,21 @@ class StatusLine(urwid.WidgetWrap):
                 repr(sender_name), ':', reaction['emoji'], 'to', repr(get_envelope_msg(msg_w.envelope))
                 ))
             self.set_notification(notif, sender)
+        name_w = FocusableText([
+            ('bold', 'Sender : '),
+            action_request.get_contact_name(msg.sender_num),
+            ])
+        num_w = FocusableText([('bold', 'Number : '), msg.sender_num])
+        date = strftimestamp(msg.timestamp)
+        date_w = FocusableText([('bold', 'Date   : '), date])
+        items = [name_w, num_w, date_w]
 
     def on_call_message(self, envelope):
         w = self.print_call_message(envelope)
         sender = self.signal.get_contact(envelope['source'])
+        if msg.text:
+            txt_w = FocusableText([('bold', 'Message: '), msg.text])
+            items.append(txt_w)
 
         # Notifications
         if (not w
@@ -3645,6 +3582,110 @@ class StatusLine(urwid.WidgetWrap):
         self.commands.send_notification(sender_name, notif)
         if sender != self.current_contact:
             self.set_notification(''.join([notif, ': ', sender_name]), sender)
+
+        delivery_status_w = self._get_delivery_status_w()
+        if delivery_status_w:
+            items.append(delivery_status_w)
+
+        items.append(urwid.Divider())
+
+        if msg.text:
+            urls = get_urls(msg.text)
+            if urls:
+                items.extend(self._get_urls_ws(urls))
+
+        attachments = get_envelope_attachments(msg.envelope)
+        if attachments:
+            items.extend(self._get_attachments_ws(attachments))
+
+        reactions = getattr(msg, 'reactions', None)
+        if reactions is not None:
+            items.extend(self._get_reactions_ws(reactions))
+
+        if cfg.debug:
+            items.extend(self._get_debug_info())
+
+        super().__init__(items)
+
+    def _get_delivery_status_w(self):
+        status_detailed = self._msg.delivery_status_detailed
+        status_str = status_detailed.str
+        if not status_str:
+            return None
+        when_str = strftimestamp(status_detailed.when, strformat='%H:%M:%S %Y-%m-%d')
+        status_when = f' ({when_str})' if status_detailed.when else ''
+        return FocusableText([('bold', 'Status : '), status_str, status_when])
+
+    def _get_urls_ws(self, urls):
+        header_w = urwid.Text([('bold', 'Links')], align='center')
+        ret = [header_w]
+        for url in urls:
+            url_w = self.OpenPath(url)
+            ret.append(url_w)
+        return ret
+
+    def _get_attachments_ws(self, attachments):
+        header_w = urwid.Text(('bold', 'Attachments'), align='center')
+        ret = [header_w]
+        for atch in attachments:
+            atch_w = self.OpenPath(
+                    text=get_attachment_name(atch),
+                    fpath=get_attachment_path(atch)
+                    )
+            ret.append(atch_w)
+        return ret
+
+    @staticmethod
+    def _get_reactions_ws(reactions):
+        heading_w = urwid.Text([('bold', 'Reactions')], align='center')
+        ret = [heading_w]
+        for sender_num, envelope in reactions.items():
+            sender_name = action_request.get_contact_name(sender_num)
+            reaction = get_envelope_reaction(envelope)
+            if reaction.get('isRemove'):
+                continue
+            ret.append(FocusableText([
+                sender_name,
+                ': ',
+                reaction['emoji'],
+                ' (',
+                strftimestamp(get_envelope_time(envelope)),
+                ')',
+                ]))
+        if ret == [heading_w]:
+            return []
+        return ret
+
+    def _get_debug_info(self):
+        ret = [
+                urwid.Divider(),
+                urwid.Text(('bold', 'Debug info'), align='center'),
+                urwid.Text('Envelope', align='center'),
+                FocusableText(pprint.pformat(self._msg.envelope, width=-1)),
+                ]
+        return ret
+
+    def keypress(self, size, key):
+        key = super().keypress(size, key)
+        item = self.body[self.focus_position]
+        if key == 'y':
+            try:
+                clip.put(item.get_path())
+            except AttributeError:
+                markup = get_text_markup(item)
+                if len(markup) == 2 and isinstance(markup[0], tuple):
+                    # The line is `Property : Value` type
+                    clip.put(markup[1])
+                else:
+                    clip.put(item.text)
+        elif key in ('enter', 'o'):
+            try:
+                item.open_path()
+            except AttributeError:
+                pass
+        else:
+            return key
+        return None
 
 
 urwid.register_signal(State, State.signals)
