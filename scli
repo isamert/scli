@@ -2730,101 +2730,6 @@ class BracketedPasteEdit(Edit):
         return None
 
 
-class ChatWindow(urwid.Frame):
-    def __init__(self, state):
-        self.state = state
-        self.pop_up_action = None
-
-        self.search_mode = False
-        self.search_list = urwid.SimpleFocusListWalker([])
-
-        self._wsearch = urwid.ListBox(self.search_list)
-        self._wtitle = urwid.Text('')
-        self._wline = BracketedPasteEdit(('bold', '> '))
-        self._wdiv = urwid.Divider('-')
-        self._wlist = urwid.ListBox([])
-
-        self._w = urwid.WidgetPlaceholder(self._wlist)
-        wcontext = urwid.Frame(self._w, header=urwid.Divider('-'))
-        self._wcontext = urwid.Frame(wcontext, header=self._wtitle, footer=self._wdiv)
-
-        super().__init__(self._wcontext, footer=self._wline)
-
-        urwid.connect_signal(self._wline, 'postchange', self.on_edit_text_changed)
-        urwid.connect_signal(self.state, 'current_contact_changed', self.on_current_contact_changed)
-        urwid.connect_signal(self.state, 'dialog_requested', self.show_pop_up)
-        urwid.connect_signal(self.state.signal, 'receive_message', self.on_new_message)
-        urwid.connect_signal(self.state.signal, 'send_message', self.on_new_message)
-        urwid.connect_signal(self.state.signal, 'call_message', self.on_new_message)
-        urwid.connect_signal(self.state.signal, 'contact_typing', self.on_new_message)
-
-    def show_pop_up(self, widget):
-        def on_pop_up_closed(sender, accepted, result):
-            self.remove_pop_up()
-            urwid.emit_signal(self.state, 'dialog_finished', accepted, result)
-
-        wrapper = PopUpWrapper(widget)
-        urwid.connect_signal(wrapper, 'closed', on_pop_up_closed)
-
-        popup = urwid.Overlay(
-            wrapper,
-            self._w.original_widget,
-            align='center',
-            valign='middle',
-            width=('relative', 85),
-            height=('relative', 75),
-        )
-
-        self._w.original_widget = popup
-        return wrapper
-
-    def remove_pop_up(self, _sender=None):
-        if self.search_mode:
-            self._w.original_widget = self._wsearch
-        else:
-            self._w.original_widget = self._wlist
-
-    def on_edit_text_changed(self, _sender, _old_text):
-        txt = self.get_edit_text()
-        if txt.startswith('/'):
-            if not self.search_mode:
-                self.search_mode = True
-                self._w.original_widget = self._wsearch
-            self.search_in_chat()
-        elif self.search_mode:
-            self.search_mode = False
-            self._w.original_widget = self._wlist
-
-    def search_in_chat(self):
-        if not self.search_mode:
-            return
-
-        search_txt = self.get_edit_text()[1:]
-
-        def setx(i, txt):
-            txt.real_index = i
-            return txt
-
-        found = [
-            setx(i, txt) for i, txt in enumerate(self.state.current_chat) if search_txt in txt.original_widget.text
-        ]
-        self.search_list.clear()
-        self.search_list.extend(found)
-
-    def on_new_message(self, _envelope):
-        self.focus_chatlast()
-
-    def is_focused_input(self):
-        return self.focus_position == 'footer'
-
-    def is_focused_chat(self):
-        return self.focus_position == 'body'
-
-    def focus_input(self):
-        self.focus_position = 'footer'
-
-    def focus_chat(self):
-        self.focus_position = 'body'
 class InputLine(BracketedPasteEdit):
     def __init__(self, **kwargs):
         self._cmd_history = CommandsHistory()
@@ -2832,54 +2737,12 @@ class InputLine(BracketedPasteEdit):
         self._prompt = ('bold', '> ')  # In urwid's parlance, this is called 'caption'.
         super().__init__(self._prompt, **kwargs)
 
-    def focus_chatfirst(self):
-        try:
-            self._w.original_widget.focus_position = 0
-        except IndexError:
-            pass
     def set_cmds(self, cmds):
         self._cmds = cmds
 
-    def focus_chatlast(self):
-        try:
-            self._w.original_widget.focus_position = len(self._w.original_widget.body) - 1
-        except IndexError:
-            pass
     def _set_edit_text_move_cursor(self, txt, cursor_pos=-1):
         """Edit.set_edit_text() + Edit.set_edit_pos()
 
-    def get_edit_text(self):
-        return self._wline.get_edit_text()
-
-    def set_edit_text(self, txt, move_cursor_to_end=False):
-        self._wline.set_edit_text(txt)
-        if move_cursor_to_end:
-            self._wline.set_edit_pos(len(txt))
-
-    def set_title(self, contact):
-        num = contact.get("number")
-        if not num:
-            # see this: https://github.com/isamert/scli/issues/53#issuecomment-612571462
-            contacts = [
-                self.state.signal.get_contact(contact if isinstance(contact, str) else contact['number']) or contact
-                for contact in contact.get('members') or []
-            ]
-            num = ', '.join([get_contact_name(contact) for contact in contacts])
-
-        self._wtitle.set_text([('bold', get_contact_name(contact)), ' (', num, ')'])
-
-    def on_current_contact_changed(self, old, current, focus=False):
-        self.set_title(current)
-        listbox_set_body(self._wlist, self.state.current_chat)
-        self.focus_chatlast()
-
-    def get_current_envelope(self):
-        try:
-            if self.search_mode:
-                return self.search_list[self._wsearch.focus_position].envelope
-            return self.state.current_chat[self._wlist.focus_position].envelope
-        except (IndexError, AttributeError):
-            return None
         Like Edit.insert_text(), but istead of adding to the current edit_text, replace it with the provided argument.
         """
         self.set_edit_text(txt)
@@ -2930,7 +2793,7 @@ class InputLine(BracketedPasteEdit):
             if len(all_commands) == 1:
                 self._set_edit_text_move_cursor(':' + all_commands[0] + ' ')
             elif commonprefix != '':
-                self.set_edit_text(':' + commonprefix, True)
+                self._set_edit_text_move_cursor(':' + commonprefix)
 
     def _keypress_cmd_mode(self, key, key_orig, txt):
         # Called when `txt.startswith(':')`
@@ -2961,19 +2824,6 @@ class InputLine(BracketedPasteEdit):
         key = super().keypress(size, key)
         txt = self.get_edit_text()
 
-        if self.is_focused_input():
-            txt = self.get_edit_text()
-            if key == 'enter':
-                if txt.startswith(':'):
-                    if txt.strip() == ":":
-                        self.state.set_error('Command missing after `:`')
-                        return key
-                    cmd, *args = txt[1:].split(maxsplit=1)
-                    self.state.commands.exec(cmd, *args)
-                elif txt.startswith('/'):
-                    pass
-                elif txt.strip(' ') != '' and self.state.current_contact:
-                    self.state.signal.send_message(self.state.current_contact, txt)
         if not txt or txt.isspace():
             self.set_caption(self._prompt)  # restore normal prompt
             return key
@@ -2981,11 +2831,6 @@ class InputLine(BracketedPasteEdit):
             self.set_caption('')  # set "prompt" to '/' or ':'
             if key == 'esc':
                 self.set_edit_text('')
-            elif key == 'tab':
-                if txt.startswith(':'):
-                    self.auto_complete_commands(txt)
-                    return
-        elif not self.state.current_chat:
                 self.set_caption(self._prompt)
                 return None
         else:
@@ -2999,56 +2844,6 @@ class InputLine(BracketedPasteEdit):
             self.set_edit_text('')
         else:
             return key
-        elif self.is_focused_chat():
-            envelope = self.get_current_envelope()
-            if key in ('enter', 'l'):
-                if self.search_mode:
-                    real_index = self.search_list[self._wsearch.focus_position].real_index
-                    self.set_edit_text('')
-                    self._wlist.focus_position = real_index
-                elif get_envelope_msg(envelope) is not None:
-                    self.state.commands.open_attach(envelope) or self.state.commands.open_url(envelope)
-            elif key == 'o':
-                self.state.commands.open_url(envelope) or self.state.commands.open_attach(envelope)
-            elif key in ('j', 'down'):
-                listbox_focus_next(self._w.original_widget)
-            elif key in ('k', 'up'):
-                listbox_focus_prev(self._w.original_widget)
-            elif key == 'g':
-                self.focus_chatfirst()
-            elif key == 'G':
-                self.focus_chatlast()
-            elif key == 'y':
-                txt = get_envelope_msg(envelope)
-                clip.put(self.state, txt)
-            elif key == 'd':
-                if self.search_mode:
-                    item = self.search_list[self._wsearch.focus_position]
-                    real_index = item.real_index
-                    del self.search_list[self._wsearch.focus_position]
-                    self.state.delete_message(envelope, real_index)
-                else:
-                    self.state.delete_message(envelope, self._wlist.focus_position)
-            elif key == 'r':
-                if self.state.delivery_status.get_str(envelope) != 'send_failed':
-                    # Only allow re-sending failed messages this way
-                    return
-                self.state.set_error('') # remove 'send-failed' status line
-                if self.search_mode:
-                    real_index = self.search_list[self._wsearch.focus_position].real_index
-                    del self.search_list[self._wsearch.focus_position]
-                    self.state.resend_message(envelope, real_index)
-                    self.search_list.append(self.state.current_chat[-1])
-                else:
-                    self.state.resend_message(envelope, self._wlist.focus_position)
-            elif key == 'i':
-                if get_envelope_msg(envelope) is not None:
-                    self.show_pop_up(MessageInfo(self.state, envelope))
-            elif key == 'q':
-                # Replying / quoting not supported by signal-cli
-                # https://github.com/AsamK/signal-cli/issues/213
-                pass
-        return key
         return None
 
 
@@ -3629,9 +3424,25 @@ class ChatView(ListBoxPlus):
         return None
 
 
+class ChatWindow(urwid.Frame):
+    def __init__(self):
+        self._title_widget = urwid.Text('', align='center')
+        self.input_line_w = InputLine()
+        self.chat_view = ChatView()
+        title_w_div = urwid.Pile([self._title_widget, urwid.Divider('-')])
+        input_w_div = urwid.Pile([urwid.Divider('-'), self.input_line_w])
+        self._focusable_widgets = {'chat': 'body', 'input': 'footer'}
+        super().__init__(self.chat_view, header=title_w_div, footer=input_w_div)
+        urwid.connect_signal(self.input_line_w, 'postchange', self.chat_view.on_input_line_change)
 
     def delete_message(self, envelope, index=None):
         self.delivery_status.delete(envelope)
+    @property
+    def focus_widget_name(self):
+        for widget_name, focus_pos in self._focusable_widgets.items():
+            if focus_pos == self.focus_position:
+                return widget_name
+        return None
 
         chat = self.get_chat_for_envelope(envelope)
         try:
@@ -3640,14 +3451,50 @@ class ChatView(ListBoxPlus):
             del chat[index]
         except (ValueError, IndexError):
             pass
+    @focus_widget_name.setter
+    def focus_widget_name(self, widget_name):
+        self.focus_position = self._focusable_widgets[widget_name]
+
+    def _set_title(self, contact):
+        name = contact.name_or_id
+        markup = [('bold', name)]
+        if not contact.is_group:
+            num = contact.number
+            if name != num:
+                markup.extend([' (', num, ')'])
+        else:
+            memb_names = [memb.name_or_id for memb in contact.member_contacts]
+            markup.append(' (')
+            markup.extend(', '.join(memb_names))
+            markup.extend([', ', ('italic', 'You'), ')'])
+        self._title_widget.set_text(markup)
 
     def resend_message(self, envelope, index=None):
         self.delete_message(envelope, index)
+    def on_contact_selected(self, contact):
+        self._set_title(contact)
+        self.chat_view.try_set_focus(-1)
 
         contact = self.signal.get_envelope_contact(envelope)
         message = get_envelope_msg(envelope)
         attachments = get_envelope_attachments(envelope)
         self.signal.send_message(contact, message, attachments)
+    def keypress(self, size, key):
+        key = super().keypress(size, key)
+        if not self.input_line_w.edit_text.startswith('/'):
+            return key
+        if key == 'esc':
+            return self.input_line_w.keypress(size, key)
+        if key == 'enter' and self.focus_widget_name == 'input':
+            if not self.chat_view.is_filter_on:
+                # This clause is used for re-doing a search on a new chat contents after swtiching to a new contact.
+                urwid.emit_signal(self.input_line_w, 'postchange', self.input_line_w, '/')
+            if self.chat_view.contents:
+                self.focus_widget_name = 'chat'
+            return None
+        else:
+            return key
+        return None
 
     def on_send_message(self, envelope):
         msg_widget = self.print_sent_message(envelope)
