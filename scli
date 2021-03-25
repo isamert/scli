@@ -2848,7 +2848,6 @@ class InputLine(BracketedPasteEdit):
 
 
 # #############################################################################
-# MainWindow
 # conversation widgets
 # #############################################################################
 
@@ -3506,6 +3505,9 @@ class ChatWindow(urwid.Frame):
 
     def on_receive_message(self, envelope):
         logging.info('MESSAGE:%s', envelope)
+# #############################################################################
+# MainWindow
+# #############################################################################
 
         msg = get_envelope_msg(envelope)
         sender = self.signal.get_envelope_contact(envelope)
@@ -3515,8 +3517,19 @@ class ChatWindow(urwid.Frame):
         contact_name = get_contact_name(sender)
 
         self.typing_indicators.remove(envelope['source'])
+class StatusLine(urwid.WidgetWrap):
+    def __init__(self, unread_count=0):
+        self._text = urwid.Text('')
+        self._unreads_widget = urwid.Text([
+            "Unread messages count: ",
+            ('bold', f"{unread_count}"),
+            ])
+        cols = urwid.Columns([self._text, ('pack', self._unreads_widget)], dividechars=1)
+        super().__init__(cols)
 
         msg_w = self.print_received_message(envelope)
+    def set_text(self, new_text):
+        self._text.set_text(new_text)
 
         # Notifications
         mentions = get_envelope_mentions(envelope)
@@ -3527,6 +3540,9 @@ class ChatWindow(urwid.Frame):
         if sender != self.current_contact:
             notif = 'New message from ' + contact_name + ': "' + msg + '"'
             self.set_notification(notif, sender)
+    def set_unread_count(self, count):
+        txt = str(count) if count else str()
+        self._unreads_widget.set_text(('bold', txt))
 
     def on_receive_receipt(self, envelope):
         # NOTE: Receipt message structure would be different then assumed here if the sent message was not a "sealed sender" one:
