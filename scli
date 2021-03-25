@@ -2837,16 +2837,6 @@ class LazyEvalMessageListWalker(LazyEvalListWalker):
         self.msg_ws_cache = MessageWidgetsCache()
         super().__init__(contents, self.msg_ws_cache.get, init_focus_pos)
 
-    def on_daemon_started(self):
-        self.set_notification("Initializing signal-cli daemon... Done")
-        def clear_status_line(*_args):
-            self.set_notification("")
-        self.loop.set_alarm_in(2, clear_status_line)
-
-    def on_daemon_log(self, log_line):
-        if log_line.startswith("ERROR") and not self.signal.daemon.is_dbus_service_running:
-            self.set_notification(["signal-cli daemon has stopped:\n   ", log_line, "\nRestart scli to restart the daemon."])
-
 
 class ChatView(ListBoxPlus):
     def __init__(self):
@@ -2990,28 +2980,12 @@ class ChatWindow(urwid.Frame):
             return key
         return None
 
-    def on_send_message(self, envelope):
-        msg_widget = self.print_sent_message(envelope)
-        self.delivery_status.set(msg_widget, 'sending')
-        if is_envelope_group_message(envelope):
-            group_id = get_envelope_contact_id(envelope)
-            group_members = self.signal.group_members[group_id]
-            self.delivery_status.set_group_members(msg_widget, group_members)
 
-    def on_receive_message(self, envelope):
-        logging.info('MESSAGE:%s', envelope)
 # #############################################################################
 # MainWindow
 # #############################################################################
 
-        msg = get_envelope_msg(envelope)
-        sender = self.signal.get_envelope_contact(envelope)
-        if sender is None:
-            self.reload()
-            sender = self.signal.get_envelope_contact(envelope)
-        contact_name = get_contact_name(sender)
 
-        self.typing_indicators.remove(envelope['source'])
 class StatusLine(urwid.WidgetWrap):
     def __init__(self, unread_count=0):
         self._text = urwid.Text('')
@@ -3022,123 +2996,34 @@ class StatusLine(urwid.WidgetWrap):
         cols = urwid.Columns([self._text, ('pack', self._unreads_widget)], dividechars=1)
         super().__init__(cols)
 
-        msg_w = self.print_received_message(envelope)
     def set_text(self, new_text):
         self._text.set_text(new_text)
 
-        # Notifications
-        mentions = get_envelope_mentions(envelope)
-        if mentions:
-            msg = self.insert_mentions(msg, mentions)
-        msg_w_text = msg_w.base_widget.text[3:]
-        self.commands.send_notification(contact_name, msg_w_text)
-        if sender != self.current_contact:
-            notif = 'New message from ' + contact_name + ': "' + msg + '"'
-            self.set_notification(notif, sender)
     def set_unread_count(self, count):
         txt = str(count) if count else str()
         self._unreads_widget.set_text(('bold', txt))
 
-    def on_receive_receipt(self, envelope):
-        # NOTE: Receipt message structure would be different then assumed here if the sent message was not a "sealed sender" one:
-        # https://github.com/AsamK/signal-cli/issues/346
-        receipt_contact = envelope['source']
-        receipt_message = envelope['receiptMessage']
-        if receipt_message['isDelivery']:
-            status = 'delivered'
-        elif receipt_message['isRead']:
-            status = 'read'
-        timestamps = receipt_message['timestamps']
-        when = receipt_message['when']
-        for timestamp in timestamps:
-            try:
-                msg_widget = self.get_sent_message_widget(receipt_contact, timestamp)
-            except ValueError:
-                # Receipt is received before the msg_widget exists (e.g. before receiving a `sync` message for a message sent from another device)
-                self.delivery_status.buffer_receipt(timestamp, status, receipt_contact)
-            else:
-                self.delivery_status.set(msg_widget, status, when, receipt_contact)
 
-    def on_sending_done(self, envelope, status='sent', timestamp_adj=None):
-        try:
-            chat = self.get_chat_for_envelope(envelope)
-            index = self.get_chat_index_for_envelope(chat, envelope)
-            msg_widget = chat[index]
-        except (KeyError, ValueError, IndexError) as e:
-            logging.error("on_sending_done(): envelope = %s", envelope)
-            logging.exception(e)
-            return
 class MessageInfo(ListBoxPlus):
 
-        self.delivery_status.set(msg_widget, status)
     class OpenPath(FocusableText):
         """Open-able text: file or URL"""
 
-        if status == 'send_failed':
-            self.set_error(f'Message "{get_envelope_msg(envelope)[:20]}…" failed to send. Press `r` on message to re-send.')
-            return
         def __init__(self, text, *args, fpath=None, **kwargs):
             super().__init__(text, *args, **kwargs)
             self.fpath = fpath
 
-        if timestamp_adj is not None:
-            self.delivery_status.adjust_timestamp(get_envelope_time(envelope), timestamp_adj)
-            msg_widget.envelope['timestamp'] = msg_widget.envelope['dataMessage']['timestamp'] = timestamp_adj
-            # After adjusting timestamp, msg_widget might need to be moved in `chat`, for `chat` to remain sorted. However, the timestamp_adj is normally within 50ms of the original timestamp, so in practice this is not a problem most of the time.
         def get_path(self):
             return self.fpath or self.text
 
-        self.delivery_status.process_buffered_receipts(msg_widget)
         def open_path(self):
             if self.fpath:
                 return action_request.open_file(self.fpath)
             return action_request.open_url(self.text)
 
-    def on_remote_delete(self, envelope):
-        timestamp_del = get_nested(envelope, 'dataMessage', 'remoteDelete', 'timestamp')
-        source = envelope['source']
-        chat = self.get_chat_for_envelope(envelope)
-        try:
-            index = self.get_chat_index_for_timestamp(chat, timestamp_del, source)
-        except ValueError:
-            logging.error("on_remote_delete: index not found for envelope = %s", envelope)
-            return
-        msg_w = chat[index]
-        markup = [btxt('>> ')]
-        if is_envelope_group_message(msg_w.envelope) or self.cfg.show_names:
-            contact = self.signal.get_contact(source)
-            if contact:
-                markup.append(ibtxt(get_contact_name(contact)))
-            else:
-                markup.append(btxt(source))
-            markup.append(btxt(' | '))
-        markup.append(('italic', '[deleted]'))
-        msg_w.base_widget.set_text(markup)
-        msg_w.remote_delete = envelope
     def __init__(self, msg):
         self._msg = msg
 
-    def on_receive_reaction(self, envelope):
-        reaction = get_envelope_reaction(envelope)
-        chat = self.get_chat_for_envelope(envelope)
-        index = self.get_chat_index_for_timestamp(
-                    chat,
-                    timestamp=reaction['targetSentTimestamp'],
-                    sender=reaction['targetAuthor'])
-        msg_w = chat[index]
-
-        self.print_reaction(msg_w, envelope)
-
-        # Notifications
-        sender = self.signal.get_contact(envelope['source'])
-        sender_name = get_contact_name(sender)
-        self.commands.send_notification(sender_name, reaction['emoji'])
-        if chat is not self.current_chat:
-            notif = ' '.join((
-                'New reaction', 'from',
-                repr(sender_name), ':', reaction['emoji'], 'to', repr(get_envelope_msg(msg_w.envelope))
-                ))
-            self.set_notification(notif, sender)
         name_w = FocusableText([
             ('bold', 'Sender : '),
             action_request.get_contact_name(msg.sender_num),
@@ -3148,23 +3033,9 @@ class MessageInfo(ListBoxPlus):
         date_w = FocusableText([('bold', 'Date   : '), date])
         items = [name_w, num_w, date_w]
 
-    def on_call_message(self, envelope):
-        w = self.print_call_message(envelope)
-        sender = self.signal.get_contact(envelope['source'])
         if msg.text:
             txt_w = FocusableText([('bold', 'Message: '), msg.text])
             items.append(txt_w)
-
-        # Notifications
-        if (not w
-                or get_nested(envelope, 'callMessage', 'answerMessage') # Outgoing call
-                ):
-            return
-        sender_name = get_contact_name(sender)
-        notif = w.base_widget.text[3:]
-        self.commands.send_notification(sender_name, notif)
-        if sender != self.current_contact:
-            self.set_notification(''.join([notif, ': ', sender_name]), sender)
 
         delivery_status_w = self._get_delivery_status_w()
         if delivery_status_w:
@@ -3849,6 +3720,65 @@ class ActionRequest:
 action_request = ActionRequest()
 
 
+# #############################################################################
+# Coordinate
+# #############################################################################
+
+
+class Coordinate:
+    def __init__(self):
+        self._chats_data = ChatsData(cfg.save_history)
+        sigdata = SignalData(cfg.username)
+        self._contacts = Contacts(sigdata)
+        self._ui = UrwidUI(self._contacts, self._chats_data)
+        self.daemon = Daemon(self._ui.loop, cfg.username)
+        self._actions = Actions(self.daemon, self._contacts, self._chats_data, self._ui)
+        self._commands = Commands(self._actions)
+        action_request.set_actions(self._actions)
+        self._connect_methods()
+
+    def _connect_methods(self):
+        for cb_name in self.daemon.callbacks:
+            self.daemon.callbacks[cb_name] = getattr(self, "_on_" + cb_name)
+        urwid.connect_signal(self._ui.contacts, 'contact_selected', self._on_contact_selected)
+        cfg.on_modified = self._on_cfg_changed
+        self._chats_data.delivery_status.on_status_changed = self._ui.msg_ws_cache.on_delivery_status_changed
+        Message.set_class_functions(
+            get_delivery_status=self._chats_data.delivery_status.get_detailed,
+            get_contact=self._contacts.get_by_id,
+            )
+        self._ui.main_w.chat_w.input_line_w.set_cmds(self._commands)
+        self._chats_data.typing_indicators.set_alarm_in = self._ui.loop.set_alarm_in
+        self._chats_data.typing_indicators.remove_alarm = self._ui.loop.remove_alarm
+
+    def _on_sending_message(self, envelope):
+        if is_envelope_group_message(envelope):
+            group_id = get_envelope_contact_id(envelope)
+            group_members = self._contacts.get_by_id(group_id).members_ids
+        else:
+            group_members = None
+        self._chats_data.delivery_status.on_sending_message(envelope, group_members)
+        msg = self._chats_data.chats.add_envelope(envelope)
+        self._ui.chat.try_set_focus(-1)
+        self._ui.contacts.on_new_message(msg)
+
+    def _on_sending_done(self, envelope, status='sent', timestamp_adj=None):
+        self._chats_data.delivery_status.on_sending_done(envelope, status, timestamp_adj)
+        self._ui.contacts.on_sending_done(envelope, status, timestamp_adj)
+
+        try:
+            msg = self._chats_data.chats.get_msg_for_envelope(envelope)
+        except ValueError:
+            return
+
+        if status == 'send_failed':
+            msg_txt = textwrap.shorten(msg.text, 20)
+            self._actions.set_status_line(
+                    f'Message "{msg_txt}" failed to send. '
+                    'Press `r` on message to re-send.'
+                    )
+            return
+
 def link_device(device_name):
     try:
         import pyqrcode
@@ -3858,12 +3788,129 @@ def link_device(device_name):
     cmd_link = ['signal-cli', 'link', '-n', device_name]
     pipe_link = Popen(cmd_link, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     line = pipe_link.stdout.readline().strip()
+        if timestamp_adj is not None:
+            self._ui.msg_ws_cache.adjust_timestamp(msg, timestamp_adj)
+            chat = self._chats_data.chats.get_chat_for_envelope(envelope)
+            chat.adjust_timestamp(msg, timestamp_adj)
+            self._ui.chat.try_set_focus(-1)
 
     if line.startswith('tsdevice:/'):
         qr = pyqrcode.create(line, version=10)
         print(qr.terminal(module_color='black', background='white'))
     else:
         sys.exit('Encountered an error while linking: \n{}\n{}'.format(line, pipe_link.stderr.read()))
+    def _on_receive_message(self, envelope):
+        logging.info('MESSAGE: %s', envelope)
+        contact_id = get_envelope_contact_id(envelope)
+        if contact_id not in self._contacts.map:
+            if not self._on_unknown_contact(envelope):
+                return
+
+        sender_num = get_envelope_sender_id(envelope)
+        self._chats_data.typing_indicators.remove(sender_num)
+
+        msg = self._chats_data.chats.add_envelope(envelope)
+        self._on_new_message(msg)
+
+    def _on_unknown_contact(self, envelope):
+        logging.info("Message from unknown contact: %s", envelope)
+        self._actions.reload()
+        contact_id = get_envelope_contact_id(envelope)
+        if contact_id in self._contacts.map:
+            return self._contacts.map[contact_id]
+        logging.error("Message from unknown contact: %s", envelope)
+        sender_num = get_envelope_sender_id(envelope)
+        msg_text = get_envelope_msg(envelope)
+        self._actions.set_status_line([
+            'Message from unknown chat ',
+            repr(contact_id),
+            '\n',
+            (sender_num + ': ' if sender_num != contact_id else ''),
+            repr(msg_text),
+            ])
+        self._actions.send_desktop_notification(sender_num, msg_text)
+        return None
+
+    def _on_receive_sync_message(self, envelope):
+        self._on_sending_message(envelope)
+        self._on_sending_done(envelope)
+
+    def _on_new_message(self, msg):
+        self._ui.contacts.on_new_message(msg)
+        contact_id = msg.contact_id
+        if (self._chats_data.current_contact is not None
+                and contact_id == self._chats_data.current_contact.id):
+            self._ui.chat.try_set_focus(-1)
+        else:
+            self._chats_data.unread_counts[contact_id] += 1
+            self._ui.main_w.update_unread_count(contact_id)
+        self._actions.show_new_msg_notifications(msg)
+
+    def _on_receive_receipt(self, envelope):
+        self._chats_data.delivery_status.on_receive_receipt(envelope)
+
+    def _on_receive_reaction(self, envelope):
+        msg = self._chats_data.chats.add_reaction_envelope(envelope)
+        if not msg:
+            return
+        msg_w = self._ui.msg_ws_cache.get(msg)
+        msg_w.update_reactions_w()
+        self._on_new_message(msg)
+
+    def _on_daemon_log(self, log_line):
+        if log_line.startswith("ERROR") and not self.daemon.is_dbus_service_running:
+            self._actions.set_status_line([
+                "signal-cli daemon has stopped:\n   ",
+                log_line,
+                "\nRestart scli to restart the daemon."
+                ])
+
+    def _on_daemon_started(self):
+        logging.info("signal-cli dbus service started")
+        self._actions.set_status_line("Initializing signal-cli daemon... Done")
+        def clear_status_line(*_args):
+            self._actions.set_status_line("")
+        self._ui.loop.set_alarm_in(2, clear_status_line)
+        self._actions.update_v2_groups_async()
+
+    def _on_contact_selected(self, contact, focus_widget):
+        self._chats_data.current_contact = contact
+        self._ui.chat.contents = self._chats_data.current_chat
+        self._chats_data.unread_counts[contact.id] = 0
+        self._ui.main_w.on_contact_selected(contact, focus_widget)
+
+    def _on_cfg_changed(self, key, val):
+        if key == 'contacts_autohide':
+            self._ui.main_w.contacts_hidden = val
+
+    def _on_contact_typing(self, envelope):
+        self._chats_data.typing_indicators.on_typing_message(envelope)
+        self._ui.chat.try_set_focus(-1)
+
+    def _on_call_message(self, envelope):
+        call_message = envelope['callMessage']
+        if (
+            'offerMessage' in call_message
+            or 'answerMessage' in call_message
+            or get_nested(call_message, 'hangupMessage', 'type') == 'NORMAL'
+                ):
+            msg = self._chats_data.chats.add_envelope(envelope)
+            if 'offerMessage' in call_message:
+                # Incoming call
+                self._on_new_message(msg)
+
+    def _on_contacts_sync(self):
+        logging.info("Received contacts sync message, reloading signal-cli contacts")
+        self._actions.reload()
+
+    def _on_remote_delete(self, envelope):
+        msg = self._chats_data.chats.add_remote_delete_envelope(envelope)
+        if not msg:
+            return
+        msg_w = self._ui.msg_ws_cache.get(msg)
+        msg_w.reload_markup()
+
+
 
     print('Scan the QR code with Signal app on your phone and wait for the linking process to finish.\nYou might need to zoom out for the QR code to display properly.\nThis may take a moment...')
 
