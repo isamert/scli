@@ -874,189 +874,6 @@ class Commands:
             else:
                 raise
 
-    def external_edit(self, *args):
-        if self.state.current_contact is None:
-            self.state.set_error(":edit Error: no contact currently selected")
-            return
-
-        if self.state.cfg.editor_command is None:
-            self.state.set_error(":edit Error: no command for external editor set")
-            return
-
-        filename = ''
-        if args:
-            filename, *message = split_path(*args)
-
-        if is_path(filename):
-            msg_file_path = os.path.expanduser(filename)
-        else:
-            msg_file_path = tmpfile = tempfile.NamedTemporaryFile(suffix='.md', delete=False).name
-            message = args
-        if message:
-            with open(msg_file_path, "w") as msg_file:
-                msg_file.write(*message)
-
-        self.state.loop.stop()
-        cmd = self.state.cfg.editor_command + " " + shlex.quote(msg_file_path)
-        callf(cmd, capture_output=False)
-        self.state.loop.start()
-
-        with open(msg_file_path, 'r') as msg_file:
-            msg = msg_file.read().strip()
-            if msg:
-                self.state.signal.send_message(self.state.current_contact, msg)
-
-        try:
-            os.remove(tmpfile)
-        except NameError:
-            pass
-
-    def read(self, path_or_cmd):
-        if self.state.current_contact is None:
-            self.state.set_error(":read Error: no contact currently selected")
-            return
-
-        message = ''
-        if is_path(path_or_cmd):
-            with open(os.path.expanduser(path_or_cmd), 'r') as file:
-                message = file.read()
-        elif path_or_cmd.startswith('!'):
-            message = subprocess.check_output(['/bin/sh', '-c', path_or_cmd[1:].strip()]).decode("utf-8")
-
-        if message != '':
-            self.state.signal.send_message(self.state.current_contact, message)
-
-    def open_file(self, path):
-        if os.path.exists(path):
-            if isinstance(path, dict):
-                callf(self.state.cfg.open_command, path, background=True)
-            callf(self.state.cfg.open_command, {'%u': path}, background=True)
-
-    def attach(self, args):
-        if self.state.current_contact is None:
-            self.state.set_error(":attach Error: no contact currently selected")
-            return
-
-        attachment, *message = split_path(args)
-        attachment = os.path.expanduser(attachment)
-        if not os.path.isfile(attachment):
-            self.state.set_error('File does not exist: ' + attachment)
-            return
-        self.state.signal.send_message(self.state.current_contact, *message, attachments=[attachment])
-
-    def attach_clip(self, *message):
-        if self.state.current_contact is None:
-            self.state.set_error(":attachClip Error: no contact currently selected")
-            return
-
-        files = clip.files(self.state)
-
-        if files:
-            self.state.signal.send_message(self.state.current_contact, *message, attachments=files)
-        else:
-            self.state.set_notification('Clipboard is empty.')
-
-    def open_attach(self, envelope):
-        result = False
-        attachments = get_envelope_attachments(envelope)
-        for attachment in attachments:
-            file_path = get_attachment_path(attachment)
-            if file_path:
-                self.open_file(file_path)
-                result = True
-
-        return result
-
-    def open_last_attach(self):
-        for txt in reversed(self.state.current_chat):
-            if self.open_attach(txt.envelope):
-                return
-
-    def open_url(self, envelope):
-        txt = get_envelope_msg(envelope)
-        urls = get_urls(txt)
-        if urls:
-            callf(self.state.cfg.open_command, {'%u': urls[0]}, background=True)
-            return True
-
-        return False
-
-    def open_last_url(self):
-        for txt in reversed(self.state.current_chat):
-            if self.open_url(txt.envelope):
-                return
-
-    def toggle_notifications(self):
-        self.state.cfg.enable_notifications = not self.state.cfg.enable_notifications
-        notif = 'Desktop notifications are '
-        if self.state.cfg.enable_notifications:
-            notif = notif + 'ON'
-        else:
-            notif = notif + 'OFF'
-        self.state.set_notification(notif + '.')
-
-    def toggle_autohide(self):
-        self.state.cfg.contacts_autohide = not self.state.cfg.contacts_autohide
-
-    def toggle_sort_contacts(self):
-        self.state.cfg.contacts_sort_alpha = not self.state.cfg.contacts_sort_alpha
-        self.reload()
-
-    def send_notification(self, sender, message):
-        if self.state.cfg.enable_notifications:
-            rmap = {}
-            for token, text in (('%s', sender), ('%m', message)):
-                text = text.replace(r"'", r"'\''")
-                rmap[token] = text
-            callf(self.state.cfg.notification_command, rmap, background=True)
-
-    def rename_contact(self, args):
-        # :renameContact +NUMBER new name here  -> use +NUMBER number
-        # :renameContact "Old Name" new name here  -> use contact named "Old Name"
-        # :renameContact new name here          -> rename current contact or group
-        try:
-            number, new_name = split_path(args)
-            if not is_number(number):
-                for contact_id, contact in self.state.signal.contacts_map.items():
-                    if contact["name"] == number:
-                        is_group = is_contact_group(contact)
-                        break
-                else:  # contact with name `number` not found
-                    raise ValueError
-            elif self.state.signal.get_contact(number) is None:
-                    self.state.set_error(f":renameContact Error: no contact with number {number} found")
-                    return
-            else:
-                is_group = False
-                contact_id = number
-        except ValueError:
-            if self.state.current_contact is None:
-                self.state.set_error(":renameContact Error: no contact currently selected")
-                return
-            contact_id = self.state.current_contact.get('number')
-            is_group = contact_id is None
-            if is_group:
-                contact_id = self.state.current_contact.get('groupId')
-            new_name = args
-
-        self.state.signal.daemon.rename_contact(contact_id, new_name, is_group, lambda *i: self.reload())
-
-    def add_contact(self, args):
-        # :addContact +NUMBER [Contact Name]
-        try:
-            number, name = args.split(maxsplit=1)
-        except ValueError:
-            number, name = args, ""
-        if not is_number(number):
-            self.state.set_error(f':addContact "{number}": not a valid number')
-            return
-        self.state.signal.daemon.rename_contact(number, name, is_group=False, callback=lambda *i: self.reload())
-
-    def reload(self):
-        self.state.reload()
-
-    def quit(self):
-        raise urwid.ExitMainLoop()
                 main_loop.set_alarm_in(poll_freq, set_alarm)
         set_alarm(self.main_loop)
 
@@ -3076,17 +2893,6 @@ class LazyEvalMessageListWalker(LazyEvalListWalker):
         self.msg_ws_cache = MessageWidgetsCache()
         super().__init__(contents, self.msg_ws_cache.get, init_focus_pos)
 
-    def reload(self):
-        self.signal.reload()
-        self._update_contacts()
-
-    def _update_contacts(self):
-        if self.current_contact is not None:
-            contact_id = get_contact_id(self.current_contact)
-            current_contact_reloaded = self.signal.get_contact(contact_id)
-            self.set_current_contact(current_contact_reloaded)
-        urwid.emit_signal(self, 'reload_request')
-
     def on_daemon_started(self):
         self.set_notification("Initializing signal-cli daemon... Done")
         def clear_status_line(*_args):
@@ -3097,36 +2903,11 @@ class LazyEvalMessageListWalker(LazyEvalListWalker):
         if log_line.startswith("ERROR") and not self.signal.daemon.is_dbus_service_running:
             self.set_notification(["signal-cli daemon has stopped:\n   ", log_line, "\nRestart scli to restart the daemon."])
 
-    def set_current_contact(self, contact, focus=False):
-        old = self.current_contact
-        self.current_contact = contact
-        self.current_chat = self.chats[hash_contact(contact)]
-        urwid.emit_signal(self, 'current_contact_changed', old, contact, focus)
-
-    def set_status(self, status, data=None):
-        self.status = status
-        self.status_data = data
-        urwid.emit_signal(self, 'status_changed', status, data)
-
-    def set_notification(self, notif, data=None):
-        self.notification = notif
-        self.status_data = data
-        urwid.emit_signal(self, 'notification_changed', notif, data)
-
-    def set_error(self, err):
-        self.error = err
-        urwid.emit_signal(self, 'error_changed', err)
-
-    def set_contact_notify_count(self, contact_id, count):
-        if count == '+1':
-            count = self.notify_counts.get(contact_id, 0) + 1
-        self.notify_counts[contact_id] = count
 
 class ChatView(ListBoxPlus):
     def __init__(self):
         lw = LazyEvalMessageListWalker(urwid.MonitoredList())
         super().__init__(lw)
-
 
     def _update_search_results(self, txt, old_txt=''):
         if not txt:
@@ -3219,8 +3000,6 @@ class ChatWindow(urwid.Frame):
         super().__init__(self.chat_view, header=title_w_div, footer=input_w_div)
         urwid.connect_signal(self.input_line_w, 'postchange', self.chat_view.on_input_line_change)
 
-    def delete_message(self, envelope, index=None):
-        self.delivery_status.delete(envelope)
     @property
     def focus_widget_name(self):
         for widget_name, focus_pos in self._focusable_widgets.items():
@@ -3228,13 +3007,6 @@ class ChatWindow(urwid.Frame):
                 return widget_name
         return None
 
-        chat = self.get_chat_for_envelope(envelope)
-        try:
-            if index is None:
-                index = self.get_chat_index_for_envelope(chat, envelope)
-            del chat[index]
-        except (ValueError, IndexError):
-            pass
     @focus_widget_name.setter
     def focus_widget_name(self, widget_name):
         self.focus_position = self._focusable_widgets[widget_name]
@@ -3253,16 +3025,10 @@ class ChatWindow(urwid.Frame):
             markup.extend([', ', ('italic', 'You'), ')'])
         self._title_widget.set_text(markup)
 
-    def resend_message(self, envelope, index=None):
-        self.delete_message(envelope, index)
     def on_contact_selected(self, contact):
         self._set_title(contact)
         self.chat_view.try_set_focus(-1)
 
-        contact = self.signal.get_envelope_contact(envelope)
-        message = get_envelope_msg(envelope)
-        attachments = get_envelope_attachments(envelope)
-        self.signal.send_message(contact, message, attachments)
     def keypress(self, size, key):
         key = super().keypress(size, key)
         if not self.input_line_w.edit_text.startswith('/'):
@@ -3746,9 +3512,209 @@ class UrwidUI:
         self.msg_ws_cache = self.chat.body.msg_ws_cache
 
 
+class Actions:
+    def __init__(self, daemon, contacts, chats_data, urwid_ui):
+        self._daemon = daemon
+        self._contacts = contacts
+        self._chats_data = chats_data
+        self._urwid_ui = urwid_ui
+
+    def reload(self):
+        self._contacts.reload()
+        if self._daemon.is_dbus_service_running:
+            self.update_v2_groups_async()
+        else:
+            self._urwid_ui.contacts.update()
+
+    def set_status_line(self, text):
+        self._urwid_ui.main_w.status_line.set_text(text)
+
+    @staticmethod
+    def send_desktop_notification(sender, message):
+        if not cfg.enable_notifications:
+            return
+        rmap = {}
+        for token, text in (('%s', sender), ('%m', message)):
+            text = text.replace(r"'", r"'\''")
+            rmap[token] = text
+        callf(cfg.notification_command, rmap, background=True)
+
+    def send_message_curr_contact(self, message="", attachments=None):
+        if self._chats_data.current_contact is None:
+            return
+        self._daemon.send_message(self._chats_data.current_contact.id, message, attachments)
+
+    def external_edit(self, *args):
+        if cfg.editor_command is None:
+            self.set_status_line(":edit Error: no command for external editor set")
+            return
+
+        filename = ''
+        if args:
+            filename, *message = split_path(*args)
+
+        if is_path(filename):
+            msg_file_path = os.path.expanduser(filename)
+        else:
+            msg_file_path = tmpfile = tempfile.NamedTemporaryFile(
+                    suffix='.md', delete=False
+                    ).name
+            message = args
+        if message:
+            with open(msg_file_path, "w") as msg_file:
+                msg_file.write(*message)
+
+        self._daemon.main_loop.stop()
+        cmd = " ".join((cfg.editor_command, shlex.quote(msg_file_path)))
+        callf(cmd)
+        self._daemon.main_loop.start()
+
+        with open(msg_file_path, 'r') as msg_file:
+            msg = msg_file.read().strip()
+            if msg:
+                self.send_message_curr_contact(msg)
+
+        try:
+            os.remove(tmpfile)
+        except NameError:
+            pass
+
+    def read(self, path_or_cmd):
+        message = ''
+        if is_path(path_or_cmd):
+            with open(os.path.expanduser(path_or_cmd), 'r') as file:
+                message = file.read()
+        elif path_or_cmd.startswith('!'):
+            message = callf(
+                    path_or_cmd[1:].strip(),
+                    capture_output=True,
+                    ).stdout
+
+        if message != '':
+            self.send_message_curr_contact(message)
+
+    def attach(self, args):
+        attachment, *message = split_path(args)
+        attachment = os.path.expanduser(attachment)
+        if not os.path.isfile(attachment):
+            self.set_status_line('File does not exist: ' + attachment)
+            return
+        self.send_message_curr_contact(*message, attachments=[attachment])
+
+    def attach_clip(self, *message):
+        files = clip.files()
+        if files:
+            self.send_message_curr_contact(*message, attachments=files)
+        else:
+            self.set_status_line('Clipboard is empty.')
+
+    @staticmethod
+    def open_file(path):
+        if not os.path.exists(path):
+            logging.warning("File does not exist: %s", path)
+            return None
+        return callf(cfg.open_command, {'%u': path}, background=True)
+
+    def open_attach(self, envelope):
+        attachments = get_envelope_attachments(envelope)
+        if not attachments:
+            return attachments
+        for attachment in attachments:
+            file_path = get_attachment_path(attachment)
+            if file_path:
+                self.open_file(file_path)
+        return attachments
+
+    def open_last_attach(self):
+        for txt in reversed(self._chats_data.current_chat):
+            if self.open_attach(txt.envelope):
+                return
+
+    @staticmethod
+    def open_url(url):
+        return callf(cfg.open_command, {'%u': url}, background=True)
+
+    def open_urls(self, envelope):
+        txt = get_envelope_msg(envelope)
+        urls = get_urls(txt)
+        for url in urls:
+            self.open_url(url)
+        return urls
+
+    def open_last_url(self):
+        for txt in reversed(self._chats_data.current_chat):
+            if self.open_urls(txt.envelope):
+                return
+
+    # pylint: disable=attribute-defined-outside-init
+        # `Config` class uses __setattr__ that forwards to argparser's `args` instance.
+    @staticmethod
+    def toggle_autohide():
+        cfg.contacts_autohide = not cfg.contacts_autohide
+
+    def toggle_sort_contacts(self):
+        cfg.contacts_sort_alpha = not cfg.contacts_sort_alpha
+        self.reload()
+
+    def toggle_notifications(self):
+        cfg.enable_notifications = not cfg.enable_notifications
+        notif = ''.join((
+                'Desktop notifications are ',
+                'ON' if cfg.enable_notifications else 'OFF',
+                '.'
+                ))
+        self.set_status_line(notif)
+    # pylint: enable=attribute-defined-outside-init
+
+    def add_contact(self, args):
+        """Add a new contact.
+
+        The syntax is
+        :addContact +NUMBER [Contact Name]
+        """
+        try:
+            number, name = args.split(maxsplit=1)
+        except ValueError:
+            number, name = args, ""
+        if not is_number(number):
+            self.set_status_line(f':addContact "{number}": not a valid number')
+            return
+        self._daemon.rename_contact(number, name, is_group=False, callback=lambda *i: self.reload())
+
+    def rename_contact(self, args):
+        """Rename contact.
+
+
 # #############################################################################
 # main
 # #############################################################################
+        :renameContact +NUMBER new name here  -> use +NUMBER number
+        :renameContact "Old Name" new name here  -> use contact named "Old Name"
+        :renameContact new name here          -> rename current contact or group
+        """
+        try:
+            number, new_name = split_path(args)
+            if not is_number(number):
+                for contact_id, contact in self._contacts.map.items():
+                    if contact["name"] == number:
+                        is_group = contact.is_group
+                        break
+                else:  # contact with name `number` not found
+                    raise ValueError
+            elif self._contacts.get_by_id(number) is None:
+                self.set_status_line(f":renameContact Error: no contact with number {number} found")
+                return
+            else:
+                is_group = False
+                contact_id = number
+        except ValueError:
+            if self._chats_data.current_contact is None:
+                self.set_status_line(":renameContact Error: no contact currently selected")
+                return
+            contact_id = self._chats_data.current_contact.id
+            is_group = self._chats_data.current_contact.is_group
+            new_name = args
+        self._daemon.rename_contact(contact_id, new_name, is_group, lambda *i: self.reload())
 
 class BracketedPasteMode:
     """Context manager for enabling/disabling bracketed paste mode."""
@@ -3758,7 +3724,102 @@ class BracketedPasteMode:
         sys.stdout.write('\x1b[?2004h')
     def __exit__(self, exc_type, exc_value, traceback):
         sys.stdout.write('\x1b[?2004l')
+    def delete_message(self, msg, index=None):
+        self._chats_data.chats.delete_message(msg, index)
+        self._chats_data.delivery_status.delete(msg.timestamp)
 
+    def resend_message(self, msg, index=None):
+        if msg.delivery_status != 'send_failed':
+            # Only allow re-sending previously failed-to-send messages
+            raise TypeError
+        self.delete_message(msg, index)
+        self.set_status_line('')    # remove 'send-failed' status line
+        envelope = msg.envelope
+        contact_id = get_envelope_contact_id(envelope)
+        message = get_envelope_msg(envelope)
+        attachments = get_envelope_attachments(envelope)
+        self._daemon.send_message(contact_id, message, attachments)
+
+
+    def show_new_msg_notifications(self, msg):
+        sender_name = self.get_contact_name(msg.sender_num)
+
+        def get_msg_notif():
+            try:
+                *_, reaction_envelope = msg.reactions.values()  # the latest reaction envelope
+            except (AttributeError, ValueError):
+                pass
+            else:
+                reaction = get_envelope_reaction(reaction_envelope)
+                if reaction.get('isRemove'):
+                    return None
+                reaction_emoji = reaction['emoji']
+                return (reaction_emoji,
+                        ''.join((
+                            'New reaction from ', repr(sender_name), ': ',
+                            reaction_emoji,
+                        )))
+
+            msg_text = msg.text
+            if msg_text:
+                return (msg_text,
+                        ''.join((
+                            # NOTE: this could be a list (urwid.Text markup type), except for the textwrap.shorten below
+                            'New message from ', repr(sender_name), ': ', repr(msg_text)
+                        ))
+                        )
+
+            if msg.attachments:
+                return('[attachments]',
+                        ''.join((
+                            'New attachments message from: ', repr(sender_name)
+                            ))
+                        )
+
+            incoming_call = get_nested(msg.envelope, 'callMessage', 'offerMessage')
+            if incoming_call:
+                txt = '📞 Incoming call'
+                return(txt,
+                        ' '.join((
+                            txt, 'from', repr(sender_name)
+                            ))
+                        )
+
+            return None
+
+        try:
+            msg_text, notif = get_msg_notif()
+        except TypeError:
+            return
+        notif = textwrap.shorten(notif, 80)
+        self.send_desktop_notification(sender_name, msg_text)
+        if (self._chats_data.current_contact is None
+                or msg.contact_id != self._chats_data.current_contact.id):
+            self.set_status_line(notif)
+
+    def get_contact_name(self, contact_num):
+        contact = self._contacts.get_by_id(contact_num)
+        return contact.name_or_id if contact else contact_num
+
+    def check_cmd_for_current_contact(self, fn):
+        return (
+                self._chats_data.current_contact is not None
+                or fn not in (
+                    self.external_edit,
+                    self.read,
+                    self.attach,
+                    self.attach_clip,
+                    self.open_last_attach,
+                    self.open_last_url,
+                    )
+                )
+
+    def show_help(self):
+        self._urwid_ui.main_w.show_help()
+
+    @staticmethod
+    def quit():
+        raise urwid.ExitMainLoop()
 
 
 def link_device(device_name):
