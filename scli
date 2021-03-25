@@ -2742,9 +2742,6 @@ class MessageWidget(urwid.WidgetWrap):
         self._reactions_w = None
 
 
-# #############################################################################
-# state
-# #############################################################################
 class MessageWidgetsCache:
     """Create and cache widgets for LazyEvalMessageListWalker"""
 
@@ -2789,49 +2786,7 @@ class MessageWidgetsCache:
         key_adj = hash((msg.sender_num, timestamp_adj))
         self._cache[key_adj] = self._cache.pop(key)
 
-class State:
-    signals = [
-        'current_contact_changed',
-        'status_changed',
-        'notification_changed',
-        'error_changed',
-        'dialog_requested',
-        'dialog_finished',
-        'reload_request',
-    ]
 
-    def __init__(self, cfg):
-        self.signal = Signal(cfg.username)
-        self.cfg = cfg
-        self.chats = collections.defaultdict(lambda: urwid.SimpleFocusListWalker([]))
-        self.error = ''
-        self.status = ''
-        self.notification = ''
-        self.status_data = None
-        self.current_contact = None
-        self.current_chat = None
-        self.loop = None
-        self.notify_counts = {}
-        self.MENTION_BRACKET_CHAR, self.FORMAT_MAP, self.FORMATTING_RE = self._get_formatting_consts()
-
-        self.commands = Commands(self)
-        self.typing_indicators = TypingIndicators(self)
-        self.delivery_status = DeliveryStatus(self.cfg.one_sided)
-
-        self.load_history()
-        atexit.register(self.save_history)
-
-        urwid.connect_signal(self.signal, 'receive_message', self.on_receive_message)
-        urwid.connect_signal(self.signal, 'receive_receipt', self.on_receive_receipt)
-        urwid.connect_signal(self.signal, 'send_message', self.on_send_message)
-        urwid.connect_signal(self.signal, 'sending_done', self.on_sending_done)
-        urwid.connect_signal(self.signal, 'daemon_started', self.on_daemon_started)
-        urwid.connect_signal(self.signal, 'groups_updated', self._update_contacts)
-        urwid.connect_signal(self.signal, 'daemon_log', self.on_daemon_log)
-        urwid.connect_signal(self.signal, 'receive_reaction', self.on_receive_reaction)
-        urwid.connect_signal(self.signal, 'remote_delete', self.on_remote_delete)
-        urwid.connect_signal(self.signal, 'contacts_sync', self.reload)
-        urwid.connect_signal(self.signal, 'call_message', self.on_call_message)
 class LazyEvalMessageListWalker(LazyEvalListWalker):
     def __init__(self, contents, init_focus_pos=-1):
         self.msg_ws_cache = MessageWidgetsCache()
@@ -3307,9 +3262,6 @@ class MainWindow(urwid.WidgetWrap):
         else:
             return key
         return None
-
-
-urwid.register_signal(State, State.signals)
 
 
 class UrwidUI:
