@@ -51,9 +51,6 @@ SCLI_HISTORY_FILE = os.path.join(SCLI_DATA_FOLDER, 'history')
 SCLI_CFG_FILE = os.path.join(CFG_FOLDER, 'sclirc')
 SCLI_LOG_FILE = os.path.join(SCLI_DATA_FOLDER, 'log')
 
-FORMAT_MAP = {'_': 'italic', '*': 'bold', '~': 'strikethrough'}
-
-
 
 
 # #############################################################################
@@ -2672,7 +2669,6 @@ class ContactsWindow(urwid.Frame):
 
 
 # #############################################################################
-# ChatWindow
 # input line
 # #############################################################################
 
@@ -3058,6 +3054,7 @@ class InputLine(BracketedPasteEdit):
 
 # #############################################################################
 # MainWindow
+# conversation widgets
 # #############################################################################
 
 
@@ -3086,49 +3083,207 @@ class MainWindow(urwid.Frame):
         urwid.connect_signal(self.state, 'error_changed', self.on_error_changed)
         urwid.connect_signal(self.state.cfg, 'changed', self.on_cfg_changed)
         urwid.connect_signal(self._wleft._wcontacts, 'notify_count_changed', self.on_notify_count_changed)
+class MessageWidget(urwid.WidgetWrap):
 
     def reload(self):
         self._wleft._wcontacts.reload()
+    MAX_ATTACHS_SHOW = 4
 
     def set_status(self, txt):
         self._wstatus.set_text(txt)
+    TYPING_INDICATOR_MARKUP = '...'
+    REMOTE_DELETE_MARKUP = ('italic', '[deleted]')
 
     def toggle_contacts(self):
         if len(self._wcontext.contents) == 2:
             if self.current_focus == 'contacts':
                 self.focus_next()
+    FORMAT_MAP = {'_': 'italic', '*': 'bold', '~': 'strikethrough'}
+    MENTION_BRACKET_CHAR = chr(31)  # arbitrary non-printable char
+    FORMAT_MENTION = {MENTION_BRACKET_CHAR: 'italic'}
+    FORMATTING_RE = None
 
             self._wcontext.contents.clear()
             self._wcontext.contents.append((self._wrapped_chat, self._wcontext.options(width_amount=3)))
+    @classmethod
+    def set_formatting_consants(cls, use_formatting):
+        if use_formatting:
+            cls.FORMAT_MAP.update(cls.FORMAT_MENTION)
         else:
             self._wcontext.contents.insert(0, (self._wrapped_left, self._wcontext.options(width_amount=1)))
+            cls.FORMAT_MAP = cls.FORMAT_MENTION
+        cls.FORMATTING_RE = re.compile(
+            # Match text like "_italicised_", where "_" is a char in FORMAT_MAP
+            rf"""
+                (
+                    [{''.join(cls.FORMAT_MAP.keys())}]
+                )
+                #.+?        # bad with doubled format chars, e.g. ~~this~~
+                #[^\1]+     # can't use backreferences in character class
+                (?:
+                    (?!\1). # consume a char and check it's not a format char
+                )+
+                \1
+            """,
+            re.VERBOSE)
 
     def body_pos(self):
         if len(self._wcontext.contents) == 1:
             return 0
         return 1
+    def __init__(self, msg):
+        self.msg = msg
+        self._align = (
+                'left'
+                if (not is_envelope_outgoing(self.msg.envelope)
+                    or cfg.one_sided)
+                else 'right'
+                )
+        msg_markup = self._get_message_markup()
+        self._text_w = FocusableText(msg_markup or '', align=self._align)
+            # urwid.Text throws an error if given an empty list for markup. Not sure `msg_markup` can ever end up being empty though.
+        msg_pad_w = urwid.Padding(self._text_w, self._align, width=cfg.wrap_at)
+        status_markup = self._get_status_markup()
+        self._status_w = urwid.Text(status_markup, self._align)
+        status_w_valign = 'top' if self._align == 'left' else 'bottom'
+        status_filler_w = urwid.Filler(self._status_w, status_w_valign)
+        cols = [(DeliveryStatus.MARKUP_WIDTH, status_filler_w), msg_pad_w]
+        box_columns = [0]
+        if self._align == 'right':
+            cols.reverse()
+            box_columns = [1]
+        columns_w = urwid.Columns(cols, dividechars=1, box_columns=box_columns)
+        color = None if not cfg.color else cfg.color.for_message(msg)
+        display_w = urwid.AttrMap(columns_w, color, focus_map=REVERSED_FOCUS_MAP)
+        super().__init__(display_w)
+        self._reactions_w = None
+        self.update_reactions_w()
+
+    def _get_message_markup(self):
+        if 'typingMessage' in self.msg.envelope:
+            markups = (
+                self._get_sender_markup(),
+                [self.TYPING_INDICATOR_MARKUP],
+                )
+        elif self.msg.envelope.get('callMessage') is not None:
+            markups = (self._get_call_message_markup(), )
+        elif getattr(self.msg, 'remote_delete', None):
+            markups = ([self.REMOTE_DELETE_MARKUP], )
+        else:
+            markups = (
+                self._get_sender_markup(),
+                self._get_quote_markup(),
+                self._get_text_markup(),
+                self._get_attachments_markup(),
+                )
 
     def focus_input(self, cmd_mode=False, search_mode=False):
         if self.current_focus == 'contacts' and self.state.cfg.contacts_autohide:
             self.toggle_contacts()
+        ret = []
+        for markup in markups:
+            if markup:
+                if ret:
+                    ret.append('\n')
+                ret.extend(markup)
+        return ret
 
         self.focus_position = 'body'
         self._wcontext.set_focus(self.body_pos())
         self._wchat.focus_input()
         self.current_focus = 'input'
+    def _get_text_markup(self, text=None):
+        if text is None:
+            text = self.msg.text
+        if not text:
+            return None
+        if not (cfg.use_formatting or self.msg.mentions):
+            return [text]
+        if self.msg.mentions:
+            text = self.msg.text_w_mentions(bracket_char=self.MENTION_BRACKET_CHAR)
+        ret = []
+        pos = 0
+        for match in self.FORMATTING_RE.finditer(text):
+            if pos != match.start():
+                # Do not add empty strings. Urwid breaks on markup like:
+                # [.., ('bold', 'txt1'), '', ('bold', 'txt2'), ...]
+                ret.append(text[pos : match.start()])
+            ret.append((self.FORMAT_MAP[match[1]], match.group()[1:-1]))
+            pos = match.end()
+        if pos != len(text):
+            ret.append(text[pos:])
+        return ret
 
         if cmd_mode:
             self._wchat.set_edit_text(':', True)
         elif search_mode:
             self._wchat.set_edit_text('/', True)
+    def _get_attachments_markup(self, attachments=None):
+        if attachments is None:
+            attachments = self.msg.attachments
+        if not attachments:
+            return None
+        attach_list = [get_attachment_name(attach) for attach in attachments]
+        if len(attachments) > self.MAX_ATTACHS_SHOW:
+            attach_list = attach_list[: self.MAX_ATTACHS_SHOW]
+            attach_list.append(f'... ({len(attachments)-self.MAX_ATTACHS_SHOW} more)')
+        attach_txt = ', '.join(attach_list)
+        return ['[attached: ', ('italic', attach_txt), ']']
+
+    def _get_sender_markup(self):
+        envelope = self.msg.envelope
+        is_group = is_envelope_group_message(envelope)
+        if not (is_group or cfg.show_names):
+            return None
+        if is_envelope_outgoing(envelope):
+            return [('bolditalic', 'You')] if cfg.show_names else None
+        sender_name = action_request.get_contact_name(self.msg.sender_num)
+        return [('bolditalic', sender_name)]
 
     def focus_contacts(self):
         if len(self._wcontext.contents) == 1:
             self.toggle_contacts()
+    def _get_quote_markup(self):
+        quote = get_envelope_quote(self.msg.envelope)
+        if not quote:
+            return None
+        try:
+            quote_author_num = quote['author']
+            quote_text = quote['text']
+            quote_attachments = quote['attachments']
+        except KeyError:
+            logging.error("Failed to extract a quote from %s", self.msg.envelope)
+            return None
+        author_name = action_request.get_contact_name(quote_author_num)
+        ret = ['| ', ('bolditalic', author_name)]
+        if quote_text:
+            ret.extend(['\n', '| '])
+            ret.extend(self._get_text_markup(quote_text))
+        if quote_attachments:
+            ret.extend(['\n', '| '])
+            ret.extend(self._get_attachments_markup(quote_attachments))
+        if self._align == 'right':
+            del ret[0]
+            for ind, elem in enumerate(ret):
+                if elem == '| ' and ret[ind-1] == '\n':
+                    del ret[ind]
+                    ret.insert(ind-1, ' |')
+            ret.append(' |')
+        return ret
 
         self.focus_position = 'body'
         self._wcontext.set_focus(0)
         self.current_focus = 'contacts'
+    def _get_call_message_markup(self):
+        call_message = self.msg.envelope['callMessage']
+        if 'offerMessage' in call_message:
+            return ['📞 ', ('italic', 'Incoming call')]
+        elif 'answerMessage' in call_message:
+            return [('italic', 'Calling'), ' 📞']
+        elif get_nested(call_message, 'hangupMessage', 'type') == 'NORMAL':
+            # For accepted calls, `type: "ACCEPTED"`
+            return ['📞 ', ('italic', 'Hung up')]
+        return None
 
     def focus_chat(self):
         self.focus_position = 'body'
@@ -3179,12 +3334,20 @@ class MainWindow(urwid.Frame):
     def on_cfg_changed(self, key, val):
         if key == 'contacts_autohide':
             self.toggle_contacts()
+    def _get_status_markup(self):
+        return DeliveryStatus.MARKUP_MAP[self.msg.delivery_status]
 
     def on_notify_count_changed(self, count):
         self._wnotify_count.set_text(btxt(str(count)))
+    def update_status(self):
+        status_markup_new = self._get_status_markup()
+        self._status_w.set_text(status_markup_new)
 
     def keypress(self, size, key):
         key = super().keypress(size, key)
+    def reload_markup(self):
+        msg_markup = self._get_message_markup()
+        self._text_w.set_text(msg_markup or '')
 
         if key == 'tab':
             self.focus_next()
@@ -3196,8 +3359,47 @@ class MainWindow(urwid.Frame):
             self.focus_input(search_mode=True)
         elif key == '?':
             self.show_help_pop_up()
+    def update_reactions_w(self):
+        try:
+            reactions = self.msg.reactions
+        except AttributeError:
+            return
+        emojis_markup = []
+        for envelope in reactions.values():
+            reaction = get_envelope_reaction(envelope)
+            if not reaction.get('isRemove'):
+                emojis_markup.append(reaction['emoji'])
+        if not emojis_markup:
+            self._remove_reactions_w()
+            return
+        try:
+            self._reactions_w.set_text(emojis_markup)
+        except AttributeError:
+            self._add_reactions_w(emojis_markup)
+
+    def _add_reactions_w(self, emojis_markup):
+        self._reactions_w = urwid.Text(emojis_markup, align=self._align)
+        react_pad_w = urwid.Padding(self._reactions_w, self._align, width=cfg.wrap_at)
+        react_sym_markup = '╰╴' if self._align == 'left' else '╶╯'
+        react_sym_w = urwid.Text(
+                react_sym_markup,
+                align='right' if self._align == 'left' else 'left',
+                )
+        cols = [
+                (DeliveryStatus.MARKUP_WIDTH + len(react_sym_markup), react_sym_w),
+                react_pad_w,
+                ]
+        if self._align == 'right':
+            cols.reverse()
+        react_cols_w = urwid.Columns(cols)
+        self._w.original_widget = urwid.Pile([self._w.original_widget, react_cols_w])
 
         return key
+    def _remove_reactions_w(self):
+        if self._reactions_w is None:
+            return
+        self._w.original_widget = self._w.original_widget.contents[0][0]
+        self._reactions_w = None
 
 
 # #############################################################################
@@ -3453,185 +3655,6 @@ class State:
         self.commands.send_notification(sender_name, notif)
         if sender != self.current_contact:
             self.set_notification(''.join([notif, ': ', sender_name]), sender)
-
-    def print_reaction(self, msg_w, envelope):
-        # On official signal clients, when a contact sends a new reaction to the same message, it replaces the old reaction. Here, the new reaction is shown alongside with the old ones.
-        text_w = msg_w.base_widget
-        markup = get_text_markup(text_w)
-        REACTION_MARKUP = '└ '
-        msg_w.reactions = getattr(msg_w, 'reactions', [])
-        if not msg_w.reactions:
-            markup.extend(('\n', REACTION_MARKUP))
-        reaction = get_envelope_reaction(envelope)
-        markup.append(reaction['emoji'])
-        text_w.set_text(markup)
-        msg_w.reactions.append(envelope)
-
-    def print_call_message(self, envelope):
-        call_message = envelope['callMessage']
-        if 'offerMessage' in call_message:
-            markup = [btxt('>> '), '📞 ', itxt('Incoming call')]
-        elif get_nested(call_message, 'hangupMessage', 'type') == 'NORMAL':
-            # For accepted calls, `type: "ACCEPTED"`
-            markup = [btxt('>> '), '📞 ', itxt('Hung up')]
-        elif 'answerMessage' in call_message:
-            markup = [itxt('Calling'), ' 📞', btxt(' <<')]
-        else:
-            return
-        align = 'right' if 'answerMessage' in call_message and not self.cfg.one_sided else 'left'
-        w = FocusableText(markup, align=align)
-        w.envelope = envelope
-        bisect.insort(self.get_chat_for_envelope(envelope), w)
-        return w
-
-    def _get_formatting_consts(self):
-        format_map = FORMAT_MAP if self.cfg.use_formatting else {}
-        MENTION_BRACKET_CHAR = chr(31)  # arbitrary non-printable char
-        format_map[MENTION_BRACKET_CHAR] = 'bolditalic'
-        FORMATTING_RE = re.compile(
-            # Match text like "_italicised_", where "_" is a char in FORMAT_MAP
-            rf"""
-                (
-                    [{''.join(format_map.keys())}]
-                )
-                #.+?        # bad with doubled format chars, e.g. ~~this~~
-                #[^\1]+     # can't use backreferences in character class
-                (?:
-                    (?!\1). # consume a char and check it's not a format char
-                )+
-                \1
-            """,
-            re.VERBOSE)
-        return MENTION_BRACKET_CHAR, format_map, FORMATTING_RE
-
-    def insert_mentions(self, message, mentions, bracket_char=''):
-        # See also: What is the Mention's "length" parameter?
-        # https://github.com/AsamK/signal-cli/discussions/409
-        ret = ''
-        pos = 0
-        for mention in mentions:
-            contact_num = mention['name']
-            contact_name = get_contact_name(self.signal.get_contact(contact_num))
-            start = mention['start']
-            ret = ''.join((
-                ret,
-                message[pos:start],
-                bracket_char,
-                "@", contact_name,
-                bracket_char,
-                ))
-            pos = start + 1
-        ret += message[pos:]
-        return ret
-
-    def format_msg(self, message, mentions=None):
-        if mentions:
-            message = self.insert_mentions(message, mentions, self.MENTION_BRACKET_CHAR)
-
-        message = '\n'.join(textwrap.fill(line, width=self.cfg.wrap_at, expand_tabs=False, replace_whitespace=False) for line in message.splitlines())
-
-        if not (self.cfg.use_formatting or mentions):
-            return [message]
-
-        ret = []
-        pos = 0
-        for match in self.FORMATTING_RE.finditer(message):
-            if pos != match.start():
-                # Do not add empty strings. Urwid breaks on markup like:
-                # [.., ('bold', 'txt1'), '', ('bold', 'txt2'), ...]
-                ret.append(message[pos:match.start()])
-            ret.append((self.FORMAT_MAP[match[1]], match.group()[1:-1]))
-            pos = match.end()
-        if pos != len(message):
-            ret.append(message[pos:])
-        return ret or ['']
-
-    def print_received_message(self, envelope):
-        source = envelope['source']
-        is_group = is_envelope_group_message(envelope)
-        message = get_envelope_msg(envelope)
-        attachments = get_envelope_attachments(envelope)
-        quote = get_envelope_quote(envelope)
-        mentions = get_envelope_mentions(envelope)
-
-        txt = [btxt('>> ')]
-        if is_group or self.cfg.show_names:
-            contact = self.signal.get_contact(source)
-            if contact:
-                txt.append(ibtxt(get_contact_name(contact)))
-            else:
-                txt.append(btxt(source))
-            if quote:
-                txt.append('\n')
-            else:
-                txt.append(btxt(' | '))
-
-        if quote:
-            try:
-                quote_author_num = quote['author']
-                quote_text = quote['text']
-            except KeyError:
-                pass
-            else:
-                author = self.signal.get_contact(quote_author_num)
-                author_name = get_contact_name(author) if author else quote_author_num
-                txt.extend(['| ', ('bolditalic', author_name), '\n', '| ', quote_text, '\n'])
-
-        if attachments != []:
-            attachments_txt = ', '.join(
-                [get_attachment_name(attachment) + ' (' + str(i) + ')' for i, attachment in enumerate(attachments)]
-            )
-            txt.append(ntxt('[attached: ' + attachments_txt + '] '))
-
-        txt.extend(self.format_msg(message, mentions))
-        color = None if not self.cfg.color else self._get_contact_color(envelope)
-        wtxt = FocusableText(txt, attr_map=color)
-        wtxt.envelope = envelope
-        bisect.insort(self.get_chat_for_envelope(envelope), wtxt)
-
-        return wtxt
-
-    def print_sent_message(self, envelope):
-        message_markup = self.format_msg(get_envelope_msg(envelope))
-        attachments = get_envelope_attachments(envelope)
-
-        if not attachments:
-            txt = message_markup
-        else:
-            anames = ', '.join([get_attachment_name(attachment) for attachment in attachments])
-            txt = [ntxt('[attached: '),
-                    itxt(anames),
-                    ntxt('] '),
-                    *message_markup]
-
-        status_markup = self.delivery_status.get_markup_for_envelope(envelope)
-
-        if self.cfg.one_sided:
-            align = 'left'
-            markup = [status_markup,
-                    ' ',
-                    btxt('You | ') if self.cfg.show_names else '',
-                    *txt]
-        else:
-            align = 'right'
-            markup = [*txt,
-                    btxt(' | You') if self.cfg.show_names else '',
-                    ' ',
-                    status_markup]
-
-        color = None if not self.cfg.color else self._get_contact_color(envelope)
-        wtxt = FocusableText(markup, attr_map=color, align=align)
-        wtxt.envelope = envelope
-        bisect.insort(self.get_chat_for_envelope(envelope), wtxt)
-
-        return wtxt
-
-    def _get_contact_color(self, envelope):
-        color_name = self.cfg.color.for_envelope(envelope)
-        if color_name:
-            return color_name
-        sender = self.signal.get_contact(envelope['source'])
-        return sender['color']
 
 
 urwid.register_signal(State, State.signals)
