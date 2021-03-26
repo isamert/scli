@@ -3731,6 +3731,21 @@ class MainWindow(urwid.WidgetWrap):
 urwid.register_signal(State, State.signals)
 
 
+class UrwidUI:
+    def __init__(self, contacts, chats_data):
+        self.main_w = MainWindow(contacts, chats_data)
+            # FYI: to later get the topmost widget, can also use `urwid_main_loop.widget`
+        self.loop = urwid.MainLoop(self.main_w, palette=PALETTE)
+        if cfg.color and cfg.color.high_color_mode:
+            self.loop.screen.set_terminal_properties(256)
+        MessageWidget.set_formatting_consants(cfg.use_formatting)
+
+        # Shortcuts for deeply nested attributes
+        self.contacts = self.main_w.contacts_w.contacts_list_w
+        self.chat = self.main_w.chat_w.chat_view
+        self.msg_ws_cache = self.chat.body.msg_ws_cache
+
+
 # #############################################################################
 # main
 # #############################################################################
@@ -4122,9 +4137,6 @@ def main():
     state = State(ObservableConfig(args))
     window = MainWindow(state)
 
-    loop = urwid.MainLoop(window, palette=PALETTE)
-    if args.color and args.color.high_color_mode:
-        loop.screen.set_terminal_properties(256)
     state.loop = state.signal.daemon._urwid_loop = loop
 
     if not args.no_daemon:
