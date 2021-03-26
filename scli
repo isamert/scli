@@ -3703,6 +3703,48 @@ class HelpDialog(ListBoxPlus):
         super().__init__(items)
 
 
+class PopUpPlaceholder(urwid.WidgetPlaceholder):
+    def __init__(self, w):
+        super().__init__(w)
+        self._orig_w = w
+            # Urwid's terminology here might be confusing: "WidgetPlaceholder.original_widget" means "currently displayed widget", not the one it is originally initialized with.
+
+    def _show_pop_up(self, widget, title=''):
+        pop_up_box = PopUpBox(widget, title)
+        urwid.connect_signal(pop_up_box, 'closed', self._remove_pop_up)
+        pop_up_overlay = urwid.Overlay(
+            pop_up_box,
+            self._orig_w,
+            align='center',
+            valign='middle',
+            width=('relative', 85),
+            height=('relative', 65),
+        )
+        self.original_widget = pop_up_overlay
+
+    def _remove_pop_up(self, _sender=None):
+        self.original_widget = self._orig_w
+
+    @property
+    def _is_popup_shown(self):
+        return self.original_widget is not self._orig_w
+
+    def show_help(self):
+        self._show_pop_up(HelpDialog(), title='Help')
+
+    def show_message_info(self, message_widget):
+        info = MessageInfo(message_widget.msg)
+        fill = urwid.Filler(info, height=('relative', 100), top=1, bottom=1)
+        self._show_pop_up(fill, title='Message info')
+
+    def keypress(self, size, key):
+        key = super().keypress(size, key)
+        if not self._is_popup_shown:
+            # When popup is shown, do not pass keys to other widgets until it's closed
+            return key
+        return None
+
+
 urwid.register_signal(State, State.signals)
 
 
