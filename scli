@@ -364,13 +364,18 @@ def get_envelope_data_val(envelope, *keys, default=None, return_tuple=False):
 
 
 def is_envelope_outgoing(envelope):
-    return 'target' in envelope or get_nested(envelope, 'syncMessage', 'sentMessage') is not None
+    return (
+            'target' in envelope
+            or get_nested(envelope, 'syncMessage', 'sentMessage') is not None
+            or get_nested(envelope, 'callMessage', 'answerMessage') is not None
+            )
 
 
 def is_envelope_group_message(envelope):
     return (
             get_envelope_data_val(envelope, 'groupInfo') is not None
             or ('target' in envelope and not is_number(envelope['target']))
+            or get_nested(envelope, 'typingMessage', 'groupId') is not None
     )
 
 
@@ -396,6 +401,7 @@ def get_envelope_contact_id(envelope):
         envelope.get('target')
         or get_envelope_data_val(envelope, 'groupInfo', 'groupId')
         or get_nested(envelope, 'syncMessage', 'sentMessage', 'destination')
+        or get_nested(envelope, 'typingMessage', 'groupId')
         or envelope['source']
     )
 
