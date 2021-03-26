@@ -353,20 +353,6 @@ def b64_to_hex_str(group_id):
     return base64.b64decode(group_id.encode()).hex()
 
 
-def listbox_focus_prev(listbox):
-    try:
-        listbox.focus_position = listbox.focus_position - 1
-    except IndexError:
-        pass
-
-
-def listbox_focus_next(listbox):
-    try:
-        listbox.focus_position = listbox.focus_position + 1
-    except IndexError:
-        pass
-
-
 class MessageInfo(urwid.ListBox):
     def __init__(self, state, envelope):
         self.state = state
@@ -2540,6 +2526,113 @@ class LazyEvalListWalker(urwid.ListWalker):
         if reverse:
             ret = reversed(ret)
         return ret
+
+
+class ListBoxPlus(urwid.ListBox):
+
+    """ListBox plus a few useful features.
+
+    - Vim bindings for common motions: j, k, g, G, ctrl+n/p.
+    - Filter visible contents to the items passing test by a given function.
+    - Updates to new `contents` are displayed automatically. Fixes an urwid bug (see listbox_set_body function).
+    """
+
+    _KEY_EQUIVS = {
+            'k':        'up',
+            'j':        'down',
+            'g':        'home',
+            'G':        'end',
+            'ctrl p':   'up',
+            'ctrl n':   'down',
+            }
+
+    def __init__(self, body=None):
+        if body is None:
+            body = []
+        super().__init__(body)
+        self._contents_pre_filter = self.contents
+
+    def _get_contents(self):
+        try:
+            return self.body.contents
+        except AttributeError:
+            return self.body
+
+    def _set_contents(self, contents_new):
+        # This method does not change the self._contents_pre_filter, unlike self._set_contents_pre_filter()
+        try:
+            self.body.contents = contents_new
+        except AttributeError:
+            listbox_set_body(self, contents_new)
+
+    def _set_contents_pre_filter(self, contents_new):
+        if type(contents_new) is list:      # pylint: disable=unidiomatic-typecheck
+            # If contents_new is a `list` (not one of the `ListWalker`s), make the new body the same type as the original (e.g. SimpleListWalker)
+            # Shouldn't use `if isinstance(contents_new, list)` test: a ListWalker returns `True` for it too.
+            contents_new = type(self.contents)(contents_new)
+        self._set_contents(contents_new)
+        self._contents_pre_filter = self.contents
+
+    contents = property(_get_contents, _set_contents_pre_filter)
+        # Would be nice to override the base class's `body` property, so that this class can be easily replaced by any other `ListWalker`s.
+            # However, overriding a property which is used in superclass's __init__ seems problematic. Need a way to delay the assignment of property. Maybe something like this is necessary:
+            # https://code.activestate.com/recipes/408713-late-binding-properties-allowing-subclasses-to-ove/
+
+    def try_set_focus(self, index):
+        if index < 0:
+            index = len(self.contents) + index
+        try:
+            self.focus_position = index
+        except IndexError:
+            pass
+
+    def filter_contents(self, test_function, scope=None):
+        """Remove widgets not passing `test_function`.
+
+        Retain only the items in `self.contents` that return `True` when passed as arguments to `test_function`. Pre-filtered `contents` is stored before filtering and can be restored by running `filter_contents` again with `test_function=None`.
+        The `scope` argument specifies the itarable to apply the filter to. By default, the scope is all the pre-filtered items. Passing `scope=self.contents' can be useful to further filter an already filtered contents.
+        """
+
+        # Note that if `contents` is modified directly elsewhere in the code while a filter is on, this modification applies only to the filtered contents. So, for instance the code for adding a new MessageWidget to ChatView shouldn't do `self.contents.append()`, but rather `current_chat.append()` (after doing `_set_contents_pre_filter(current_chat)`). That way the new msg will show up after the filter is removed.
+        # Alternatively, can do `self._contents_pre_filter.append()`. That should work fine either with filter on or off.
+
+        if scope is None:
+            scope = self._contents_pre_filter
+        if test_function is None:
+            self._set_contents(scope)
+        else:
+            contents_type = type(self.contents)
+            matching_widgets = contents_type([w for w in scope if test_function(w)])
+            self._set_contents(matching_widgets)
+
+    @property
+    def is_filter_on(self):
+        return self.contents is not self._contents_pre_filter
+
+    def move_item(self, w, pos, pos_in_prefilter=None):
+        def try_move(seq, w, pos):
+            try:
+                ind = seq.index(w)
+            except ValueError:
+                # Widget might be absent from `body` e.g. while doing a search on contacts, or if the contact is 'new' (i.e. not in Contacts yet)
+                return
+            if ind == pos:
+                return
+            seq.insert(pos, seq.pop(ind))
+
+        try_move(self.contents, w, pos)
+
+        if self.is_filter_on:
+            if pos_in_prefilter is None:
+                pos_in_prefilter = pos
+            try_move(self._contents_pre_filter, w, pos_in_prefilter)
+
+    def keypress(self, size, key):
+        key = super().keypress(size, key)
+        key_equiv = self._KEY_EQUIVS.get(key)
+        if key_equiv:
+            return super().keypress(size, key_equiv)
+        return key
 
 
 # #############################################################################
