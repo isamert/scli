@@ -51,34 +51,6 @@ SCLI_HISTORY_FILE = os.path.join(SCLI_DATA_FOLDER, 'history')
 SCLI_CFG_FILE = os.path.join(CFG_FOLDER, 'sclirc')
 SCLI_LOG_FILE = os.path.join(SCLI_DATA_FOLDER, 'log')
 
-# #############################################################################
-# coloring stuff
-# #############################################################################
-
-# TODO: make customizable
-
-PALETTE = [
-    ('normal', '', ''),
-    ('box_normal', '', ''),
-    ('box_focused', 'dark blue', ''),
-    ('bold', 'bold', ''),
-    ('italic', 'italics', ''),
-    ('strikethrough', 'strikethrough', ''),
-    ('bolditalic', 'italics,bold', ''),
-    ('reversed', 'standout', ''),
-    ('reversed_italic', 'standout,italics', ''),
-    ('reversed_strikethrough', 'standout,strikethrough', ''),
-]
-
-LIST_FOCUS_MAP = {
-    None: 'reversed',
-    'normal': 'reversed',
-    'bold': 'reversed',
-    'italic': 'reversed_italic',
-    'bolditalic': 'reversed',
-    'strikethrough': 'reversed_strikethrough',
-}
-
 FORMAT_MAP = {'_': 'italic', '*': 'bold', '~': 'strikethrough'}
 
 
@@ -2351,6 +2323,146 @@ class ChatsData:
 
 
 # #############################################################################
+# urwid palette
+# #############################################################################
+
+
+PALETTE = [
+    ('bold', 'bold', ''),
+    ('italic', 'italics', ''),
+    ('bolditalic', 'bold,italics', ''),
+    ('strikethrough', 'strikethrough', ''),
+]
+
+REVERSED_FOCUS_MAP = {
+    None: 'reversed',
+}
+
+
+def _fill_palette():
+    global PALETTE, REVERSED_FOCUS_MAP   # pylint: disable=global-statement
+    palette_reversed = []
+    for item in PALETTE:
+        name, fg = item[0:2]
+        name_rev = '_'.join(('reversed', name))
+        fg_rev = ','.join(('standout', fg))
+        palette_reversed.append((name_rev, fg_rev, ''))
+        REVERSED_FOCUS_MAP[name] = name_rev
+    PALETTE.extend(palette_reversed)
+    PALETTE.append(('reversed', 'standout', ''))
+    PALETTE.append(('line_focused', 'dark blue', ''))
+
+
+_fill_palette()
+
+
+class Color:
+
+    SIGNAL_COLORS_PALETTE = [
+        ('pink',        'dark magenta', '', None,   '#f08',   None),
+        ('red',         'dark red',     '', None,   '#f00',   None),
+        ('orange',      'brown',        '', None,   '#f60',   None),
+        ('purple',      'dark magenta', '', None,   '#a0f',   None),
+        ('indigo',      'dark blue',    '', None,   '#60f',   None),
+        ('blue_grey',   'brown',        '', None,   '#680',   None),
+        ('ultramarine', 'dark blue',    '', None,   '#06f',   None),
+        ('blue',        'dark cyan',    '', None,   '#06a',   None),
+        ('teal',        'dark cyan',    '', None,   '#086',   None),
+        ('green',       'dark green',   '', None,   '#0a0',   None),
+        ('light_green', 'dark green',   '', None,   '#0d0',   None),
+        ('brown',       'brown',        '', None,   '#880',   None),
+        ('grey',        'light gray',   '', None,   'g52',    None),
+    ]
+
+        # The colors are defined in ..?
+            # Signal-Android/app/src/main/java/org/thoughtcrime/securesms/contacts/avatars/ContactColorsLegacy.java
+            # Signal-Android/app/src/main/res/values/material_colors.xml
+        # Using `dark ...` colors, because many terminals show `light ...` as `bold`:
+            # "Some terminals also will display bright colors in a bold font even if you don’t specify bold."
+            # https://urwid.readthedocs.io/en/latest/manual/displayattributes.html#bold-underline-standout
+
+    HIGH_COLOR_RE = re.compile(r"""
+            \#[0-9A-Fa-f]{3}
+            |
+            g\#[0-9A-Fa-f]{2}
+            |
+            g[0-9]{1,3}
+            |
+            h[0-9]{1,3}
+            """, re.VERBOSE)
+        # https://urwid.readthedocs.io/en/latest/reference/attrspec.html#urwid.AttrSpec
+
+    def __init__(self, args_color):
+        self._args_color = args_color
+        self.high_color_mode = False
+        self._colors = self._set_color_palette()
+
+    def _exit(self):
+        sys.exit("Error: could not parse the `color` argument: " + repr(self._args_color))
+
+    def _is_high_color(self, color_str):
+        # Test if `color_str` is a "high-color" (256 colors) value
+        return self.HIGH_COLOR_RE.fullmatch(color_str)
+
+    def _add_palette_entry(self, name, val):
+        if self._is_high_color(val):
+            PALETTE.append((name, '', '', None, val, None))
+            self.high_color_mode = True
+        else:
+            PALETTE.append((name, val, ''))
+
+    def _set_color_palette(self):
+        if self._args_color == 'high':
+            self.high_color_mode = True
+
+        if self._args_color is True or self._args_color == 'high':
+            PALETTE.extend(self.SIGNAL_COLORS_PALETTE)
+            return self._args_color
+
+        try:
+            color_spec = json.loads(self._args_color)
+        except (TypeError, json.decoder.JSONDecodeError):
+            self._exit()
+
+        if isinstance(color_spec, list) and len(color_spec) == 2:
+            for sent_or_recv, col in zip(
+                    ('sent_color', 'recv_color'),
+                    color_spec,
+                    ):
+                self._add_palette_entry(sent_or_recv, col)
+            return color_spec
+        elif isinstance(color_spec, dict):
+            PALETTE.extend(self.SIGNAL_COLORS_PALETTE)
+            # Adding a tuple to PALETTE that already has a tuple with the same "name" (i.e. the first item in tuple) overrides the old tuple.
+            override_dict = {}
+            for key, val in color_spec.items():
+                self._add_palette_entry(key, val)
+                if is_number(key):
+                    override_dict[key] = key    # sic
+            return override_dict
+        else:
+            return self._exit()   # `return` just to make pylint happy
+
+    def for_message(self, msg):
+        try:
+            return self._colors[msg.sender_num]
+        except (TypeError, KeyError):
+            pass
+        if isinstance(self._colors, list):
+            if is_envelope_outgoing(msg.envelope):
+                return 'sent_color'
+            else:
+                return 'recv_color'
+        if is_envelope_outgoing(msg.envelope):
+            return 'default'
+        try:
+            return msg.sender.color
+        except TypeError:
+            # In case `sender` is not in `Contacts`
+            return 'default'
+
+
+# #############################################################################
 # ChatWindow
 # #############################################################################
 
@@ -3230,105 +3342,6 @@ class BracketedPasteMode:
     def __exit__(self, exc_type, exc_value, traceback):
         sys.stdout.write('\x1b[?2004l')
 
-class Color:
-
-    SIGNAL_COLORS_PALETTE = [
-        ('pink',        'dark magenta', '', None,   '#f08',   None),
-        ('red',         'dark red',     '', None,   '#f00',   None),
-        ('orange',      'brown',        '', None,   '#f60',   None),
-        ('purple',      'dark magenta', '', None,   '#a0f',   None),
-        ('indigo',      'dark blue',    '', None,   '#60f',   None),
-        ('blue_grey',   'brown',        '', None,   '#680',   None),
-        ('ultramarine', 'dark blue',    '', None,   '#06f',   None),
-        ('blue',        'dark cyan',    '', None,   '#06a',   None),
-        ('teal',        'dark cyan',    '', None,   '#086',   None),
-        ('green',       'dark green',   '', None,   '#0a0',   None),
-        ('light_green', 'dark green',   '', None,   '#0d0',   None),
-        ('brown',       'brown',        '', None,   '#880',   None),
-        ('grey',        'light gray',   '', None,   'g52',    None),
-    ]
-
-        # The colors are defined in ..?
-            # Signal-Android/app/src/main/java/org/thoughtcrime/securesms/contacts/avatars/ContactColorsLegacy.java
-            # Signal-Android/app/src/main/res/values/material_colors.xml
-        # Using `dark ...` colors, because many terminals show `light ...` as `bold`:
-            # "Some terminals also will display bright colors in a bold font even if you don’t specify bold."
-            # https://urwid.readthedocs.io/en/latest/manual/displayattributes.html#bold-underline-standout
-
-    HIGH_COLOR_RE = re.compile(r"""
-            \#[0-9A-Fa-f]{3}
-            |
-            g\#[0-9A-Fa-f]{2}
-            |
-            g[0-9]{1,3}
-            |
-            h[0-9]{1,3}
-            """, re.VERBOSE)
-        # https://urwid.readthedocs.io/en/latest/reference/attrspec.html#urwid.AttrSpec
-
-    def __init__(self, args_color):
-        self._args_color = args_color
-        self.high_color_mode = False
-        self._colors = self._set_color_palette()
-
-    def _exit(self):
-        sys.exit("Error: could not parse the `color` argument: " + repr(self._args_color))
-
-    def _is_high_color(self, color_str):
-        # Test if `color_str` is a "high-color" (256 colors) value
-        return self.HIGH_COLOR_RE.fullmatch(color_str)
-
-    def _add_palette_entry(self, name, val):
-        if self._is_high_color(val):
-            PALETTE.append((name, '', '', None, val, None))
-            self.high_color_mode = True
-        else:
-            PALETTE.append((name, val, ''))
-
-    def _set_color_palette(self):
-        if self._args_color == 'high':
-            self.high_color_mode = True
-
-        if self._args_color is True or self._args_color == 'high':
-            PALETTE.extend(self.SIGNAL_COLORS_PALETTE)
-            return self._args_color
-
-        try:
-            color_spec = json.loads(self._args_color)
-        except (TypeError, json.decoder.JSONDecodeError):
-            self._exit()
-
-        if isinstance(color_spec, list) and len(color_spec) == 2:
-            for sent_or_recv, col in zip(
-                    ('sent_color', 'recv_color'),
-                    color_spec,
-                    ):
-                self._add_palette_entry(sent_or_recv, col)
-            return color_spec
-        elif isinstance(color_spec, dict):
-            PALETTE.extend(self.SIGNAL_COLORS_PALETTE)
-            # Adding a tuple to PALETTE that already has a tuple with the same "name" (i.e. the first item in tuple) overrides the old tuple.
-            override_dict = {}
-            for key, val in color_spec.items():
-                self._add_palette_entry(key, val)
-                if is_number(key):
-                    override_dict[key] = key    # sic
-            return override_dict
-        else:
-            self._exit()
-
-    def for_envelope(self, envelope):
-        try:
-            return self._colors[envelope['source']]
-        except (TypeError, KeyError):
-            pass
-        if isinstance(self._colors, list):
-            if is_envelope_outgoing(envelope):
-                return 'sent_color'
-            else:
-                return 'recv_color'
-        if is_envelope_outgoing(envelope):
-            return 'default'
 
 
 def link_device(device_name):
