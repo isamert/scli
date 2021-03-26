@@ -1341,7 +1341,6 @@ class Contacts:
 
 
 # #############################################################################
-# ContactsWindow
 # chats data
 # #############################################################################
 
@@ -2633,6 +2632,66 @@ class ListBoxPlus(urwid.ListBox):
         if key_equiv:
             return super().keypress(size, key_equiv)
         return key
+
+
+# #############################################################################
+# contacts widgets
+# #############################################################################
+
+
+class ContactWidget(FocusableText):
+
+    SEND_FAILED_MARKUP = '✖'
+    NOTE_TO_SELF_MARKUP = ('italic', ' (Self)')
+    GROUP_MARKUP = ('italic', ' [GRP]')
+
+    def __init__(self, contact):
+        self.contact = contact
+        self._fail_mark_set = False
+        self._unread_count = 0
+        self._name_markup = self._get_name_markup()
+        super().__init__(self._name_markup)
+
+    def _get_name_markup(self):
+        markup = []
+        name = self.contact.name
+        markup.append(name)
+        if not name:
+            name = self.contact.id
+            markup.append(name)
+            if name == cfg.username:
+                markup.append(self.NOTE_TO_SELF_MARKUP)
+            else:
+                profile_name = self.contact.profile_name
+                if profile_name:
+                    markup.append(('italic', ' ~' + profile_name))
+        if self.contact.is_group and not cfg.partition_contacts:
+            markup.append(self.GROUP_MARKUP)
+        return markup
+
+    @property
+    def unread_count(self):
+        return self._unread_count
+
+    @unread_count.setter
+    def unread_count(self, count):
+        if count == self._unread_count:
+            return
+        self._unread_count = count
+        unread_count_markup = '' if not count else [('bold', f"({count})"), " "]
+        self.set_text([unread_count_markup, self._name_markup])
+
+    @property
+    def fail_mark_set(self):
+        return self._fail_mark_set
+
+    @fail_mark_set.setter
+    def fail_mark_set(self, true_false):
+        if self._fail_mark_set == true_false:
+            return
+        self._fail_mark_set = true_false
+        fail_markup = [self.SEND_FAILED_MARKUP, " "] if self._fail_mark_set else [""]
+        self.set_text(fail_markup + self._name_markup)
 
 
 # #############################################################################
