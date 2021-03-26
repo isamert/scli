@@ -1325,71 +1325,47 @@ class Commands:
 
 
 # #############################################################################
-# signal
+# signal-cli data
 # #############################################################################
 
 
-class Signal:
+class SignalData:
+    def __init__(self, username):
+        self._username = username
+        self._file_path = os.path.join(SIGNALCLI_DATA_FOLDER, self._username)
 
-    def __init__(self, user):
-        self.user = user
+        if not os.path.exists(self._file_path):
+            self._file_path = os.path.join(SIGNALCLI_LEGACY_DATA_FOLDER, self._username)
+            if not os.path.exists(self._file_path):
+                raise FileNotFoundError(self._username + " does not exist!")
+
         self._data = None
-        self._path = os.path.join(SIGNALCLI_DATA_FOLDER, user)
 
-        if not os.path.exists(self._path):
-            self._path = os.path.join(SIGNALCLI_LEGACY_DATA_FOLDER, user)
-            if not os.path.exists(self._path):
-                raise Exception(self.user + " does not exist!")
-
-        self.daemon = Daemon(None)
-
-        self.reload()
-
-    def start_daemon(self):
-        return self.daemon.start(self.user, self.envelope_handler, self.daemon_log_handler)
-
-
-    def daemon_log_handler(self, log_line):
-        urwid.emit_signal(self, 'daemon_log', log_line)
-        if log_line == "INFO DaemonCommand - Exported dbus object: /org/asamk/Signal":
-            def on_daemon_started():
-                logging.info("signal-cli dbus service started")
-                self._set_v2_groups_info_async_watch()
-                urwid.emit_signal(self, 'daemon_started')
-            self.daemon.run_when_dbus_service_started(on_daemon_started)
-
-    def reload(self):
-        with open(self._path) as f:
+    def parse_data_file(self):
+        with open(self._file_path) as f:
             self._data = json.load(f)
 
-        self.contacts = self._data['contactStore']['contacts']
-        self.groups = []
-        for g in self._data["groupStore"]['groups']:
+        profile_names = self._get_profile_names()
+
+        indivs = []
+        for cont in self._data['contactStore']['contacts']:
+            cont['profile_name'] = profile_names.get(get_contact_id(cont))
+                # snake_case in key name, so it should never clash with signal-cli's own key names, in camelCase.
+            indivs.append(cont)
+
+        groups = []
+        for g in self._data['groupStore']['groups']:
             if is_group_v2(g):
                 group_id = g['groupId']
                 g['name'] = self._get_group_v2_cache_name(group_id) or group_id[:10] + '[..]'
             if g.get('archived') or not g.get('name'):
                 continue
-            self.groups.append(g)
-        self.contacts_map = {c['number']: c for c in self.contacts}
-        self.contacts_map.update({g['groupId']: g for g in self.groups})
-        self._set_v2_groups_info_async_watch()
+            groups.append(g)
 
-    def _set_groups_membership(self):
-        self.group_members = {g['groupId']: get_group_members(g, exclude=[self.user]) for g in self.groups}
-        self.groups_w_contact = self._get_groups_w_contacts()
-
-    def _get_groups_w_contacts(self):
-        ret = {}
-        for group_id, group_members in self.group_members.items():
-            for contact_num in group_members:
-                if contact_num in self.contacts_map:
-                    groups_w_contact_num = ret.setdefault(contact_num, set())
-                    groups_w_contact_num.add(group_id)
-        return ret
+        return indivs, groups
 
     def _get_group_v2_cache_name(self, group_id):
-        # This is a crude hack to extract a group name from the group-cache's protobuf binary file without dealing with protobuf or querying signal-cli's `getGroupName`. Does not work for non-ascii group names.
+        # This is a crude hack to extract a group name from the group-cache's protobuf binary file without dealing with protobuf or querying signal-cli's `getGroupName`.
         # See
         # https://github.com/AsamK/signal-cli/issues/386
         bs = None
@@ -1423,6 +1399,17 @@ class Signal:
     def _set_v2_groups_info_async(self):
         for group in self.groups:
             if not is_group_v2(group):
+    def _get_profile_names(self):
+        profile_names = {}
+        try:
+            profiles = self._data['profileStore']['profiles']
+        except KeyError:
+            return profile_names
+        for prof in profiles:
+            num = prof['name']
+            try:
+                profile_name = prof['profile']['name']
+            except (KeyError, TypeError):
                 continue
             group_id = get_contact_id(group)
             self.daemon.get_group_name(
@@ -1433,6 +1420,8 @@ class Signal:
                     group_id,
                     callback=lambda members, group=group: group.update({'members': members})
                     )
+            profile_names[num] = profile_name
+        return profile_names
 
     def _set_v2_groups_info_async_watch(self):
         if not self.daemon.is_dbus_service_running:
@@ -1445,6 +1434,9 @@ class Signal:
                 self._set_v2_groups_info_async,
                 callback=on_v2_groups_updated
                 )
+    @property
+    def own_num(self):
+        return self._data['username']
 
 
 
