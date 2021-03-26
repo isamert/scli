@@ -917,9 +917,6 @@ class SignalData:
         grp_name = cache[2:name_end].decode()
         return grp_name
 
-    def _set_v2_groups_info_async(self):
-        for group in self.groups:
-            if not is_group_v2(group):
     def _get_profile_names(self):
         profile_names = {}
         try:
@@ -932,29 +929,9 @@ class SignalData:
                 profile_name = prof['profile']['name']
             except (KeyError, TypeError):
                 continue
-            group_id = get_contact_id(group)
-            self.daemon.get_group_name(
-                    group_id,
-                    callback=lambda name, group=group: group.update({'name': name})
-                    )
-            self.daemon.get_group_members(
-                    group_id,
-                    callback=lambda members, group=group: group.update({'members': members})
-                    )
             profile_names[num] = profile_name
         return profile_names
 
-    def _set_v2_groups_info_async_watch(self):
-        if not self.daemon.is_dbus_service_running:
-            self._set_groups_membership()
-            return
-        def on_v2_groups_updated():
-            self._set_groups_membership()
-            urwid.emit_signal(self, 'groups_updated')
-        self.daemon.func_watch(
-                self._set_v2_groups_info_async,
-                callback=on_v2_groups_updated
-                )
     @property
     def own_num(self):
         return self._data['username']
@@ -3757,6 +3734,22 @@ class BracketedPasteMode:
         attachments = get_envelope_attachments(envelope)
         self._daemon.send_message(contact_id, message, attachments)
 
+    def update_v2_groups_async(self):
+        def on_v2_groups_updated():
+            self._contacts.set_groups_membership()
+            self._urwid_ui.contacts.update()
+        with self._daemon.callback_finally(on_v2_groups_updated):
+            for group in self._contacts.groups:
+                if not group.is_group_v2:
+                    continue
+                self._daemon.get_group_name(
+                        group.id,
+                        callback=lambda name, group=group: group.update_record({'name': name})
+                        )
+                self._daemon.get_group_members(
+                        group.id,
+                        callback=lambda members, group=group: group.update_record({'members': members})
+                        )
 
     def show_new_msg_notifications(self, msg):
         sender_name = self.get_contact_name(msg.sender_num)
