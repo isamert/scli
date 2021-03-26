@@ -281,15 +281,13 @@ def get_contact_id(contact_dict):
     return contact_dict.get('number') or contact_dict.get('groupId')
 
 
-def get_group_members(group, exclude=None):
+def get_group_members_ids(members, exclude=None):
     ret = set()
+    if not members:
+        # For v2 groups before their members have been populated
+        return ret
     if exclude is None:
         exclude = []
-    try:
-        members = group['members']
-    except KeyError:
-        # Happens for v2 groups before their members have been populated
-        return ret
     for m in members:
         try:
             phone_num = m['number']
@@ -1433,31 +1431,15 @@ class SignalData:
 
 class Contact:
 
-    def get_contact(self, contact_id):
-        return self.contacts_map.get(contact_id)
     # A `Contact` can be either an individual contact or a group.
     # This class uses the _record dict with contact's details, which is what is obtained from contactsStore and groupsStore in signal-cli data file's json structure.
 
-    def get_envelope_contact(self, envelope):
-        contact_id = get_envelope_contact_id(envelope)
-        contact = self.get_contact(contact_id)
-        if not contact:
-            logging.critical('NULL_CONTACT:%s', envelope)
-        return contact
     def __init__(self, record):
         self._record = record
         if self.is_group:
             self.members_ids = set()
             self.member_contacts = set()
 
-    def get_contact_profile_name(self, contact):
-        try:
-            profiles = self._data['profileStore']['profiles']
-            profiles_map = {p['name']: p for p in profiles}
-            contact_id = hash_contact(contact)
-            return profiles_map[contact_id]['profile']['name']
-        except (KeyError, TypeError):
-            return None
     def __getattr__(self, attr):
         # A helper function to access values in contact's dict `record`.
         return self._record.get(attr)
@@ -1481,6 +1463,37 @@ class Contact:
     def name_or_id(self):
         return self.name or self.profile_name or self.id
 
+
+class Contacts:
+    def __init__(self, sigdata):
+        self._sigdata = sigdata
+        self.reload()
+
+    def reload(self):
+        indivs_dicts, groups_dicts = self._sigdata.parse_data_file()
+        self.indivs = set(Contact(c) for c in indivs_dicts)
+        self.groups = set(Contact(g) for g in groups_dicts)
+        self.map = {c.id: c for c in self.indivs | self.groups}
+        self.set_groups_membership()
+
+    def set_groups_membership(self):
+        for group in self.groups:
+            group.members_ids = get_group_members_ids(group.members, exclude=[self._sigdata.own_num])
+            group.member_contacts = self._get_group_members(group)
+                # Naming: group.members == group._record['members'] (from signal-cli data)
+
+    def _get_group_members(self, group):
+        members = set()
+        for mid in group.members_ids:
+            mem = self.map.get(mid)
+            if mem is None:
+                # Some members of a group might not be in my `contacts`, so they have no Contact obj associated with them.
+                mem = Contact({"number": mid})
+            members.add(mem)
+        return members
+
+    def get_by_id(self, contact_id):
+        return self.map.get(contact_id)
 
 
 # #############################################################################
