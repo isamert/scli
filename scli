@@ -2288,6 +2288,68 @@ class TypingIndicators:
             logging.info("TypingIndicators: remove: index not found for envelope = %s", msg.envelope)
 
 
+class ChatsData:
+    def __init__(self, history_file):
+        self.chats = Chats()
+        self.unread_counts = UnreadCounts()
+        self.delivery_status = DeliveryStatus()
+        self.typing_indicators = TypingIndicators(self.chats)
+        self._history = history_file
+        self.current_contact = None
+
+        if self._history:
+            self._load_history()
+            atexit.register(self._save_history)
+
+    @property
+    def current_chat(self):
+        if self.current_contact:
+            return self.chats[self.current_contact.id]
+        return None
+
+    def _save_history(self):
+        envelopes = self.chats.serialize()
+        unread_counts = self.unread_counts.serialize()
+        delivery_status = self.delivery_status.dump()
+        items = {
+                'envelopes': envelopes,
+                'unread_counts': unread_counts,
+                'delivery_status': delivery_status,
+                }
+
+        class JSONSetEncoder(json.JSONEncoder):
+            # Using a custom json encoder to encode `set`s from `DeliveryStatus` group_members.
+            def default(self, o):
+                try:
+                    return json.JSONEncoder.default(self, o)
+                except TypeError:
+                    if isinstance(o, set):
+                        return tuple(o)
+                    raise
+
+        with open(self._history, 'w') as history_file:
+            json.dump(items, history_file, ensure_ascii=False, cls=JSONSetEncoder, indent=2)
+
+    def _load_history(self):
+        if not self._history or not os.path.exists(self._history):
+            return
+
+        with open(self._history, 'r') as history_file:
+            history = json.load(history_file)
+
+        self.delivery_status.load(history.get('delivery_status', {}))
+
+        for envelope in history['envelopes']:
+            if get_envelope_reaction(envelope):
+                self.chats.add_reaction_envelope(envelope)
+            elif get_envelope_remote_delete(envelope):
+                self.chats.add_remote_delete_envelope(envelope)
+            else:
+                self.chats.add_envelope(envelope)
+
+        self.unread_counts = UnreadCounts(history.get('unread_counts', {}))
+
+
 # #############################################################################
 # ChatWindow
 # #############################################################################
@@ -3150,69 +3212,6 @@ class State:
             return color_name
         sender = self.signal.get_contact(envelope['source'])
         return sender['color']
-
-    def save_history(self):
-        if not self.cfg.save_history:
-            return
-
-        envelopes = []
-        for chat in self.chats.values():
-            for msg_w in chat:
-                envelope = msg_w.envelope
-                if 'typingMessage' in envelope:
-                    continue
-                envelopes.append(envelope)
-                try:
-                    envelopes.extend(msg_w.reactions)
-                except AttributeError:
-                    pass
-                try:
-                    envelopes.append(msg_w.remote_delete)
-                except AttributeError:
-                    pass
-
-        notify_counts = {contact_id: count for (contact_id, count) in self.notify_counts.items() if count != 0 and contact_id != "NULL"}
-            # TODO: remove the possibility of contact_id being set to "NULL" anywhere
-        items = {'envelopes': envelopes, 'notify_counts': notify_counts, 'delivery_status': self.delivery_status.dump()}
-
-        class JSONSetEncoder(json.JSONEncoder):
-            def default(self, o):
-                try:
-                    return json.JSONEncoder.default(self, o)
-                except TypeError:
-                    if isinstance(o, set):
-                        return tuple(o)
-                    raise
-
-        with open(self.cfg.save_history, 'w') as history_file:
-            json.dump(items, history_file, ensure_ascii=False, cls=JSONSetEncoder)
-
-    def load_history(self):
-        if not self.cfg.save_history or not os.path.exists(self.cfg.save_history):
-            return
-
-        with open(self.cfg.save_history, 'r') as history_file:
-            history = json.load(history_file)
-
-        self.delivery_status.load(history.get('delivery_status', {}))
-
-        for envelope in history['envelopes']:
-            if is_envelope_outgoing(envelope):
-                self.print_sent_message(envelope)
-            elif get_envelope_reaction(envelope):
-                chat = self.get_chat_for_envelope(envelope)
-                for msg_w in reversed(chat):
-                    if not get_envelope_reaction(msg_w.envelope):
-                        self.print_reaction(msg_w, envelope)
-                        break
-            elif get_nested(envelope, 'dataMessage', 'remoteDelete') is not None:
-                self.on_remote_delete(envelope)
-            elif envelope.get('callMessage') is not None:
-                self.print_call_message(envelope)
-            else:
-                self.print_received_message(envelope)
-
-        self.notify_counts = history.get('notify_counts', {})
 
 
 urwid.register_signal(State, State.signals)
