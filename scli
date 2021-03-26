@@ -367,14 +367,6 @@ def listbox_focus_next(listbox):
         pass
 
 
-class FocusableText(urwid.AttrMap):
-    def __init__(self, markup, attr_map=None, **kwargs):
-        super().__init__(urwid.Text(markup, **kwargs), attr_map, focus_map=LIST_FOCUS_MAP)
-
-    def __lt__(self, wtxt):
-        return get_envelope_time(self.envelope) < get_envelope_time(wtxt.envelope)
-
-
 class MessageInfo(urwid.ListBox):
     def __init__(self, state, envelope):
         self.state = state
@@ -2441,6 +2433,26 @@ class PopUpBox(urwid.WidgetWrap):
         else:
             return key
         return None
+
+
+class FocusableText(urwid.WidgetWrap):
+    def __init__(self, markup, attr_map=None, **kwargs):
+        self._text_w = urwid.Text(markup, **kwargs)
+        w = urwid.AttrMap(self._text_w, attr_map, focus_map=REVERSED_FOCUS_MAP)
+
+        super().__init__(w)
+
+    def selectable(self):
+        # Setting class variable `_selectable = True` does not work. Probably gets overwritten by the base class constructor.
+        return True
+
+    def keypress(self, _size, key):  # pylint: disable=no-self-use
+        # When reimplementing selectable(), have to redefine keypress() too.
+        # https://urwid.readthedocs.io/en/latest/reference/widget.html#urwid.Widget.selectable
+        return key
+
+    def __getattr__(self, attr):
+        return getattr(self._text_w, attr)
 
 
 # #############################################################################
