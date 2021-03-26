@@ -359,6 +359,10 @@ def get_envelope_contact_id(envelope):
     )
 
 
+def get_envelope_sender_id(envelope):
+    return envelope['source']
+
+
 def get_envelope_quote(envelope):
     return get_envelope_data_val(envelope, 'quote')
 
@@ -1498,19 +1502,27 @@ class Contacts:
 
 # #############################################################################
 # ContactsWindow
+# chats data
 # #############################################################################
 
 
 class ContactsWindow(urwid.ListBox):
     signals = ['notify_count_changed']
+class Message:
 
     def __init__(self, state):
         self.state = state
         self._body = []
+    _get_delivery_status = noop
+    _get_contact = noop
 
         super().__init__(urwid.SimpleFocusListWalker(self._body))
 
         self.reload()
+    @classmethod
+    def set_class_functions(cls, get_delivery_status, get_contact):
+        cls._get_delivery_status = get_delivery_status
+        cls._get_contact = get_contact
 
         for contact_id, notify_count in self.state.notify_counts.items():
             try:
@@ -1584,23 +1596,33 @@ class ContactsWindow(urwid.ListBox):
             return
         self.set_contact_notify_count(w.contact, count)
         w.original_widget.set_text(self.mk_contact_widget_markup(w.contact))
+    __slots__ = ("envelope", "reactions", "remote_delete")
 
     def on_current_contact_changed(self, _old, _current, _focus=False):
         self.set_contact_widget_notify_count(self.focus, 0)
+    def __init__(self, envelope):
+        self.envelope = envelope
 
     def on_new_message(self, envelope):
         contact_id = get_envelope_contact_id(envelope)
         contact = self.state.signal.get_contact(contact_id)
         contact_widget = self.contact_widgets_map.get(contact_id)
+    def __eq__(self, other_msg):
+        return self.envelope == other_msg.envelope
 
         if contact != self.state.current_contact and not is_envelope_outgoing(envelope):
             if contact_widget is None:
                 self.set_contact_notify_count(contact, '+1')
             else:
                 self.set_contact_widget_notify_count(contact_widget, '+1')
+    def __lt__(self, other_msg):
+        return self.timestamp < other_msg.timestamp
 
         if not self.state.cfg.contacts_sort_alpha and contact_widget is not None:
             self.move_contact_top(contact_widget)
+    @property
+    def timestamp(self):
+        return get_envelope_time(self.envelope)
 
     def on_sending_done(self, envelope, status='sent', _timestamp_adj=None):
         if status != 'send_failed':
@@ -1614,6 +1636,10 @@ class ContactsWindow(urwid.ListBox):
             contact_widget_markup = [contact_widget_markup]
         contact_widget_markup = [self.state.delivery_status.get_markup('send_failed'), ' ', contact_widget_markup]
         contact_widget.original_widget.set_text(contact_widget_markup)
+    @timestamp.setter
+    def timestamp(self, ts_new):
+        # NOTE: For Message in Chat, use Chat.adjust_timestamp(), rather then this setter directly, to ensure that Chat remains sorted.
+        self.envelope['timestamp'] = self.envelope['dataMessage']['timestamp'] = ts_new
 
     def on_call_message(self, envelope):
         if get_nested(envelope, 'callMessage', 'offerMessage'):
@@ -1627,6 +1653,10 @@ class ContactsWindow(urwid.ListBox):
             else:
                 txt_ws = [getattr(w.base_widget, "text", "") for w in self.body]
                 offset = 2 + txt_ws.index('~~ Contacts ~~')
+    @property
+    def text(self):
+        if self.mentions:
+            return self.text_w_mentions()
         else:
             offset = 0
 
@@ -1650,6 +1680,7 @@ class ContactsWindow(urwid.ListBox):
             else:
                 widget = urwid.Text(self.mk_contact_widget_markup(x))
                 contact = x
+            return get_envelope_msg(self.envelope)
 
             am = urwid.AttrMap(widget, None, focus_map=LIST_FOCUS_MAP)
             am.contact = contact
@@ -1729,33 +1760,61 @@ class LeftWindow(urwid.Frame):
 
         if not self.state.cfg.partition_contacts:
             self.header = urwid.Pile([urwid.Text(btxt('Contacts'), align='center'), urwid.Divider('-')])
+    @property
+    def attachments(self):
+        return get_envelope_attachments(self.envelope)
 
     def start_search(self):
         self.footer = self._wsearch
         self.focus_position = 'footer'
         self._formatted_contacts = self._wcontacts.make_formatted_contacts_list()
+    @property
+    def mentions(self):
+        return get_envelope_mentions(self.envelope)
 
     def hide_search(self):
         self.focus_position = 'body'
         self.footer = None
+    @property
+    def delivery_status(self):
+        if is_envelope_outgoing(self.envelope):
+            return self._get_delivery_status(self.timestamp).str
+        else:
+            return 'received_by_me'
 
     def clear_search(self):
         self._formatted_contacts = self._wcontacts.make_formatted_contacts_list()
         self._wsearch.set_edit_text('')
+    @property
+    def delivery_status_detailed(self):
+        return self._get_delivery_status(self.timestamp)
 
     def set_contacts(self, contacts):
         self._wcontacts.set_contacts(contacts)
+    @property
+    def contact_id(self):
+        return get_envelope_contact_id(self.envelope)
 
     def on_search_text_changed(self, _sender, _old_text):
         txt = self._wsearch.get_edit_text()
+    @property
+    def sender_num(self):
+        return get_envelope_sender_id(self.envelope)
 
         def contact_match(contact):
             if isinstance(contact, str):
                 return True
             return (txt.lower() in get_contact_name(contact).lower()) or (txt in get_contact_number(contact))
+    @property
+    def sender(self):
+        return self._get_contact(self.sender_num)
 
         results = [c for c in self._formatted_contacts if contact_match(c)]
         self.set_contacts(results)
+    def add_reaction(self, envelope):
+        self.reactions = getattr(self, 'reactions', {})  # pylint: disable=attribute-defined-outside-init
+            # Don't want to add `reactions` attribute to every Message instance; only to those that actually have reactions.
+        self.reactions[get_envelope_sender_id(envelope)] = envelope
 
     def keypress(self, size, key):
         key = super().keypress(size, key)
@@ -1767,6 +1826,27 @@ class LeftWindow(urwid.Frame):
             self.hide_search()
             self.clear_search()
         return key
+    def text_w_mentions(self, bracket_char=''):
+        # See also: What is the Mention's "length" parameter?
+        # https://github.com/AsamK/signal-cli/discussions/409
+        ret = ''
+        pos = 0
+        text = get_envelope_msg(self.envelope)
+        for mention in self.mentions:
+            contact_num = mention['name']
+            contact = self._get_contact(contact_num)
+            contact_name = contact.name_or_id if contact else contact_num
+            start = mention['start']
+            ret = ''.join((
+                ret,
+                text[pos:start],
+                bracket_char,
+                "@", contact_name,
+                bracket_char,
+                ))
+            pos = start + 1
+        ret += text[pos:]
+        return ret
 
 
 # #############################################################################
