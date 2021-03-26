@@ -2673,7 +2673,44 @@ class ContactsWindow(urwid.Frame):
 
 # #############################################################################
 # ChatWindow
+# input line
 # #############################################################################
+
+
+class CommandsHistory:
+    def __init__(self):
+        self._history = []
+        self._index = 0
+        self._stashed_input = None
+
+    def prev(self, curr_input):
+        if (curr_input != self._stashed_input
+                and self._history
+                and curr_input != self._history[self._index]):
+            # This check fixes the following unexpected behavior:
+            # Type `:whatev`, press `up` a few times, then delete the input with e.g. `backspace`. Next time the history will be looked up from where it's been left this time.
+            self._index = 0
+        if self._index == 0:
+            self._stashed_input = curr_input
+        self._index -= 1
+        try:
+            return self._history[self._index]
+        except IndexError:
+            self._index += 1
+            return curr_input
+
+    def next(self, curr_input):
+        if self._index == 0:
+            return curr_input
+        self._index += 1
+        if self._index == 0:
+            return self._stashed_input
+        return self._history[self._index]
+
+    def add(self, cmd):
+        self._history.append(cmd)
+        self._index = 0
+
 
 class BracketedPasteEdit(Edit):
     def __init__(self, *args, multiline=False, **kwargs):
