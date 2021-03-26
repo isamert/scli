@@ -354,24 +354,29 @@ def is_group_v2(group):
     return len(group['groupId']) == 44
 
 
+def get_envelope_data_val(envelope, *keys, default=None, return_tuple=False):
+    data_message_ret = get_nested(envelope, 'dataMessage', *keys, default=default)
+    sync_message_ret = get_nested(envelope, 'syncMessage', 'sentMessage', *keys, default=default)
+    if return_tuple:
+        return (data_message_ret, sync_message_ret)
+    else:
+        return data_message_ret or sync_message_ret
+
+
 def is_envelope_outgoing(envelope):
     return 'target' in envelope or get_nested(envelope, 'syncMessage', 'sentMessage') is not None
 
 
 def is_envelope_group_message(envelope):
     return (
-        get_nested(envelope, 'dataMessage', 'groupInfo') is not None
-        or get_nested(envelope, 'syncMessage', 'sentMessage', 'groupInfo') is not None
-        or ('target' in envelope and not is_number(envelope['target']))
+            get_envelope_data_val(envelope, 'groupInfo') is not None
+            or ('target' in envelope and not is_number(envelope['target']))
     )
 
 
 def get_envelope_msg(envelope):
     # If the `message` field is absent from the envelope: return None. If it is present but contains no text (since signal-cli v0.6.8, this is represented as `'message': null`): return ''. Otherwise: return the `message` field's value.
-    for msg in (
-        get_nested(envelope, 'dataMessage', 'message', default=0),
-        get_nested(envelope, 'syncMessage', 'sentMessage', 'message', default=0),
-    ):
+    for msg in get_envelope_data_val(envelope, 'message', default=0, return_tuple=True):
         if msg is None:
             return ''
         elif msg != 0:
@@ -381,40 +386,38 @@ def get_envelope_msg(envelope):
 
 def get_envelope_time(envelope):
     return (
-        get_nested(envelope, 'dataMessage', 'timestamp')
-        or get_nested(envelope, 'syncMessage', 'sentMessage', 'timestamp')
-        or envelope['timestamp']
+        envelope['timestamp']
+        or get_envelope_data_val(envelope, 'timestamp')
     )
 
 
 def get_envelope_contact_id(envelope):
     return (
         envelope.get('target')
-        or get_nested(envelope, 'dataMessage', 'groupInfo', 'groupId')
-        or get_nested(envelope, 'syncMessage', 'sentMessage', 'groupInfo', 'groupId')
+        or get_envelope_data_val(envelope, 'groupInfo', 'groupId')
         or get_nested(envelope, 'syncMessage', 'sentMessage', 'destination')
         or envelope['source']
     )
 
 
 def get_envelope_quote(envelope):
-    return get_nested(envelope, 'dataMessage', 'quote')
+    return get_envelope_data_val(envelope, 'quote')
 
 
 def get_envelope_reaction(envelope):
-    return get_nested(envelope, 'dataMessage', 'reaction')
+    return get_envelope_data_val(envelope, 'reaction')
 
 
 def get_envelope_mentions(envelope):
-    return get_nested(envelope, 'dataMessage', 'mentions')
+    return get_envelope_data_val(envelope, 'mentions')
+
+
+def get_envelope_remote_delete(envelope):
+    return get_envelope_data_val(envelope, 'remoteDelete')
 
 
 def get_envelope_attachments(envelope):
-    return (
-        get_nested(envelope, 'dataMessage', 'attachments')
-        or get_nested(envelope, 'syncMessage', 'sentMessage', 'attachments')
-        or []
-    )
+    return get_envelope_data_val(envelope, 'attachments')
 
 
 def get_attachment_name(attachment):
