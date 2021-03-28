@@ -3333,11 +3333,11 @@ def parse_cfg_file(parser, cli_args):
     opt_val_flags = get_opt_val_flags(parser)
     args_list = []
     for arg_name, arg_val in cfg_f_args_dict.items():
-        try:
-            arg_default = parser.get_default(arg_name.replace('-', '_'))
-        except AttributeError:
-            logging.error("Error while parsing config file: unrecognized argument: %s", arg_name)
+        arg_dest = arg_name.replace('-', '_')   # Assuming `dest` has not been overriden.
+        if arg_dest not in cli_args:
+            print("Error while parsing config file: unrecognized argument:", arg_name)
             continue
+        arg_default = parser.get_default(arg_dest)
         arg_name = '--' + arg_name
         if isinstance(arg_default, bool):
             if arg_val.lower() in ('true', 't', 'yes', 'y'):
