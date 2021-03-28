@@ -3287,6 +3287,39 @@ def get_cfg_file_args(file_obj):
         ret[name.strip()] = val.strip()
     return ret
 
+def get_opt_val_flags(parser):
+    """Flags that optionally take values.
+
+    These are defined by
+        ..., nargs='?', const=True, default=False, ...
+    See
+        https://docs.python.org/3/library/argparse.html#nargs
+
+    They allow any of the following forms on the command line:
+        --color
+        --color=high
+        <nothing> (i.e. option omitted)
+    In config file this corresponds to:
+        color = true
+        color = high
+        color = false
+                OR
+        <nothing> (option not mentioned in config)
+    """
+
+    # For these arguments, checking for the `False` values in the config file (e.g. 'false', 'f', 'no', etc) needs to be done explicitly, unlike for the regular flags that interpret any config value that is not in ('true', 't', 'yes', etc) as `False`.
+
+    return frozenset(
+            opt
+            for a in parser._actions            # pylint: disable=protected-access
+            for opt in a.option_strings
+            if (
+                a.nargs == argparse.OPTIONAL
+                and isinstance(a.const, bool)
+                and isinstance(a.default, bool)
+                )
+            )
+
 def parse_cfg_file(parser, cli_args):
     cfg_file_path = os.path.expanduser(cli_args.config_file)
     try:
@@ -3297,16 +3330,23 @@ def parse_cfg_file(parser, cli_args):
             return cli_args
         sys.exit("Config file not found: " + cfg_file_path)
 
+    opt_val_flags = get_opt_val_flags(parser)
     args_list = []
     for arg_name, arg_val in cfg_f_args_dict.items():
         try:
-            cli_arg_val = getattr(cli_args, arg_name.replace('-', '_'))
+            arg_default = parser.get_default(arg_name.replace('-', '_'))
         except AttributeError:
             logging.error("Error while parsing config file: unrecognized argument: %s", arg_name)
             continue
         arg_name = '--' + arg_name
-        if isinstance(cli_arg_val, bool) and arg_val.lower() in ('true', 't', 'yes', 'y'):
-            args_list.append(arg_name)
+        if isinstance(arg_default, bool):
+            if arg_val.lower() in ('true', 't', 'yes', 'y'):
+                args_list.append(arg_name)
+            elif (
+                    arg_name in opt_val_flags
+                    and arg_val.lower() not in ('false', 'f', 'no', 'n')
+                    ):
+                args_list.extend((arg_name, arg_val))
         else:
             args_list.extend((arg_name, arg_val))
     # Need to actually parse the arguments (rather then simply updating args.__dict__), so that the `type`s would be set correctly.
