@@ -1290,6 +1290,7 @@ class Signal:
         # This is a crude hack to extract a group name from the group-cache's protobuf binary file without dealing with protobuf or querying signal-cli's `getGroupName`. Does not work for non-ascii group names.
         # See
         # https://github.com/AsamK/signal-cli/issues/386
+        bs = None
         for filename in (
                 group_id.replace("/", "_"),
                 b64_to_hex_str(group_id)
@@ -1299,9 +1300,17 @@ class Signal:
             try:
                 bs = open(path, 'br').readline()
             except FileNotFoundError:
+                logging.warning(
+                        "Could not open v2 group cache file\n\t"
+                        "group_id = %s\n\t"
+                        "filepath = %s",
+                        group_id, path
+                        )
                 continue
             else:
                 break
+        if bs is None:
+            return None
         for name_end_str in (b'\x1aI', b'"'):
             name_end = bs.find(name_end_str)
             if name_end != -1:
