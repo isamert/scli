@@ -128,6 +128,7 @@ A simple two-paned interface is provided. Left pane contains the contact list an
 - `d` deletes the message from your screen (and from your history, if history is enabled).
 - `i` show a popup that contains detailed information about the message.
 - `Alt+Enter` inserts a newline in message composing input field.
+- `Alt+J` / `Alt+K` opens next / previous conversation.
 
 ## Commands
 There are some basic commands that you can use. Hit `:` to enter command mode (or simply focus the input line and type `:`).

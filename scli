@@ -3710,6 +3710,10 @@ class MainWindow(urwid.WidgetWrap):
         elif key == '/' and self.focus_widget_name == 'chat':
             self.focus_widget_name = 'input'
             self.chat_w.input_line_w.keypress(size, key)
+        elif key == 'meta j':
+            self.contacts_w.contacts_list_w.select_next_contact()
+        elif key == 'meta k':
+            self.contacts_w.contacts_list_w.select_next_contact(reverse=True)
         elif key == '?':
             self.show_help()
         elif key == 'i':
