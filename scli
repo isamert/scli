@@ -2829,18 +2829,28 @@ class ChatWindow(urwid.Frame):
 
     def focus_chat(self):
         self.focus_position = 'body'
+class InputLine(BracketedPasteEdit):
+    def __init__(self, **kwargs):
+        self._cmd_history = CommandsHistory()
+        self._cmds = None
+        self._prompt = ('bold', '> ')  # In urwid's parlance, this is called 'caption'.
+        super().__init__(self._prompt, **kwargs)
 
     def focus_chatfirst(self):
         try:
             self._w.original_widget.focus_position = 0
         except IndexError:
             pass
+    def set_cmds(self, cmds):
+        self._cmds = cmds
 
     def focus_chatlast(self):
         try:
             self._w.original_widget.focus_position = len(self._w.original_widget.body) - 1
         except IndexError:
             pass
+    def _set_edit_text_move_cursor(self, txt, cursor_pos=-1):
+        """Edit.set_edit_text() + Edit.set_edit_pos()
 
     def get_edit_text(self):
         return self._wline.get_edit_text()
@@ -2874,8 +2884,15 @@ class ChatWindow(urwid.Frame):
             return self.state.current_chat[self._wlist.focus_position].envelope
         except (IndexError, AttributeError):
             return None
+        Like Edit.insert_text(), but istead of adding to the current edit_text, replace it with the provided argument.
+        """
+        self.set_edit_text(txt)
+        if cursor_pos == -1:
+            cursor_pos = len(txt)
+        self.set_edit_pos(cursor_pos)
 
     def auto_complete_commands(self, txt):
+        # See also: there is an autocomplete in rr-/urwid_readline
         splitted_txt = txt.split(' ')
         if len(splitted_txt) > 1:
             path, *messages = split_path(' '.join(splitted_txt[1:]))
@@ -2903,7 +2920,7 @@ class ChatWindow(urwid.Frame):
                 completion = '"' + completion + '"'
 
             if completion != '':
-                self.set_edit_text(splitted_txt[0] + ' ' + completion, True)
+                self._set_edit_text_move_cursor(splitted_txt[0] + ' ' + completion)
         else:
             all_commands = [
                 cmd
@@ -2915,12 +2932,38 @@ class ChatWindow(urwid.Frame):
             self.state.set_notification('{' + '|'.join(all_commands) + '}')
 
             if len(all_commands) == 1:
-                self.set_edit_text(':' + all_commands[0] + ' ', True)
+                self._set_edit_text_move_cursor(':' + all_commands[0] + ' ')
             elif commonprefix != '':
                 self.set_edit_text(':' + commonprefix, True)
 
+    def _keypress_cmd_mode(self, key, key_orig, txt):
+        # Called when `txt.startswith(':')`
+        if key == 'enter':
+            if txt.strip() == ":":
+                action_request.set_status_line('Command missing after `:`')
+                return None
+            cmd, *args = txt[1:].split(maxsplit=1)
+            self._cmds.exec(cmd, *args)
+            self._cmd_history.add(txt)
+            self.set_edit_text('')
+            self.set_caption(self._prompt)
+        elif key == 'tab' and not self.get_edit_text().endswith(' '):
+            self.auto_complete_commands(txt)
+        elif key_orig in ('up', 'ctrl p'):
+            # Since BracketedPasteEdit is based on Edit(multiline=True), the up / down / ctrl+p/n are consumed by the superclass, so need to check `key_orig`, before `super` method call.
+            prev_cmd = self._cmd_history.prev(txt)   # pylint: disable=not-callable; https://github.com/PyCQA/pylint/issues/3970
+            self._set_edit_text_move_cursor(prev_cmd)
+        elif key_orig in ('down', 'ctrl n'):
+            next_cmd = self._cmd_history.next(txt)   # pylint: disable=not-callable; https://github.com/PyCQA/pylint/issues/3970
+            self._set_edit_text_move_cursor(next_cmd)
+        else:
+            return key
+        return None
+
     def keypress(self, size, key):
+        key_orig = key
         key = super().keypress(size, key)
+        txt = self.get_edit_text()
 
         if self.is_focused_input():
             txt = self.get_edit_text()
@@ -2935,12 +2978,30 @@ class ChatWindow(urwid.Frame):
                     pass
                 elif txt.strip(' ') != '' and self.state.current_contact:
                     self.state.signal.send_message(self.state.current_contact, txt)
+        if not txt or txt.isspace():
+            self.set_caption(self._prompt)  # restore normal prompt
+            return key
+        if txt.startswith(('/', ':')):
+            self.set_caption('')  # set "prompt" to '/' or ':'
+            if key == 'esc':
                 self.set_edit_text('')
             elif key == 'tab':
                 if txt.startswith(':'):
                     self.auto_complete_commands(txt)
                     return
         elif not self.state.current_chat:
+                self.set_caption(self._prompt)
+                return None
+        else:
+            self.set_caption(self._prompt)
+        if txt.startswith(':'):
+            return self._keypress_cmd_mode(key, key_orig, txt)
+        elif key == 'enter':
+            if txt.startswith('/'):
+                return key
+            action_request.send_message_curr_contact(txt)
+            self.set_edit_text('')
+        else:
             return key
         elif self.is_focused_chat():
             envelope = self.get_current_envelope()
@@ -2992,6 +3053,7 @@ class ChatWindow(urwid.Frame):
                 # https://github.com/AsamK/signal-cli/issues/213
                 pass
         return key
+        return None
 
 
 # #############################################################################
