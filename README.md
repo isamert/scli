@@ -16,6 +16,7 @@
 - *Sending* read receipts for received messages ([#231](https://github.com/AsamK/signal-cli/issues/231), [#305](https://github.com/AsamK/signal-cli/issues/305))
 - Quoting a message ([#213](https://github.com/AsamK/signal-cli/issues/213))
 - Sending message reactions ([#319](https://github.com/AsamK/signal-cli/issues/319))
+- Adding @-mentions in sent messages.
 - Voice calls ([#80](https://github.com/AsamK/signal-cli/issues/80))
 - Sending a "view once" or "expiring" messages, or a "remote deletion" request for a message.
 
@@ -165,12 +166,12 @@ Configuration file syntax is also pretty easy. Lines starting with `#` and empty
 
 ### Example
 ```sh
-scli -u +1234567890 --enable-notifications
+scli -w 80 --enable-notifications
 ```
 Configuration file equivalent of this command is:
 ```ini
-# Long option forms are used in config file. (u = +123... is not valid.)
-username = +1234567890
+# Long option forms are used in config file. (w = 80 is not valid.)
+wrap-at = 80
 enable-notifications = true
 ```
 
