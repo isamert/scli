@@ -820,8 +820,11 @@ class Daemon(AsyncProc):
 
     def get_signal_cli_version(self, callback, *cb_args, **cb_kwargs):
         def proc_callback(proc):
-            callback(proc.output, *cb_args, **cb_kwargs)
-        self.run(['signal-cli', '--version'], callback=proc_callback)
+            version_num = proc.output.split('\n')[1][11:-1]   # Ad-hoc parsing of `dbus-send` output
+            version_string = "signal-cli " + version_num
+            callback(version_string, *cb_args, **cb_kwargs)
+        args = ["org.asamk.Signal.version"]
+        self._dbus_send_signal_cli(args, callback=proc_callback)
 
     @property
     def is_dbus_service_running(self):
@@ -3797,6 +3800,7 @@ class Coordinate:
             self._actions.set_status_line("")
         self._ui.loop.set_alarm_in(2, clear_status_line)
         self._actions.update_v2_groups_async()
+        self.daemon.get_signal_cli_version(callback=logging.info)
 
     def _on_contact_selected(self, contact, focus_widget):
         self._chats_data.current_contact = contact
@@ -4298,8 +4302,6 @@ def main():
         proc = coord.daemon.start()
         atexit.register(proc.kill)
         action_request.set_status_line("Initializing signal-cli daemon... ")
-        if args.debug:
-            coord.daemon.get_signal_cli_version(callback=logging.info)
 
     with BracketedPasteMode():
         loop.run()
