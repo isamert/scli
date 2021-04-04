@@ -84,7 +84,7 @@ def callf(cmd, rmap=None, background=False, **subprocess_kwargs):
 
     if not subprocess_kwargs.get('shell'):
         cmd = shlex.split(cmd)
-    logging.info('callf: `%s`', cmd)
+    logging.debug('callf: `%s`', cmd)
 
     if background:
         for arg in ('stdin', 'stdout', 'stderr'):
@@ -103,7 +103,7 @@ def callf(cmd, rmap=None, background=False, **subprocess_kwargs):
                 proc.stderr
                 )
     elif proc.stdout:
-        logging.info('callf: %s', proc.stdout)
+        logging.debug('callf: %s', proc.stdout)
 
     return proc
 
@@ -596,7 +596,6 @@ class Daemon(AsyncProc):
     def start(self):
         stdout_fd = self.main_loop.watch_pipe(self._daemon_stdout_handler)
         stderr_fd = self.main_loop.watch_pipe(self._daemon_stderr_handler)
-        logging.debug("Daemon cmd = `%s`", cfg.daemon_command)
         try:
             proc = callf(
                     cfg.daemon_command,
