@@ -3511,7 +3511,7 @@ class Actions:
             number, new_name = split_path(args)
             if not is_number(number):
                 for contact_id, contact in self._contacts.map.items():
-                    if contact["name"] == number:
+                    if contact.name == number:
                         is_group = contact.is_group
                         break
                 else:  # contact with name `number` not found
