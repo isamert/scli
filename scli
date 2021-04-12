@@ -214,6 +214,12 @@ def strftimestamp(timestamp, strformat='%H:%M:%S (%Y-%m-%d)'):
     return utc2local(date).strftime(strformat)
 
 
+def strip_non_printable_chars(string):
+    if string.isprintable():
+        return string
+    return ''.join((c for c in string if c.isprintable()))
+
+
 # #############################################################################
 # signal utility
 # #############################################################################
@@ -2074,8 +2080,9 @@ class ContactWidget(FocusableText):
     def _get_name_markup(self):
         markup = []
         name = self.contact.name
-        markup.append(name)
-        if not name:
+        if name:
+            markup.append(strip_non_printable_chars(name))
+        else:
             name = self.contact.id
             markup.append(name)
             if name == cfg.username:
@@ -2083,7 +2090,10 @@ class ContactWidget(FocusableText):
             else:
                 profile_name = self.contact.profile_name
                 if profile_name:
-                    markup.append(('italic', ' ~' + profile_name))
+                    markup.append((
+                        'italic',
+                        ' ~' + strip_non_printable_chars(profile_name),
+                        ))
         if self.contact.is_group and not cfg.partition_contacts:
             markup.append(self.GROUP_MARKUP)
         return markup
