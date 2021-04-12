@@ -2913,7 +2913,7 @@ class ChatWindow(urwid.Frame):
         self.focus_position = self._focusable_widgets[widget_name]
 
     def _set_title(self, contact):
-        name = contact.name_or_id
+        name = strip_non_printable_chars(contact.name_or_id)
         markup = [('bold', name)]
         if not contact.is_group:
             num = contact.number
