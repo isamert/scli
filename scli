@@ -932,8 +932,8 @@ class SignalData:
         except KeyError:
             return profile_names
         for prof in profiles:
-            num = prof['name']
             try:
+                num = prof['name']
                 profile_name = prof['profile']['name']
             except (KeyError, TypeError):
                 continue
