@@ -976,6 +976,13 @@ class Contact:
         return get_contact_id(self._record)
 
     @property
+    def name(self):
+        name = self._record.get('name')
+        if name:
+            return strip_non_printable_chars(name)
+        return name
+
+    @property
     def name_or_id(self):
         return self.name or self.profile_name or self.id
 
@@ -2081,7 +2088,7 @@ class ContactWidget(FocusableText):
         markup = []
         name = self.contact.name
         if name:
-            markup.append(strip_non_printable_chars(name))
+            markup.append(name)
         else:
             name = self.contact.id
             markup.append(name)
@@ -2090,10 +2097,7 @@ class ContactWidget(FocusableText):
             else:
                 profile_name = self.contact.profile_name
                 if profile_name:
-                    markup.append((
-                        'italic',
-                        ' ~' + strip_non_printable_chars(profile_name),
-                        ))
+                    markup.append(('italic', ' ~' + profile_name))
         if self.contact.is_group and not cfg.partition_contacts:
             markup.append(self.GROUP_MARKUP)
         return markup
@@ -2913,7 +2917,7 @@ class ChatWindow(urwid.Frame):
         self.focus_position = self._focusable_widgets[widget_name]
 
     def _set_title(self, contact):
-        name = strip_non_printable_chars(contact.name_or_id)
+        name = contact.name_or_id
         markup = [('bold', name)]
         if not contact.is_group:
             num = contact.number
