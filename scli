@@ -2239,6 +2239,7 @@ class ContactsListWidget(ListBoxPlus):
         contact_widget.fail_mark_set = True
 
     def _move_contact_top(self, w):
+        pos_in_prefilter = None
         if not cfg.partition_contacts:
             pos_new = 0
         else:
@@ -2248,7 +2249,8 @@ class ContactsListWidget(ListBoxPlus):
                 pos_new = len(self._contacts.groups) + 5  # 2 for "Groups" header and 3 for "Contacts"
             else:
                 pos_new = self.contents.index(self._indiv_header_w) + 2
-        self.move_item(w, pos_new)
+                pos_in_prefilter = len(self._contacts.groups) + 5
+        self.move_item(w, pos_new, pos_in_prefilter)
         self.focus_position = pos_new
 
     def _select_focused_contact(self, focus_widget=None):
