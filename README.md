@@ -15,10 +15,9 @@
 
 - *Sending* read receipts for received messages ([#231](https://github.com/AsamK/signal-cli/issues/231), [#305](https://github.com/AsamK/signal-cli/issues/305))
 - Quoting a message ([#213](https://github.com/AsamK/signal-cli/issues/213))
-- Sending message reactions ([#319](https://github.com/AsamK/signal-cli/issues/319))
-- Adding @-mentions in sent messages.
+- Adding @-mentions in sent messages ([#584](https://github.com/AsamK/signal-cli/issues/584))
 - Voice calls ([#80](https://github.com/AsamK/signal-cli/issues/80))
-- Sending a "view once" or "expiring" messages, or a "remote deletion" request for a message.
+- Sending a "view once" or "expiring" messages.
 
 # Installation
 ## Manual
@@ -69,8 +68,8 @@ or download a [release](https://github.com/isamert/scli/releases).
 ## Automatic
 The following methods are supported by community and may be outdated.
 
-- [AUR](https://aur.archlinux.org/packages/scli-git/)
-- [FreshPorts](https://www.freshports.org/net-im/scli/)
+- Arch Linux: [AUR](https://aur.archlinux.org/packages/scli-git/)
+- FreeBSD: [FreshPorts](https://www.freshports.org/net-im/scli/)
 
 ## Registering or linking your device
 
@@ -142,8 +141,9 @@ There are some basic commands that you can use. Hit `:` to enter command mode (o
 - `:toggleNotifications` or `:n` toggles desktop notifications.
 - `:toggleContactsSort` or `:s` toggles between sorting contacts alphabetically and by the most recent message.
 - `:toggleAutohide` or `:h` hides the contacts pane when it's not in focus.
-- `:addContact NUMBER [NAME]` adds a new contact to the contact list. Added contacts' names are local (not synced with signal servers).
-- `:renameContact [ID] NEW_NAME` renames contact `ID` to `NEW_NAME`. `ID` can be either contact's phone number or contact's name. If `ID` is skipped, the contact from the currently opened conversation is used. If `ID` is a name that contains spaces, they need to be escaped or the whole name put in quotes. `NEW_NAME` can contain spaces without quotes or escaping. 'Contact' can be a group as well as an individual. Individual contacts' renames are local (not synced with the signal servers).
+- `:addContact NUMBER [NAME]` adds a new contact to the contact list. Added contacts' names are local (not synced with signal servers).  
+	Note: For linked accounts (e.g. with a master signal app on the phone) the local changes to contacts will be overwritten on periodic syncs with the master device; see [#119](https://github.com/isamert/scli/issues/119).
+- `:renameContact [ID] NEW_NAME` renames contact `ID` to `NEW_NAME`. `ID` can be either contact's phone number or contact's name. If `ID` is skipped, the contact from the currently opened conversation is used. If `ID` is a name that contains spaces, they need to be escaped or the whole name put in quotes. `NEW_NAME` can contain spaces without quotes or escaping. 'Contact' can be a group as well as an individual. Individual contacts' renames are local (not synced with the signal servers; see note in `:addContact` above).
 - `:reload` re-reads the `signal-cli`s data file. (Updates contacts list etc.)
 - `:quit` or `:q` quits the program.
 
