@@ -880,6 +880,10 @@ class SignalData:
         for cont in self._data['contactStore']['contacts']:
             cont['profile_name'] = profile_names.get(get_contact_id(cont))
                 # snake_case in key name, so it should never clash with signal-cli's own key names, in camelCase.
+            try:
+                cont['name'] = strip_non_printable_chars(cont['name'])
+            except (KeyError, AttributeError):
+                pass
             indivs.append(cont)
 
         groups = []
@@ -974,13 +978,6 @@ class Contact:
     @property
     def id(self):
         return get_contact_id(self._record)
-
-    @property
-    def name(self):
-        name = self._record.get('name')
-        if name:
-            return strip_non_printable_chars(name)
-        return name
 
     @property
     def name_or_id(self):
