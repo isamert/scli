@@ -612,7 +612,7 @@ class Daemon(AsyncProc):
                     )
         except FileNotFoundError:
             sys.exit(
-                    f"Error: could not find `{cfg.daemon_command.split()[0]}` executable. "
+                    f"ERROR: could not find `{cfg.daemon_command.split()[0]}` executable. "
                     "Make sure it is on system path."
                     )
         return proc
@@ -1694,7 +1694,7 @@ class Color:
         self._colors = self._set_color_palette()
 
     def _exit(self):
-        sys.exit("Error: could not parse the `color` argument: " + repr(self._args_color))
+        sys.exit("ERROR: could not parse the `color` argument: " + repr(self._args_color))
 
     def _is_high_color(self, color_str):
         # Test if `color_str` is a "high-color" (256 colors) value
@@ -4131,14 +4131,14 @@ def parse_cfg_file(parser, cli_args):
     except FileNotFoundError:
         if cli_args.config_file == parser.get_default('config_file'):
             return cli_args
-        sys.exit("Config file not found: " + cfg_file_path)
+        sys.exit("ERROR: Config file not found: " + cfg_file_path)
 
     opt_val_flags = get_opt_val_flags(parser)
     args_list = []
     for arg_name, arg_val in cfg_f_args_dict.items():
         arg_dest = arg_name.replace('-', '_')   # Assuming `dest` has not been overriden.
         if arg_dest not in cli_args:
-            print("Error while parsing config file: unrecognized argument:", arg_name)
+            print("WARNING: encountered an unrecognized argument while parsing config file:", arg_name, file=sys.stderr)
             continue
         arg_default = parser.get_default(arg_dest)
         arg_name = '--' + arg_name
@@ -4161,8 +4161,8 @@ def parse_cfg_file(parser, cli_args):
 def parse_wrap_at_arg(width):
     def bad_val(width):
         sys.exit(
-                f"ERROR: Can't parse width value: `{width}`\n"
-                "Width value shoudld look like: `42` or `42.42%`.\n"
+                f"ERROR: Could not parse the width value: `{width}`.\n"
+                "The value should be an `<int>` or a `<float>%` (`42` or `42.42%`).\n"
                 "See `--help` for additional info."
                 )
     if width.endswith('%'):
@@ -4222,7 +4222,7 @@ def link_device(device_name):
         pyqrcode = importlib.import_module('pyqrcode')
     except ImportError:
         sys.exit(
-                "Error: `pyqrcode` module not found. "
+                "ERROR: `pyqrcode` module not found. "
                 "Please install it with `pip install pyqrcode`"
                 )
     print("Retrieving QR code, please wait...")
@@ -4235,7 +4235,7 @@ def link_device(device_name):
         print(qr_obj.terminal(module_color='black', background='white'))
     else:
         sys.exit(
-                "Encountered an error while linking:\n"
+                "ERROR: Encountered a problem while linking:\n"
                 f"{line}\n"
                 f"{pipe_link.stderr.read()}"
                 )
@@ -4248,7 +4248,10 @@ def link_device(device_name):
 
     pipe_link.wait()
     if pipe_link.returncode != 0:
-        sys.exit('Something went wrong while linking: {}'.format(pipe_link.stderr.read()))
+        sys.exit(
+                "ERROR: Encountered a problem while linking:\n"
+                f"{pipe_link.stderr.read()}"
+                )
 
     print('Receiving data for the first time...')
 
@@ -4260,7 +4263,10 @@ def link_device(device_name):
 
     pipe_receive.wait()
     if pipe_receive.returncode != 0:
-        sys.exit('Something went wrong receiving: {}'.format(pipe_receive.stderr.read()))
+        sys.exit(
+                "ERROR: Encountered a problem while receiving:\n"
+                f"{pipe_receive.stderr.read()}"
+                )
 
     print('Done.')
     sys.exit(0)
@@ -4276,15 +4282,13 @@ def detect_user_name():
             pass
 
     if not ulist:
-        print("Couldn't find any linked device.", file=sys.stderr)
-        sys.exit(1)
+        sys.exit("ERROR: Could not find any registered accounts. "
+                "Register a new one or link with an existing device (see README).")
     elif len(ulist) == 1:
         return ulist[0]
     else:
-        print("Use one of these:", file=sys.stderr)
-        for user in ulist:
-            print("\tscli --username=" + user, file=sys.stderr)
-        sys.exit(1)
+        sys.exit("ERROR: Multiple accounts found. Run one of:\n\t"
+                + "\n\t".join((f"scli --username={u}" for u in ulist)))
 
 
 def main():
@@ -4303,8 +4307,7 @@ def main():
             os.makedirs(SCLI_DATA_FOLDER)
         except OSError as exc:
             if not (exc.errno == errno.EEXIST and os.path.isdir(SCLI_DATA_FOLDER)):
-                print("Can't create data directory.", file=sys.stderr)
-                sys.exit(3)
+                sys.exit("ERROR: Could not create a directory in " + SCLI_DATA_FOLDER)
 
     cfg.set(args)
 
