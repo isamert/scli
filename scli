@@ -874,6 +874,8 @@ class SignalData:
         with open(self._file_path) as f:
             self._data = json.load(f)
 
+        logging.debug("signal-cli account: %s device", "linked" if self.is_linked_device else "master")
+
         profile_names = self._get_profile_names()
 
         indivs = []
@@ -947,6 +949,11 @@ class SignalData:
     @property
     def own_num(self):
         return self._data['username']
+
+    @property
+    def is_linked_device(self):
+        # Assuming master device must always get `deviceId == 1`
+        return self._data['deviceId'] != 1
 
 
 class Contact:
