@@ -17,7 +17,9 @@
 - Quoting a message ([#213](https://github.com/AsamK/signal-cli/issues/213))
 - Adding @-mentions in sent messages ([#584](https://github.com/AsamK/signal-cli/issues/584))
 - Voice calls ([#80](https://github.com/AsamK/signal-cli/issues/80))
-- Sending a "view once" or "expiring" messages.
+- Sending a "view once" or "expiring" messages ([#585](https://github.com/AsamK/signal-cli/issues/585)).
+
+See open [issues](https://github.com/isamert/scli/issues).
 
 # Installation
 ## Manual
