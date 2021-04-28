@@ -47,6 +47,7 @@ SIGNALCLI_DATA_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'data')
 SIGNALCLI_ATTACHMENT_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'attachments')
 
 SCLI_DATA_FOLDER = os.path.join(DATA_FOLDER, 'scli')
+SCLI_ATTACHMENT_FOLDER = os.path.join(SCLI_DATA_FOLDER, 'attachments')
 SCLI_HISTORY_FILE = os.path.join(SCLI_DATA_FOLDER, 'history')
 SCLI_CFG_FILE = os.path.join(CFG_FOLDER, 'sclirc')
 SCLI_LOG_FILE = os.path.join(SCLI_DATA_FOLDER, 'log')
@@ -398,16 +399,23 @@ class clip:
                     if mtype.startswith('image/'):
                         content = clip.xrun(mtype)
                         suffix = '.' + mtype.split('/')[1]
-                        tmp = tempfile.NamedTemporaryFile(
-                            mode='w+b',
-                            prefix=clip.tempfile_prefix,
-                            suffix=suffix,
-                            delete=False,
-                        )
-                        tmp.write(content)
-                        tmp.flush()
-                        tmp.close()
-                        return [tmp.name]
+                        if cfg.clipboard_keep_attachments:
+                            clip_file_path = os.path.join(
+                                SCLI_ATTACHMENT_FOLDER,
+                                f"clipboard_{datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}{suffix}"
+                            )
+                            clip_file = open(clip_file_path, 'w+b')
+                        else:
+                            clip_file = tempfile.NamedTemporaryFile(
+                                mode='w+b',
+                                prefix=clip.tempfile_prefix,
+                                suffix=suffix,
+                                delete=False,
+                            )
+                        clip_file.write(content)
+                        clip_file.flush()
+                        clip_file.close()
+                        return [clip_file.name]
                     elif mtype == 'text/uri-list':
                         content = clip.xrun_lines(mtype)
                         return [x.replace('file://', '') for x in content[1:]]
@@ -3961,6 +3969,13 @@ def make_arg_parser():
     )
 
     parser.add_argument(
+        '-K',
+        '--clipboard-keep-attachments',
+        action='store_true',
+        help=f'Don\'t remove the files created by `:attachClip`, instead, keep them to be able to re-open them later. This only works with default clipboard put command. Files are stored under {SCLI_ATTACHMENT_FOLDER}',
+    )
+
+    parser.add_argument(
         '-G',
         '--clipboard-get-command',
         help='Command used by `:attachClip` to get a list of files to send as attachments. Should return one absolute file path per line. If not set, `xclip` is used.',
@@ -4300,7 +4315,7 @@ def detect_user_name():
 
 def main():
     try:
-        os.makedirs(SCLI_DATA_FOLDER)
+        os.makedirs(SCLI_ATTACHMENT_FOLDER)
     except OSError as exc:
         if not (exc.errno == errno.EEXIST and os.path.isdir(SCLI_DATA_FOLDER)):
             sys.exit("ERROR: Could not create a directory in " + SCLI_DATA_FOLDER)
