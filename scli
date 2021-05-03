@@ -399,7 +399,7 @@ class clip:
                     if mtype.startswith('image/'):
                         content = clip.xrun(mtype)
                         suffix = '.' + mtype.split('/')[1]
-                        if cfg.clipboard_keep_attachments:
+                        if cfg.save_history:
                             clip_file_path = os.path.join(
                                 SCLI_ATTACHMENT_FOLDER,
                                 f"clipboard_{datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}{suffix}"
@@ -3966,13 +3966,6 @@ def make_arg_parser():
         '-e',
         '--editor-command',
         help='External text editor command. If not set, %(prog)s checks among `$VISUAL`, `$EDITOR`, `sensible-editor` etc.',
-    )
-
-    parser.add_argument(
-        '-K',
-        '--clipboard-keep-attachments',
-        action='store_true',
-        help=f'Don\'t remove the files created by `:attachClip`, instead, keep them to be able to re-open them later. This only works with default clipboard put command. Files are stored under {SCLI_ATTACHMENT_FOLDER}',
     )
 
     parser.add_argument(
