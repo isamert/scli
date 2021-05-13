@@ -2941,7 +2941,8 @@ class ChatWindow(urwid.Frame):
             memb_names = [memb.name_or_id for memb in contact.member_contacts]
             markup.append(' (')
             markup.extend(', '.join(memb_names))
-            markup.extend([', ', ('italic', 'You'), ')'])
+            markup.append(', ' if memb_names else 'only: ')
+            markup.extend([('italic', 'You'), ')'])
         self._title_widget.set_text(markup)
 
     def on_contact_selected(self, contact):
