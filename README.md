@@ -1,13 +1,13 @@
 # scli
 `scli` is a simple terminal user interface for [Signal](https://signal.org). It uses [signal-cli](https://github.com/AsamK/signal-cli) and [urwid](http://urwid.org/).
 
-# Features
+## Features
 
 - vim-like navigation (`j`, `k`, `g`, `G`, etc), command entry with `:`
 - optional emacs-like `readline` bindings for input
 - external `$EDITOR` support
 
-## Limitations
+### Limitations
 
 - Not yet supported by [signal-cli](https://github.com/AsamK/signal-cli/issues):
 	- *Sending* read receipts for received messages ([#231](https://github.com/AsamK/signal-cli/issues/231), [#305](https://github.com/AsamK/signal-cli/issues/305))
@@ -19,8 +19,14 @@
 - "View once" or "expiring" message properties are not honored.
 - See also: open [issues](https://github.com/isamert/scli/issues).
 
-# Installation
-## Manual
+## Installation
+### Automatic
+The following methods are supported by community and may be outdated.
+
+- Arch Linux: [AUR](https://aur.archlinux.org/packages/scli-git/)
+- FreeBSD: [FreshPorts](https://www.freshports.org/net-im/scli/)
+
+### Manual
 
 Clone the repo
 
@@ -30,7 +36,7 @@ git clone https://github.com/isamert/scli
 
 or download a [release](https://github.com/isamert/scli/releases).
 
-### Dependencies
+#### Dependencies
 
 - [`signal-cli`](https://github.com/AsamK/signal-cli) `>=v0.6.8`. (Latest tested: `v0.8.3`)
 
@@ -65,14 +71,7 @@ or download a [release](https://github.com/isamert/scli/releases).
 - [Python](https://www.python.org/downloads/) `>=3.7`
 
 
-## Automatic
-The following methods are supported by community and may be outdated.
-
-- Arch Linux: [AUR](https://aur.archlinux.org/packages/scli-git/)
-- FreeBSD: [FreshPorts](https://www.freshports.org/net-im/scli/)
-
-
-## Registering or linking your device
+### Registering or linking your device
 
 Before running `scli`, `signal-cli` needs to be registered with the signal servers. You can either register a [new device](https://github.com/AsamK/signal-cli/wiki/Quickstart#user-content-set-up-an-account), or [link](https://github.com/AsamK/signal-cli/wiki/Linking-other-devices-(Provisioning)) `signal-cli` with an already registered device (e.g. your phone).
 
@@ -80,7 +79,7 @@ Linking can be done interactively with `scli link`, see the [next section](#link
 
 For more information, see: `signal-cli` [usage](https://github.com/AsamK/signal-cli#Usage), [man page](https://github.com/AsamK/signal-cli/blob/master/man/signal-cli.1.adoc), and [wiki](https://github.com/AsamK/signal-cli/wiki).
 
-### Linking with `scli link`
+#### Linking with `scli link`
 
 Linking with an existing account can be done interactively with
 
@@ -92,7 +91,7 @@ and following instructions on the screen. The `DEVICE_NAME` is optional, `scli` 
 
 This requires [pyqrcode](https://github.com/mnooner256/pyqrcode) package (available on [PyPI](https://pypi.org/project/PyQRCode/) and other [repositories](https://repology.org/project/python:pyqrcode/versions))
 
-### Verifying setup
+#### Verifying setup
 
 After registering or linking, verify that the following commands work:
 
@@ -117,10 +116,10 @@ scli
 if you have put it on your system's `$PATH`, or specify the full `/path/to/executable/scli`.
 
 
-# Usage
+## Usage
 A simple two-paned interface is provided. Left pane contains the contact list and right pane contains current conversation. You can switch focus between panes with `Tab` (or `Shift + Tab`). Hitting tab for the first time focuses the conversation, hitting it again focuses to input line. So the focus order is `Contacts -> Conversation -> Input`. You can use `Shift + Tab` for cycling backwards.
 
-## Keys
+### Keys
 - Use `j`/`k` to go down/up in contacts list or in messages.
 - Hitting `enter` on a contact opens the conversation and focuses to input line.
 - Hitting `l` on a contact only opens the conversation.
@@ -134,7 +133,7 @@ A simple two-paned interface is provided. Left pane contains the contact list an
 - `Alt+Enter` inserts a newline in message composing input field.
 - `Alt+J` / `Alt+K` opens next / previous conversation.
 
-## Commands
+### Commands
 There are some basic commands that you can use. Hit `:` to enter command mode (or simply focus the input line and type `:`).
 
 - `:edit` or `:e` lets you edit your message in your `$EDITOR`.
@@ -159,32 +158,32 @@ Examples:
 ```
 **Note**: Commands are case insensitive, `:quit` and `:qUiT` do the same thing.
 
-## Searching
+### Searching
 There is a built-in search feature. Simply hit `/` while you are on the chat window (or focus the input line then type `/`) and start typing, the chat will be filtered out based on your input. You can focus any of the search results and hit `enter` (or `l`) to open that result in full conversation.
 
 For searching through contacts, you need to hit `/` while you are on the contacts window and start typing, contacts will be filtered out while you are typing. Hit `enter` to focus the results. Hitting `Esc` will clear the search.
 
-## Configuration
+### Configuration
 There are some simple configuration options. You can either pass them as command-line arguments or add them to your configuration file `~/.config/sclirc`. Run `scli --help` to see all options.
 
 Configuration file syntax is also pretty easy. Lines starting with `#` and empty lines are ignored, other lines are `key = value` pairs. Optional arguments (flags) like `--debug`, can be enabled in config file with any of: `true`, `t`, `yes`, `y` (with any capitalization, case insensitive).
 
-### Example
+#### Example
 ```sh
 scli -w 80 --enable-notifications
 ```
 Configuration file equivalent of this command is:
 ```ini
-# Long option forms are used in config file. (w = 80 is not valid.)
+## Long option forms are used in config file. (w = 80 is not valid.)
 wrap-at = 80
 enable-notifications = true
 ```
 
-### History
+#### History
 
 Conversations history can be enabled with `--save-history` or `-s` flag. If enabled, the file is saved in plain text (to `~/.local/share/scli/history` by default).
 
-### Colors
+#### Colors
 
 Messages' text can be colorized using the `--color` option:
 
@@ -206,10 +205,10 @@ To see the available colors rendered in your terminal, run [palette_test.py](htt
 The single quotes in `--color='...'` above are just shell-escaping, and not needed in `sclirc`.
 
 
-# Similar projects
+## Similar projects
 See [TUI clients](https://github.com/AsamK/signal-cli/wiki#user-content-terminal--tui-clients) on signal-cli wiki.
 
-# Screenshots
+## Screenshots
 ![scli](screenshots/1.png?raw=true)
 ![scli](screenshots/2.png?raw=true)
 ![scli](screenshots/3.png?raw=true)
