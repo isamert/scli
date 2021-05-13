@@ -939,6 +939,10 @@ class SignalData:
 
         ret = []
         for recip in recipients_data['recipients']:
+            # Skip contact if the number is `null`
+            if not recip['number']:
+                continue
+
             # Flatten contact's data dictionary to match signal-cli data file v1 structure
             try:
                 for key, val in recip['contact'].items():
@@ -968,6 +972,8 @@ class SignalData:
 
         indivs = []
         for cont in self._data['contactStore']['contacts']:
+            if not cont['number']:
+                continue
             cont['profile_name'] = profile_names.get(get_contact_id(cont))
                 # snake_case in key name, so it should never clash with signal-cli's own key names, in camelCase.
             try:
