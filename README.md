@@ -9,17 +9,15 @@
 
 ## Limitations
 
+- Not yet supported by [signal-cli](https://github.com/AsamK/signal-cli/issues):
+	- *Sending* read receipts for received messages ([#231](https://github.com/AsamK/signal-cli/issues/231), [#305](https://github.com/AsamK/signal-cli/issues/305))
+	- Quoting a message ([#213](https://github.com/AsamK/signal-cli/issues/213))
+	- Adding @-mentions in sent messages ([#584](https://github.com/AsamK/signal-cli/issues/584))
+	- Voice calls ([#80](https://github.com/AsamK/signal-cli/issues/80))
+	- Sending a "view once" or "expiring" messages ([#585](https://github.com/AsamK/signal-cli/issues/585)).
+
 - "View once" or "expiring" message properties are not honored.
-
-#### Not yet supported by signal-cli:
-
-- *Sending* read receipts for received messages ([#231](https://github.com/AsamK/signal-cli/issues/231), [#305](https://github.com/AsamK/signal-cli/issues/305))
-- Quoting a message ([#213](https://github.com/AsamK/signal-cli/issues/213))
-- Adding @-mentions in sent messages ([#584](https://github.com/AsamK/signal-cli/issues/584))
-- Voice calls ([#80](https://github.com/AsamK/signal-cli/issues/80))
-- Sending a "view once" or "expiring" messages ([#585](https://github.com/AsamK/signal-cli/issues/585)).
-
-See open [issues](https://github.com/isamert/scli/issues).
+- See also: open [issues](https://github.com/isamert/scli/issues).
 
 # Installation
 ## Manual
@@ -34,7 +32,7 @@ or download a [release](https://github.com/isamert/scli/releases).
 
 ### Dependencies
 
-- [`signal-cli`](https://github.com/AsamK/signal-cli) `>=v0.6.8`. (Latest tested `v0.8.3`)
+- [`signal-cli`](https://github.com/AsamK/signal-cli) `>=v0.6.8`. (Latest tested: `v0.8.3`)
 
 	Download and unpack a [release](https://github.com/AsamK/signal-cli/releases), and place the `signal-cli` executable somewhere on the `$PATH`.
 
@@ -73,11 +71,28 @@ The following methods are supported by community and may be outdated.
 - Arch Linux: [AUR](https://aur.archlinux.org/packages/scli-git/)
 - FreeBSD: [FreshPorts](https://www.freshports.org/net-im/scli/)
 
+
 ## Registering or linking your device
 
 Before running `scli`, `signal-cli` needs to be registered with the signal servers. You can either register a [new device](https://github.com/AsamK/signal-cli/wiki/Quickstart#user-content-set-up-an-account), or [link](https://github.com/AsamK/signal-cli/wiki/Linking-other-devices-(Provisioning)) `signal-cli` with an already registered device (e.g. your phone).
-Linking can also be done with `scli link`, see below.
-See also: `signal-cli` [usage](https://github.com/AsamK/signal-cli#Usage), [man page](https://github.com/AsamK/signal-cli/blob/master/man/signal-cli.1.adoc), and [wiki](https://github.com/AsamK/signal-cli/wiki).
+
+Linking can be done interactively with `scli link`, see the [next section](#linking-with-scli-link).
+
+For more information, see: `signal-cli` [usage](https://github.com/AsamK/signal-cli#Usage), [man page](https://github.com/AsamK/signal-cli/blob/master/man/signal-cli.1.adoc), and [wiki](https://github.com/AsamK/signal-cli/wiki).
+
+### Linking with `scli link`
+
+Linking with an existing account can be done interactively with
+
+```
+scli link [--name DEVICE_NAME]
+```
+
+and following instructions on the screen. The `DEVICE_NAME` is optional, `scli` is used by default.
+
+This requires [pyqrcode](https://github.com/mnooner256/pyqrcode) package (available on [PyPI](https://pypi.org/project/PyQRCode/) and other [repositories](https://repology.org/project/python:pyqrcode/versions))
+
+### Verifying setup
 
 After registering or linking, verify that the following commands work:
 
@@ -100,19 +115,6 @@ scli
 ```
 
 if you have put it on your system's `$PATH`, or specify the full `/path/to/executable/scli`.
-
-
-### Linking with `scli link`
-
-Linking with an existing account can be done interactively with
-
-```
-scli link [--name DEVICE_NAME]
-```
-
-and following instructions on the screen. The `DEVICE_NAME` is optional, `scli` is used by default.
-
-This requires [pyqrcode](https://github.com/mnooner256/pyqrcode) package (available on [PyPI](https://pypi.org/project/PyQRCode/) and other [repositories](https://repology.org/project/python:pyqrcode/versions))
 
 
 # Usage
