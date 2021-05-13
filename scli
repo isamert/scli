@@ -884,17 +884,10 @@ class SignalData:
 
         logging.debug("signal-cli account: %s device", "linked" if self.is_linked_device else "master")
 
-        profile_names = self._get_profile_names()
-
-        indivs = []
-        for cont in self._data['contactStore']['contacts']:
-            cont['profile_name'] = profile_names.get(get_contact_id(cont))
-                # snake_case in key name, so it should never clash with signal-cli's own key names, in camelCase.
-            try:
-                cont['name'] = strip_non_printable_chars(cont['name'])
-            except (KeyError, AttributeError):
-                pass
-            indivs.append(cont)
+        try:
+            indivs = self._get_recipients()
+        except FileNotFoundError:
+            indivs = self._get_recipients_v1()
 
         groups = []
         for g in self._data['groupStore']['groups']:
@@ -939,7 +932,53 @@ class SignalData:
         grp_name = cache[2:name_end].decode()
         return grp_name
 
-    def _get_profile_names(self):
+    def _get_recipients(self):
+        recipients_store_file = os.path.join(self._file_path + '.d', 'recipients-store')
+        with open(recipients_store_file) as f:
+            recipients_data = json.load(f)
+
+        ret = []
+        for recip in recipients_data['recipients']:
+            # Flatten contact's data dictionary to match signal-cli data file v1 structure
+            try:
+                for key, val in recip['contact'].items():
+                    recip[key] = val
+            except (KeyError, AttributeError):
+                pass
+
+            # Strip bidi chars (see #115)
+            try:
+                recip['name'] = strip_non_printable_chars(recip['name'])
+            except (KeyError, AttributeError):
+                pass
+
+            # Add profile name
+            profile_name = ''
+            for n in ('givenName', 'familyName'):
+                name_part = get_nested(recip, 'profile', n)
+                if name_part:
+                    profile_name += name_part
+            recip['profile_name'] = profile_name or None
+
+            ret.append(recip)
+        return ret
+
+    def _get_recipients_v1(self):
+        profile_names = self._get_profile_names_v1()
+
+        indivs = []
+        for cont in self._data['contactStore']['contacts']:
+            cont['profile_name'] = profile_names.get(get_contact_id(cont))
+                # snake_case in key name, so it should never clash with signal-cli's own key names, in camelCase.
+            try:
+                cont['name'] = strip_non_printable_chars(cont['name'])
+            except (KeyError, AttributeError):
+                pass
+            indivs.append(cont)
+
+        return indivs
+
+    def _get_profile_names_v1(self):
         profile_names = {}
         try:
             profiles = self._data['profileStore']['profiles']
