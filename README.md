@@ -144,8 +144,9 @@ There are some basic commands that you can use. Hit `:` to enter command mode (o
 - `:toggleContactsSort` or `:s` toggles between sorting contacts alphabetically and by the most recent message.
 - `:toggleAutohide` or `:h` hides the contacts pane when it's not in focus.
 - `:addContact NUMBER [NAME]` adds a new contact to the contact list. Added contacts' names are local (not synced with signal servers).  
-	Note: For linked accounts (e.g. with a master signal app on the phone) the local changes to contacts will be overwritten on periodic syncs with the master device; see [#119](https://github.com/isamert/scli/issues/119).
-- `:renameContact [ID] NEW_NAME` renames contact `ID` to `NEW_NAME`. `ID` can be either contact's phone number or contact's name. If `ID` is skipped, the contact from the currently opened conversation is used. If `ID` is a name that contains spaces, they need to be escaped or the whole name put in quotes. `NEW_NAME` can contain spaces without quotes or escaping. 'Contact' can be a group as well as an individual. Individual contacts' renames are local (not synced with the signal servers; see note in `:addContact` above).
+	_Note_: This command works only with signal-cli accounts registered as "master" (_not_ those linked with the phone app).
+- `:renameContact [ID] NEW_NAME` renames contact `ID` to `NEW_NAME`. `ID` can be either contact's phone number or contact's name. If `ID` is skipped, the contact from the currently opened conversation is used. If `ID` is a name that contains spaces, they need to be escaped or the whole name put in quotes. `NEW_NAME` can contain spaces without quotes or escaping. 'Contact' can be a group as well as an individual. Individual contacts' renames are local (not synced with the signal servers).  
+	See _Note_ for `:addContact` command above.
 - `:reload` re-reads the `signal-cli`s data file. (Updates contacts list etc.)
 - `:quit` or `:q` quits the program.
 
