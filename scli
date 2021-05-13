@@ -1195,7 +1195,7 @@ class Chat(urwid.MonitoredList):
             return (
                     msg.timestamp == timestamp
                     and
-                    sender_num is None or msg.sender_num == sender_num
+                    (sender_num is None or msg.sender_num == sender_num)
                     )
 
         msg = self[-1]
