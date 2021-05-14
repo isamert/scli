@@ -1500,8 +1500,6 @@ class DeliveryStatus:
             return
         if timestamp_adj is not None:
             self._adjust_timestamp(timestamp, timestamp_adj)
-            timestamp = timestamp_adj
-        self._process_buffered_receipts(timestamp)
 
     def _adjust_timestamp(self, timestamp_orig, timestamp_adj):
         self._status_map[timestamp_adj] = self._status_map.pop(timestamp_orig)
@@ -1547,7 +1545,7 @@ class DeliveryStatus:
         buffered_contacts = getattr(buffered, status)
         buffered_contacts.add(contact)
 
-    def _process_buffered_receipts(self, timestamp):
+    def process_buffered_receipts(self, timestamp):
         buffered = self._buffered.get(timestamp)
         if buffered is None:
             return
@@ -3801,6 +3799,9 @@ class Coordinate:
             chat = self._chats_data.chats.get_chat_for_envelope(envelope)
             chat.adjust_timestamp(msg, timestamp_adj)
             self._ui.chat.try_set_focus(-1)
+            timestamp = timestamp_adj
+
+        self._chats_data.delivery_status.process_buffered_receipts(timestamp)
 
     def _on_receive_message(self, envelope):
         logging.info('MESSAGE: %s', envelope)
