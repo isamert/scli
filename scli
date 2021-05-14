@@ -1242,23 +1242,19 @@ class Chat(urwid.MonitoredList):
 
     def adjust_timestamp(self, msg, timestamp_adj):
         """Adjust message's timestamp, ensuring that Chat remains sorted"""
+        index = self.index(msg)
         msg.timestamp = timestamp_adj
 
         # Ensure that Chat remains sorted
         # This should rarely be necessary, as signal-cli's timestamp adjustments are small enough (~50ms) to not modify the messages' order.
-        index = self.index(msg)
         try:
             if self[index-1].timestamp <= msg.timestamp <= self[index+1].timestamp:
                 return
         except IndexError:
             # The `msg` is either the last or the only message in Chat.
-                # In the former case, there's no need to move the msg in chat, because the timestamp_adj seems to always be greater than msg.timestamp original.
+                # In the former case, there's no need to move the msg in chat: if its timestamp moved forwards, the msg is still the latest; if it moved backwards far enough to now come before the previous message, the first clause of the `if` test above would fail, and the `IndexError` would not be raised.
             return
-        logging.debug(
-                "Chat: moving msg to maintain sorted history.\n"
-                "index = %s, timestamps = \n%s\n%s\n%s",
-                index, self[index-1].timestamp, msg.timestamp, self[index+1].timestamp
-                )
+        logging.debug("Chat: moving msg to maintain sorted history.")
         del self[index]
         self.add(msg)
 
