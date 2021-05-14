@@ -2859,7 +2859,12 @@ class MessageWidgetsCache:
         # This method is not be needed if self._cache is a weakref dictionary.
         key = self._hash(msg)
         key_adj = hash((msg.sender_num, timestamp_adj))
-        self._cache[key_adj] = self._cache.pop(key)
+        try:
+            # Theoretically, it's possible to get a race condition here if signal-cli returns adjusted timestamp before the msg with un-adjusted timestamp is added to the _cache.
+            self._cache[key_adj] = self._cache.pop(key)
+        except KeyError:
+            pass
+
 
 
 class LazyEvalMessageListWalker(LazyEvalListWalker):
