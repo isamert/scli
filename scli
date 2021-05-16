@@ -890,7 +890,7 @@ class SignalData:
             indivs = self._get_recipients_v1()
 
         groups = []
-        for g in self._data['groupStore']['groups']:
+        for g in get_nested(self._data, 'groupStore', 'groups', default=()):
             if is_group_v2(g):
                 group_id = g['groupId']
                 g['name'] = self._get_group_v2_cache_name(group_id) or group_id[:10] + '[..]'
