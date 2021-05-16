@@ -3767,11 +3767,13 @@ class Coordinate:
         self._chats_data.typing_indicators.remove_alarm = self._ui.loop.remove_alarm
 
     def _on_sending_message(self, envelope):
+        group_members = None
         if is_envelope_group_message(envelope):
             group_id = get_envelope_contact_id(envelope)
-            group_members = self._contacts.get_by_id(group_id).members_ids
-        else:
-            group_members = None
+            group = self._contacts.get_by_id(group_id)
+            if group is not None:
+                # Can happen if `group` is absent from the `groupStore` (for whatever reason), and we get a sync-ed message sent to `group` from another device. See #126.
+                group_members = group.members_ids
         self._chats_data.delivery_status.on_sending_message(envelope, group_members)
         msg = self._chats_data.chats.add_envelope(envelope)
         self._ui.chat.try_set_focus(-1)
