@@ -3799,9 +3799,8 @@ class Coordinate:
             chat = self._chats_data.chats.get_chat_for_envelope(envelope)
             chat.adjust_timestamp(msg, timestamp_adj)
             self._ui.chat.try_set_focus(-1)
-            timestamp = timestamp_adj
 
-        self._chats_data.delivery_status.process_buffered_receipts(timestamp)
+        self._chats_data.delivery_status.process_buffered_receipts(msg.timestamp)
 
     def _on_receive_message(self, envelope):
         logging.info('MESSAGE: %s', envelope)
