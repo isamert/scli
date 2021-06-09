@@ -1186,7 +1186,12 @@ class Chat(urwid.MonitoredList):
 
         Since Chat should always be sorted, a member object can be located faster using bisect."""
 
-        if self[-1] == msg:
+        try:
+            msg_last = self[-1]
+        except IndexError:
+            # Return "message-not-found" when chat history is blank.
+            return ValueError
+        if msg_last == msg:
             # First check the last msg before doing bisect_left, as bisect starts in the middle. See also comment in self.add()
             return len(self) - 1
         index = bisect.bisect_left(self, msg)
@@ -1204,7 +1209,11 @@ class Chat(urwid.MonitoredList):
                     (sender_num is None or msg.sender_num == sender_num)
                     )
 
-        msg = self[-1]
+        try:
+            msg = self[-1]
+        except IndexError:
+            # Return "message-not-found" when chat history is blank.
+            raise ValueError
         if match_test(msg):
             # First check the last msg before doing bisect_left, as bisect starts in the middle. See also comment in self.add()
             return len(self) - 1
