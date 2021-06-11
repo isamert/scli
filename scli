@@ -2136,10 +2136,12 @@ class ContactWidget(FocusableText):
     SEND_FAILED_MARKUP = '✖'
     NOTE_TO_SELF_MARKUP = ('italic', ' (Self)')
     GROUP_MARKUP = ('italic', ' [GRP]')
+    HIGHLIGHT_MARKUP_ATTR = 'bold'
 
     def __init__(self, contact):
         self.contact = contact
         self._fail_mark_set = False
+        self._highlight = False
         self._unread_count = 0
         self._name_markup = self._get_name_markup()
         super().__init__(self._name_markup)
@@ -2185,6 +2187,19 @@ class ContactWidget(FocusableText):
         self._fail_mark_set = true_false
         fail_markup = [self.SEND_FAILED_MARKUP, " "] if self._fail_mark_set else [""]
         self.set_text(fail_markup + self._name_markup)
+
+    @property
+    def highlight(self):
+        return self._highlight
+
+    @highlight.setter
+    def highlight(self, new_val):
+        if self._highlight == new_val:
+            return
+        self._highlight = new_val
+        highlight_attr = self.HIGHLIGHT_MARKUP_ATTR if self._highlight else None
+        self.set_text((highlight_attr, self._name_markup))
+            # Note: this removes any additional markup the widget had (failed-send, unread count). But that's OK currently, as it's used only on switching between contacts, when those additional things should get cleared anyway.
 
 
 class PartitionedContactsListWalker(urwid.SimpleListWalker):
@@ -2310,6 +2325,15 @@ class ContactsListWidget(ListBoxPlus):
         self.move_item(w, pos_new, pos_in_prefilter)
         self.focus_position = pos_new
 
+    def _highlight_selected_widget(self, selected_w):
+        selected_w.highlight = True
+        # Remove highlighting from the "current" (not for long) contact's widget.
+        current_contact = self._chats_data.current_contact
+        if current_contact is None or current_contact is selected_w.contact:
+            return
+        current_contact_w = self._contact_widgets_map[current_contact.id]
+        current_contact_w.highlight = False
+
     def _select_focused_contact(self, focus_widget=None):
         # The `focus_widget` parameter is passed through from caller to emit_signal. It specifies whether the focus should be set on `input`, `chat` or `contacts` widgets after switching to a new contact.
         focused_contact_w = self.focus
@@ -2321,6 +2345,7 @@ class ContactsListWidget(ListBoxPlus):
             return
         contact = focused_contact_w.contact
         focused_contact_w.fail_mark_set = False
+        self._highlight_selected_widget(focused_contact_w)
         urwid.emit_signal(self, 'contact_selected', contact, focus_widget)
 
     def select_next_contact(self, reverse=False):
