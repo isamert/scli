@@ -2288,12 +2288,9 @@ class ContactsListWidget(ListBoxPlus):
         # Show a "send failed" symbol next to the contact, but not if it's the "current" contact (whose chat is opened).
         if status != 'send_failed':
             return
-        focused_contact_w = self.focus
-        if cfg.partition_contacts and not isinstance(focused_contact_w, ContactWidget):
-            return
-        contact = focused_contact_w.contact
+        current_contact = self._chats_data.current_contact
         envelope_contact_id = get_envelope_contact_id(envelope)
-        if contact.id == envelope_contact_id:
+        if current_contact.id == envelope_contact_id:
             return
         contact_widget = self._contact_widgets_map[envelope_contact_id]
         contact_widget.fail_mark_set = True
