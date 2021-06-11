@@ -1188,9 +1188,9 @@ class Chat(urwid.MonitoredList):
 
         try:
             msg_last = self[-1]
-        except IndexError:
+        except IndexError as exc:
             # Return "message-not-found" when chat history is blank.
-            return ValueError
+            raise ValueError from exc
         if msg_last == msg:
             # First check the last msg before doing bisect_left, as bisect starts in the middle. See also comment in self.add()
             return len(self) - 1
@@ -1211,9 +1211,9 @@ class Chat(urwid.MonitoredList):
 
         try:
             msg = self[-1]
-        except IndexError:
+        except IndexError as exc:
             # Return "message-not-found" when chat history is blank.
-            raise ValueError
+            raise ValueError from exc
         if match_test(msg):
             # First check the last msg before doing bisect_left, as bisect starts in the middle. See also comment in self.add()
             return len(self) - 1
@@ -2867,7 +2867,6 @@ class MessageWidgetsCache:
             self._cache[key_adj] = self._cache.pop(key)
         except KeyError:
             pass
-
 
 
 class LazyEvalMessageListWalker(LazyEvalListWalker):
