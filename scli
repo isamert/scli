@@ -2324,11 +2324,17 @@ class ContactsListWidget(ListBoxPlus):
         urwid.emit_signal(self, 'contact_selected', contact, focus_widget)
 
     def select_next_contact(self, reverse=False):
+        current_contact = self._chats_data.current_contact
+        if current_contact == self.focus.contact or current_contact is None:
+            curr_position = self.focus_position
+        else:
+            contact_w = self._contact_widgets_map[current_contact.id]
+            curr_position = self.contents.index(contact_w)
         try:
             focus_position_new = (
-                    self.body.next_position(self.focus_position)
+                    self.body.next_position(curr_position)
                     if not reverse else
-                    self.body.prev_position(self.focus_position)
+                    self.body.prev_position(curr_position)
                     )
         except IndexError:
             return
