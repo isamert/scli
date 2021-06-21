@@ -2325,8 +2325,7 @@ class ContactsListWidget(ListBoxPlus):
         self.move_item(w, pos_new, pos_in_prefilter)
         self.focus_position = pos_new
 
-    def _highlight_selected_widget(self, selected_w):
-        selected_w.highlight = True
+    def _unhighlight_current_contact_widget(self, selected_w):
         # Remove highlighting from the "current" (not for long) contact's widget.
         current_contact = self._chats_data.current_contact
         if current_contact is None or current_contact is selected_w.contact:
@@ -2345,8 +2344,9 @@ class ContactsListWidget(ListBoxPlus):
             return
         contact = focused_contact_w.contact
         focused_contact_w.fail_mark_set = False
-        self._highlight_selected_widget(focused_contact_w)
+        self._unhighlight_current_contact_widget(focused_contact_w)
         urwid.emit_signal(self, 'contact_selected', contact, focus_widget)
+        focused_contact_w.highlight = True
 
     def select_next_contact(self, reverse=False):
         current_contact = self._chats_data.current_contact
