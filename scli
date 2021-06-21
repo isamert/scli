@@ -2280,6 +2280,10 @@ class ContactsListWidget(ListBoxPlus):
             self.contents = widgets
             self._contact_widgets_map = {w.contact.id: w for w in group_contact_widgets + indiv_contact_widgets}
         self._set_all_ws_unread_counts()
+        try:
+            self._get_current_contact_widget().highlight = True
+        except AttributeError:  # current_contact is None
+            pass
         self.try_set_focus(0)
 
     def _set_all_ws_unread_counts(self):
@@ -2325,13 +2329,18 @@ class ContactsListWidget(ListBoxPlus):
         self.move_item(w, pos_new, pos_in_prefilter)
         self.focus_position = pos_new
 
-    def _unhighlight_current_contact_widget(self, selected_w):
-        # Remove highlighting from the "current" (not for long) contact's widget.
+    def _get_current_contact_widget(self):
         current_contact = self._chats_data.current_contact
-        if current_contact is None or current_contact is selected_w.contact:
-            return
-        current_contact_w = self._contact_widgets_map[current_contact.id]
-        current_contact_w.highlight = False
+        if current_contact is None:
+            return None
+        return self._contact_widgets_map[current_contact.id]
+
+    def _unhighlight_current_contact_widget(self):
+        # Remove highlighting from the "current" (not for long) contact's widget.
+        try:
+            self._get_current_contact_widget().highlight = False
+        except AttributeError:  # current_contact is None
+            pass
 
     def _select_focused_contact(self, focus_widget=None):
         # The `focus_widget` parameter is passed through from caller to emit_signal. It specifies whether the focus should be set on `input`, `chat` or `contacts` widgets after switching to a new contact.
@@ -2344,7 +2353,7 @@ class ContactsListWidget(ListBoxPlus):
             return
         contact = focused_contact_w.contact
         focused_contact_w.fail_mark_set = False
-        self._unhighlight_current_contact_widget(focused_contact_w)
+        self._unhighlight_current_contact_widget()
         urwid.emit_signal(self, 'contact_selected', contact, focus_widget)
         focused_contact_w.highlight = True
 
