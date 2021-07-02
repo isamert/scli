@@ -893,9 +893,11 @@ class SignalData:
         for g in get_nested(self._data, 'groupStore', 'groups', default=()):
             if is_group_v2(g):
                 group_id = g['groupId']
-                g['name'] = self._get_group_v2_cache_name(group_id) or group_id[:10] + '[..]'
+                cached_name = self._get_group_v2_cache_name(group_id)
+                g['name'] = cached_name or group_id[:10] + '[..]'
             if g.get('archived') or not g.get('name'):
                 continue
+            g['name'] = strip_non_printable_chars(g['name'])
             groups.append(g)
 
         return indivs, groups
@@ -3675,7 +3677,9 @@ class Actions:
                     continue
                 self._daemon.get_group_name(
                         group.id,
-                        callback=lambda name, group=group: group.update_record({'name': name})
+                        callback=lambda name, group=group: group.update_record(
+                            {'name': strip_non_printable_chars(name)}
+                            )
                         )
                 self._daemon.get_group_members(
                         group.id,
