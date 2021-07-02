@@ -661,6 +661,8 @@ class Daemon(AsyncProc):
             self.callbacks['call_message'](envelope)
         elif get_nested(envelope, 'syncMessage', 'type') in ('CONTACTS_SYNC', 'GROUPS_SYNC'):
             self.callbacks['contacts_sync']()
+        elif get_envelope_data_val(envelope, 'groupInfo', 'type') == 'UPDATE':
+            self.callbacks['contacts_sync']()
         elif get_envelope_remote_delete(envelope):
             self.callbacks['remote_delete'](envelope)
         else:
