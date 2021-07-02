@@ -3003,7 +3003,7 @@ class ChatWindow(urwid.Frame):
     def focus_widget_name(self, widget_name):
         self.focus_position = self._focusable_widgets[widget_name]
 
-    def _set_title(self, contact):
+    def set_title(self, contact):
         name = contact.name_or_id
         markup = [('bold', name)]
         if not contact.is_group:
@@ -3019,7 +3019,7 @@ class ChatWindow(urwid.Frame):
         self._title_widget.set_text(markup)
 
     def on_contact_selected(self, contact):
-        self._set_title(contact)
+        self.set_title(contact)
         self.chat_view.try_set_focus(-1)
 
     def keypress(self, size, key):
@@ -3445,7 +3445,18 @@ class Actions:
         if self._daemon.is_dbus_service_running:
             self.update_groups_async()
         else:
-            self._urwid_ui.contacts.update()
+            self._update_contacts_ui()
+                # _update_contacts_ui() is included in update_groups_async() callback because it needs to run _after_ groups are updated.
+
+    def _update_contacts_ui(self):
+        self._urwid_ui.contacts.update()
+        # Updating the title text in chat widget:
+        try:
+            current_contact = self._contacts.map[self._chats_data.current_contact.id]
+                # Need to re-obtain the contact object, since the one in _chats_data now points to an outdated object
+        except (AttributeError, KeyError):
+            return
+        self._urwid_ui.main_w.chat_w.set_title(current_contact)
 
     def set_status_line(self, text):
         self._urwid_ui.main_w.status_line.set_text(text)
@@ -3652,7 +3663,7 @@ class Actions:
     def update_groups_async(self):
         def on_groups_updated():
             self._contacts.set_groups_membership()
-            self._urwid_ui.contacts.update()
+            self._update_contacts_ui()
         with self._daemon.callback_finally(on_groups_updated):
             for group in self._contacts.groups:
                 self._daemon.get_group_name(
