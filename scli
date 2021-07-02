@@ -230,23 +230,6 @@ def get_contact_id(contact_dict):
     return contact_dict.get('number') or contact_dict.get('groupId')
 
 
-def get_group_members_ids(members, exclude=None):
-    ret = set()
-    if not members:
-        # For v2 groups before their members have been populated
-        return ret
-    if exclude is None:
-        exclude = []
-    for m in members:
-        try:
-            phone_num = m['number']
-        except TypeError:
-            phone_num = m
-        if phone_num not in exclude:
-            ret.add(phone_num)
-    return ret
-
-
 def is_contact_group(contact_dict):
     return 'groupId' in contact_dict
 
@@ -820,12 +803,12 @@ class Daemon(AsyncProc):
 
     def get_group_members(self, group_id, callback, *cb_args, **cb_kwargs):
         def proc_callback(proc):
-            members = []
+            members_ids = set()
             for line in proc.output.split('\n')[2:-1]:
                 # Ad hoc parsing of `dbus-send` output
-                num = line[14:-1]
-                members.append({"number": num})
-            callback(members, *cb_args, **cb_kwargs)
+                phone_num = line[14:-1]
+                members_ids.add(phone_num)
+            callback(members_ids, *cb_args, **cb_kwargs)
         args = [
                 "org.asamk.Signal.getGroupMembers",
                 "array:byte:" + b64_to_bytearray(group_id)
@@ -1056,11 +1039,10 @@ class Contacts:
         self.indivs = set(Contact(c) for c in indivs_dicts)
         self.groups = set(Contact(g) for g in groups_dicts)
         self.map = {c.id: c for c in self.indivs | self.groups}
-        self.set_groups_membership()
 
     def set_groups_membership(self):
         for group in self.groups:
-            group.members_ids = get_group_members_ids(group.members, exclude=[self._sigdata.own_num])
+            group.members_ids.discard(self._sigdata.own_num)
             group.member_contacts = self._get_group_members(group)
                 # Naming: group.members == group._record['members'] (from signal-cli data)
 
@@ -3461,7 +3443,7 @@ class Actions:
     def reload(self):
         self._contacts.reload()
         if self._daemon.is_dbus_service_running:
-            self.update_v2_groups_async()
+            self.update_groups_async()
         else:
             self._urwid_ui.contacts.update()
 
@@ -3667,14 +3649,12 @@ class Actions:
         attachments = get_envelope_attachments(envelope)
         self._daemon.send_message(contact_id, message, attachments)
 
-    def update_v2_groups_async(self):
-        def on_v2_groups_updated():
+    def update_groups_async(self):
+        def on_groups_updated():
             self._contacts.set_groups_membership()
             self._urwid_ui.contacts.update()
-        with self._daemon.callback_finally(on_v2_groups_updated):
+        with self._daemon.callback_finally(on_groups_updated):
             for group in self._contacts.groups:
-                if not group.is_group_v2:
-                    continue
                 self._daemon.get_group_name(
                         group.id,
                         callback=lambda name, group=group: group.update_record(
@@ -3683,7 +3663,9 @@ class Actions:
                         )
                 self._daemon.get_group_members(
                         group.id,
-                        callback=lambda members, group=group: group.update_record({'members': members})
+                        callback=lambda members_ids, group=group: setattr(
+                            group, 'members_ids', members_ids
+                            )
                         )
 
     def show_new_msg_notifications(self, msg):
@@ -3925,7 +3907,7 @@ class Coordinate:
         def clear_status_line(*_args):
             self._actions.set_status_line("")
         self._ui.loop.set_alarm_in(2, clear_status_line)
-        self._actions.update_v2_groups_async()
+        self._actions.update_groups_async()
         self.daemon.get_signal_cli_version(callback=logging.info)
 
     def _on_contact_selected(self, contact, focus_widget):
