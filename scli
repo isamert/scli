@@ -3863,8 +3863,10 @@ class Coordinate:
         logging.info("Message from unknown contact: %s", envelope)
         self._actions.reload()
         contact_id = get_envelope_contact_id(envelope)
-        if contact_id in self._contacts.map:
+        try:
             return self._contacts.map[contact_id]
+        except KeyError:
+            pass
         logging.error("Message from unknown contact: %s", envelope)
         sender_num = get_envelope_sender_id(envelope)
         msg_text = get_envelope_msg(envelope)
