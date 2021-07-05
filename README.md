@@ -22,8 +22,7 @@
 ### Automatic
 The following methods are supported by community and may be outdated.
 
-- Arch Linux: [AUR](https://aur.archlinux.org/packages/scli-git/)
-- FreeBSD: [FreshPorts](https://www.freshports.org/net-im/scli/)
+[![Packaging status](https://repology.org/badge/vertical-allrepos/scli-signal-cli.svg)](https://repology.org/project/scli-signal-cli/versions)
 
 ### Manual
 
