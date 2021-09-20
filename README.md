@@ -10,11 +10,11 @@
 ### Limitations
 
 - Not yet supported by [signal-cli](https://github.com/AsamK/signal-cli/issues):
-	- *Sending* read receipts for received messages ([#231](https://github.com/AsamK/signal-cli/issues/231), [#305](https://github.com/AsamK/signal-cli/issues/305))
 	- Quoting a message ([#213](https://github.com/AsamK/signal-cli/issues/213))
 	- Adding @-mentions in sent messages ([#584](https://github.com/AsamK/signal-cli/issues/584))
 	- Voice calls ([#80](https://github.com/AsamK/signal-cli/issues/80))
 
+- *Sending* read receipts for received messages.
 - "View once" and "expiring" messages.
 - See also: open [issues](https://github.com/isamert/scli/issues).
 
