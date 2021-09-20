@@ -795,7 +795,10 @@ class Daemon(AsyncProc):
 
     def get_group_name(self, group_id, callback, *cb_args, **cb_kwargs):
         def proc_callback(proc):
-            name = proc.output.split('\n')[1][11:-1]   # Ad-hoc parsing of `dbus-send` output
+            try:
+                name = proc.output.split('\n')[1][11:-1]   # Ad-hoc parsing of `dbus-send` output
+            except IndexError:
+                name = group_id[:10] + '[..]'
             callback(name, *cb_args, **cb_kwargs)
         args = [
                 "org.asamk.Signal.getGroupName",
