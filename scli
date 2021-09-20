@@ -3573,7 +3573,7 @@ class Actions:
 
     def open_urls(self, envelope):
         txt = get_envelope_msg(envelope)
-        urls = get_urls(txt)
+        urls = get_urls(txt) if txt else []
         for url in urls:
             self.open_url(url)
         return urls
