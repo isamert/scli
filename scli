@@ -745,7 +745,7 @@ class Daemon(AsyncProc):
                     timestamp_adj = int(output_lines[0].rsplit(':')[1])
                     logging.warning("send_message: some group members have uninstalled signal: %s", output_lines[2:])
                         # 2 lines for error explanation, rest are failed numbers
-                    self.callbacks['ignore_receipts'](envelope, 'sent', timestamp_adj)
+                    self.callbacks['sending_done'](envelope, 'ignore_receipts', timestamp_adj)
                 else:
                     self.callbacks['sending_done'](envelope, 'send_failed')
                 return
