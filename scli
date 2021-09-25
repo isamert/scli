@@ -3930,6 +3930,11 @@ class Coordinate:
                 log_line,
                 "\nRestart scli to restart the daemon."
                 ])
+        elif "in use by another instance" in log_line:
+            self._actions.set_status_line([
+                "signal-cli: Config file is in use by another instance, waiting…\n",
+                "Stop previously launched signal-cli processes to continue.",
+                ])
 
     def _on_daemon_started(self):
         logging.info("signal-cli dbus service started")
