@@ -1648,15 +1648,26 @@ class ChatsData:
                         return tuple(o)
                     raise
 
-        with open(self._history, 'w') as history_file:
-            json.dump(items, history_file, ensure_ascii=False, cls=JSONSetEncoder, indent=2)
+        with open(self._history, 'w') as history_fileobj:
+            json.dump(items, history_fileobj, ensure_ascii=False, cls=JSONSetEncoder, indent=2)
 
     def _load_history(self):
-        if not self._history or not os.path.exists(self._history):
+        history_backup_filename = self._history + '.bak'
+        for history_filename in (self._history, history_backup_filename):
+            try:
+                with open(history_filename, 'r') as history_fileobj:
+                    history = json.load(history_fileobj)
+            except (FileNotFoundError, json.JSONDecodeError) as err:
+                if isinstance(err, json.JSONDecodeError):
+                    logging.error("History file corrupted, attempting to read from backup.")
+                continue
+            else:
+                break
+        else:
+            logging.warning("Could not read history from file.")
             return
-
-        with open(self._history, 'r') as history_file:
-            history = json.load(history_file)
+        os.replace(history_filename, history_backup_filename)
+            # If both `history` and `history.bak` are missing, the line above (amounting to `mv history.bak history.bak`) does not throw an error.
 
         self.delivery_status.load(history.get('delivery_status', {}))
 
