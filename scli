@@ -903,9 +903,10 @@ class SignalData:
             # Since signal-cli v0.7.2, group-cache files' names are `group_id`s with `/` replaced with `_`. Existing group-cache filenames (hex-formatted) from v0.7.{0,1} are kept without renaming, so here we have to try both.
             path = os.path.join(self._file_path + '.d', 'group-cache', filename)
             try:
-                cache = open(path, 'br').read()
+                with open(path, 'br') as fo:
+                    cache = fo.read()
             except FileNotFoundError:
-                logging.warning(
+                logging.debug(
                         "Could not open v2 group cache file\n\t"
                         "group_id = %s\n\t"
                         "filepath = %s",
@@ -915,13 +916,21 @@ class SignalData:
             else:
                 break
         if cache is None:
+            logging.warning(
+                    "Could not open v2 group cache file\n\t"
+                    "group_id = %s",
+                    group_id
+                    )
             return None
-        for name_end_str in (b'\x1aI', b'"'):
-            name_end = cache.find(name_end_str)
-            if name_end != -1:
-                break
-        grp_name = cache[2:name_end].decode()
-        return grp_name
+        cache_part = cache[2:]
+        for name_end_str in (b'"\x00', b'\x1aI'):
+            cache_part = cache_part.partition(name_end_str)[0]
+        if len(cache_part) == len(cache) - 2:
+            return None
+        try:
+            return cache_part.decode()
+        except UnicodeDecodeError:
+            return None
 
     def _get_recipients(self):
         recipients_store_file = os.path.join(self._file_path + '.d', 'recipients-store')
