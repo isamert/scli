@@ -82,6 +82,8 @@ def get_urls(txt):
 def callf(cmd, rmap=None, background=False, **subprocess_kwargs):
     if rmap:
         for key, val in rmap.items():
+            if key not in cmd:
+                raise ValueError(f'Command string `{cmd}` should contain a replacement placeholder `{key}` (e.g. `some-cmd "{key}"`). See `--help`.')
             cmd = cmd.replace(key, val)
 
     if not subprocess_kwargs.get('shell'):
