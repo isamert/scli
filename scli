@@ -3489,15 +3489,28 @@ class Actions:
     def set_status_line(self, text):
         self._urwid_ui.main_w.status_line.set_text(text)
 
-    @staticmethod
-    def send_desktop_notification(sender, message):
+    def callf(self, *args, **kwargs):
+        """Wrapper that logs and swallows the exceptions"""
+        try:
+            return callf(*args, **kwargs)
+        except (OSError, ValueError) as err:
+            logging.exception(err)
+            self.set_status_line(
+                    '\n'.join([
+                        str(err),
+                        'Full error traceback written to log.',
+                        ])
+                    )
+            return None
+
+    def send_desktop_notification(self, sender, message):
         if not cfg.enable_notifications:
             return
         rmap = {}
         for token, text in (('%s', sender), ('%m', message)):
             text = text.replace(r"'", r"'\''")
             rmap[token] = text
-        callf(cfg.notification_command, rmap, background=True)
+        self.callf(cfg.notification_command, rmap, background=True)
 
     def send_message_curr_contact(self, message="", attachments=None):
         if self._chats_data.current_contact is None:
@@ -3526,7 +3539,7 @@ class Actions:
 
         self._daemon.main_loop.stop()
         cmd = " ".join((cfg.editor_command, shlex.quote(msg_file_path)))
-        callf(cmd)
+        self.callf(cmd)
         self._daemon.main_loop.start()
 
         with open(msg_file_path, 'r') as msg_file:
@@ -3542,14 +3555,21 @@ class Actions:
     def read(self, path_or_cmd):
         message = ''
         if is_path(path_or_cmd):
-            with open(os.path.expanduser(path_or_cmd), 'r') as file:
-                message = file.read()
+            try:
+                with open(os.path.expanduser(path_or_cmd), 'r') as file:
+                    message = file.read()
+            except OSError as err:
+                logging.exception(err)
+                self.set_status_line(str(err))
         elif path_or_cmd.startswith('!'):
-            message = callf(
+            proc = self.callf(
                     path_or_cmd[1:].strip(),
                     capture_output=True,
-                    ).stdout
-
+                    )
+            if proc is not None:
+                message = proc.stdout
+        else:
+            self.set_status_line(f"Error: could not read `{path_or_cmd}`")
         if message != '':
             self.send_message_curr_contact(message)
 
@@ -3568,12 +3588,11 @@ class Actions:
         else:
             self.set_status_line('Clipboard is empty.')
 
-    @staticmethod
-    def open_file(path):
+    def open_file(self, path):
         if not os.path.exists(path):
             logging.warning("File does not exist: %s", path)
             return None
-        return callf(cfg.open_command, {'%u': path}, background=True)
+        return self.callf(cfg.open_command, {'%u': path}, background=True)
 
     def open_attach(self, envelope):
         attachments = get_envelope_attachments(envelope)
@@ -3590,9 +3609,8 @@ class Actions:
             if self.open_attach(txt.envelope):
                 return
 
-    @staticmethod
-    def open_url(url):
-        return callf(cfg.open_command, {'%u': url}, background=True)
+    def open_url(self, url):
+        return self.callf(cfg.open_command, {'%u': url}, background=True)
 
     def open_urls(self, envelope):
         txt = get_envelope_msg(envelope)
