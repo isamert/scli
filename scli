@@ -4369,7 +4369,7 @@ def link_device(device_name):
     pipe_link = subprocess.Popen(cmd_link, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     line = pipe_link.stdout.readline().strip()
 
-    if line.startswith('tsdevice:/'):
+    if line.startswith(('tsdevice:/', 'sgnl://linkdevice')):
         qr_obj = pyqrcode.create(line, version=10)
         print(qr_obj.terminal(module_color='black', background='white'))
     else:
