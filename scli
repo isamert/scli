@@ -81,8 +81,9 @@ def get_urls(txt):
 
 def callf(cmd, rmap=None, background=False, **subprocess_kwargs):
     if rmap:
+        optionals = rmap.pop("_optionals", ())
         for key, val in rmap.items():
-            if key not in cmd:
+            if key not in cmd and key not in optionals:
                 raise ValueError(f'Command string `{cmd}` should contain a replacement placeholder `{key}` (e.g. `some-cmd "{key}"`). See `--help`.')
             cmd = cmd.replace(key, val)
 
@@ -599,7 +600,7 @@ class Daemon(AsyncProc):
         try:
             proc = callf(
                     cfg.daemon_command,
-                    {'%u': self._username},
+                    {'%u': self._username, '_optionals': ['%u']},
                     background=True,
                     stdout=stdout_fd,
                     stderr=stderr_fd,
@@ -3510,6 +3511,7 @@ class Actions:
         for token, text in (('%s', sender), ('%m', message)):
             text = text.replace(r"'", r"'\''")
             rmap[token] = text
+        rmap['_optionals'] = ('%s', '%m')
         self.callf(cfg.notification_command, rmap, background=True)
 
     def send_message_curr_contact(self, message="", attachments=None):
