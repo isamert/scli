@@ -436,8 +436,7 @@ class clip:
         cmd = cfg.clipboard_get_command
         if cmd is None:
             return clip.xfiles()
-
-        return callf(cmd).split('\n')
+        return callf(cmd).stdout.split('\n')
 
 
 # #############################################################################
