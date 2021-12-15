@@ -3467,6 +3467,8 @@ class MainWindow(urwid.WidgetWrap):
         self.focus_widget_name = 'chat'
 
     def keypress(self, size, key):
+        if key == 'esc':
+            action_request.set_status_line('')
         key = super().keypress(size, key)
         if key == 'tab':
             self._focus_next()
