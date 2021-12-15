@@ -586,6 +586,7 @@ class Daemon(AsyncProc):
                     'call_message',
                     'contacts_sync',
                     'remote_delete',
+                    'untrusted_identity_err',
                 ]
             }
 
@@ -676,6 +677,8 @@ class Daemon(AsyncProc):
 
     def _error_data_handler(self, error_data, envelope):
         logging.error("Daemon: error = \n%s", pprint.pformat(error_data))
+        if error_data['type'] == 'UntrustedIdentityException':
+            self.callbacks['untrusted_identity_err'](envelope)
 
     def _dbus_send(self, args, *proc_args, async_proc=True, **proc_kwargs):
         args = [
@@ -750,7 +753,11 @@ class Daemon(AsyncProc):
                         "UntrustedIdentity",
                         "Untrusted Identity",
                         "Unregistered user",
-                    )) and is_group:
+                        )):
+                    # Related signal-cli issues: #348, #828.
+                    if not is_group:
+                        self.callbacks['untrusted_identity_err'](envelope)
+                    else:
                         # Ad-hoc parsing of signal-cli's stderr output.
                         timestamp_adj = int(proc.output.splitlines()[0].rsplit(': ', 1)[-1])
                         logging.warning("send_message: some group members have uninstalled signal: %s", proc.output)
@@ -4022,6 +4029,23 @@ class Coordinate:
             return
         msg_w = self._ui.msg_ws_cache.get(msg)
         msg_w.reload_markup()
+
+    def _on_untrusted_identity_err(self, envelope):
+        notification = [
+            "Contact's safety number has changed: ",
+            envelope.get('target') or envelope['source'],
+            " (they might have reinstalled signal). ",
+            "Run `signal-cli trust …` to resolve.",
+            ]
+        sender = envelope['source']
+        if sender != self._contacts.sigdata.own_num:
+            # NOTE: Not using desktop notifications: they would be shown on every contact_typing event.
+            notification = [
+                    "Could not decrypt a new message from ",
+                    repr(sender),
+                    "\n",
+                    ] + notification
+        self._actions.set_status_line(notification)
 
 
 # #############################################################################
