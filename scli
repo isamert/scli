@@ -3082,7 +3082,11 @@ class StatusLine(urwid.WidgetWrap):
         cols = urwid.Columns([self._text, ('pack', self._unreads_widget)], dividechars=1)
         super().__init__(cols)
 
-    def set_text(self, new_text):
+    def set_text(self, new_text, append=False):
+        if append:
+            curr_markup = get_text_markup(self._text)
+            if curr_markup:
+                new_text = [curr_markup, '\n', new_text]    # urwid.Text does not mind nested lists
         self._text.set_text(new_text)
 
     def set_unread_count(self, count):
@@ -3485,8 +3489,8 @@ class Actions:
             return
         self._urwid_ui.main_w.chat_w.set_title(current_contact)
 
-    def set_status_line(self, text):
-        self._urwid_ui.main_w.status_line.set_text(text)
+    def set_status_line(self, text, append=False):
+        self._urwid_ui.main_w.status_line.set_text(text, append)
 
     def callf(self, *args, **kwargs):
         """Wrapper that logs and swallows the exceptions"""
@@ -3880,7 +3884,8 @@ class Coordinate:
             msg_txt = textwrap.shorten(msg.text, 20)
             self._actions.set_status_line(
                     f'Message "{msg_txt}" failed to send. '
-                    'Press `r` on message to re-send.'
+                    'Press `r` on message to re-send.',
+                    append=True,
                     )
             return
 
