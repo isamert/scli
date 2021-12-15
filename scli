@@ -2621,7 +2621,11 @@ class InputLine(BracketedPasteEdit):
             possible_paths = [x for x in os.listdir(dirname) if os.path.join(dirname, x).startswith(fullpath)]
             commonprefix = os.path.commonprefix(possible_paths)
 
-            action_request.set_status_line('|'.join(possible_paths))
+            action_request.set_status_line(
+                    textwrap.shorten(
+                        ' | '.join(sorted(possible_paths)),
+                        width=240,
+                        ))
 
             completion = ''
             if commonprefix != '':
@@ -2641,7 +2645,7 @@ class InputLine(BracketedPasteEdit):
             ]
             commonprefix = os.path.commonprefix(all_commands)
 
-            action_request.set_status_line('{' + '|'.join(all_commands) + '}')
+            action_request.set_status_line('{' + ' | '.join(sorted(all_commands)) + '}')
 
             if len(all_commands) == 1:
                 self._set_edit_text_move_cursor(':' + all_commands[0] + ' ')
