@@ -2240,13 +2240,18 @@ class ListBoxPlus(ViBindingsMixin, urwid.ListBox):
             # However, overriding a property which is used in superclass's __init__ seems problematic. Need a way to delay the assignment of property. Maybe something like this is necessary:
             # https://code.activestate.com/recipes/408713-late-binding-properties-allowing-subclasses-to-ove/
 
-    def try_set_focus(self, index):
+    def try_set_focus(self, index, valign=None):
+        index_orig_arg = index
         if index < 0:
             index = len(self.contents) + index
         try:
             self.focus_position = index
         except IndexError:
-            pass
+            return
+        if index_orig_arg == -1 and valign is None:
+            valign = 'bottom'
+        if valign is not None:
+            self.set_focus_valign(valign)
 
     def filter_contents(self, test_function, scope=None):
         """Remove widgets not passing `test_function`.
@@ -4211,6 +4216,7 @@ class Coordinate:
                     'Press `r` on message to re-send.',
                     append=True,
                     )
+            self._ui.chat.try_set_focus(-1)
             return
 
         if timestamp_adj is not None:
