@@ -744,17 +744,17 @@ class Daemon(AsyncProc):
 
             # Check if send command succeeded
             if proc.returncode != 0:
-                if is_group and 'Unregistered user' in proc.output:
-                    # Workaround for
-                    #     https://github.com/AsamK/signal-cli/issues/348
-                    # Can't check whether _all_ members in group have uninstalled signal (like in b912161), since in this function we don't have access to group's membership information.
-                    output_lines = proc.output.strip().rsplit('\n')
-                    timestamp_adj = int(output_lines[0].rsplit(':')[1])
-                    logging.warning("send_message: some group members have uninstalled signal: %s", output_lines[2:])
-                        # 2 lines for error explanation, rest are failed numbers
-                    self.callbacks['sending_done'](envelope, 'ignore_receipts', timestamp_adj)
-                else:
-                    self.callbacks['sending_done'](envelope, 'send_failed')
+                if any(s in proc.output for s in (
+                        "UntrustedIdentity",
+                        "Untrusted Identity",
+                        "Unregistered user",
+                    )) and is_group:
+                        # Ad-hoc parsing of signal-cli's stderr output.
+                        timestamp_adj = int(proc.output.splitlines()[0].rsplit(': ', 1)[-1])
+                        logging.warning("send_message: some group members have uninstalled signal: %s", proc.output)
+                        self.callbacks['sending_done'](envelope, 'ignore_receipts', timestamp_adj)
+                        return
+                self.callbacks['sending_done'](envelope, 'send_failed')
                 return
 
             # Set envelope timestamp to that returned by signal-cli
