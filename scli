@@ -2688,6 +2688,15 @@ class InputLine(BracketedPasteEdit):
                 return None
         else:
             self.set_caption(self._prompt)
+        # Bind readline equivalents
+        if key == 'ctrl left':
+            return super().keypress(size, 'meta b')
+        if key == 'ctrl right':
+            return super().keypress(size, 'meta f')
+        #if key == 'ctrl backspace':
+            # uwrid registers 'ctrl backspace' as just 'backspace'.. Use 'ctrl w' or 'meta backspace' instead.
+            #return super().keypress(size, 'ctrl w')
+        # /end: Bind readline equivalents
         if txt.startswith(':'):
             return self._keypress_cmd_mode(key, key_orig, txt)
         elif key == 'enter':
