@@ -1912,6 +1912,11 @@ class PopUpBox(urwid.WidgetWrap):
 
     def __init__(self, widget, title='', buttons=True, shadow_len=2):
         self._buttons = buttons
+        try:
+            urwid.connect_signal(widget, 'closed', self._emit, user_args=['closed'])
+        except NameError:
+            pass
+
         if buttons:
             def handle_click(_button):
                 self._emit('closed')
@@ -3313,7 +3318,7 @@ class PopUpPlaceholder(urwid.WidgetPlaceholder):
         )
         self.original_widget = pop_up_overlay
 
-    def _remove_pop_up(self, _sender=None):
+    def _remove_pop_up(self, *_sender_ws):
         self.original_widget = self._orig_w
 
     @property
