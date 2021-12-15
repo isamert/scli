@@ -1910,7 +1910,7 @@ class PopUpBox(urwid.WidgetWrap):
 
     signals = ['closed']
 
-    def __init__(self, widget, title='', buttons=True):
+    def __init__(self, widget, title='', buttons=True, shadow_len=2):
         self._buttons = buttons
         if buttons:
             def handle_click(_button):
@@ -1920,6 +1920,28 @@ class PopUpBox(urwid.WidgetWrap):
             box_w = urwid.LineBox(self._frame_w, title)
         else:
             box_w = urwid.LineBox(widget)
+
+        if shadow_len:
+            ### Shadow effect. (Based on urwid/examples/dialog.py)
+            box_w = urwid.Columns([
+                    box_w,
+                    ('fixed', shadow_len, urwid.AttrWrap(
+                        urwid.Filler(
+                            urwid.Text(('default', ' '*shadow_len)),
+                            "top"
+                            ),
+                        'reversed'))
+                    ])
+            box_w = urwid.Frame(
+                    box_w,
+                    footer = urwid.AttrMap(
+                        urwid.Padding(
+                            urwid.Text(('default', ' '*shadow_len)),
+                            align='left',
+                            ),
+                        'reversed')
+                    )
+
         super().__init__(box_w)
 
     def keypress(self, size, key):
@@ -3273,8 +3295,8 @@ class PopUpPlaceholder(urwid.WidgetPlaceholder):
         self._orig_w = w
             # Urwid's terminology here might be confusing: "WidgetPlaceholder.original_widget" means "currently displayed widget", not the one it is originally initialized with.
 
-    def _show_pop_up(self, widget, title=''):
-        pop_up_box = PopUpBox(widget, title)
+    def _show_pop_up(self, widget, title='', buttons=True, shadow_len=2)
+        pop_up_box = PopUpBox(widget, title, buttons, shadow_len)
         urwid.connect_signal(pop_up_box, 'closed', self._remove_pop_up)
         pop_up_overlay = urwid.Overlay(
             pop_up_box,
