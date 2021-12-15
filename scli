@@ -46,6 +46,7 @@ SIGNALCLI_LEGACY_ATTACHMENT_FOLDER = os.path.join(SIGNALCLI_LEGACY_FOLDER, 'atta
 SIGNALCLI_FOLDER = os.path.join(DATA_FOLDER, 'signal-cli')
 SIGNALCLI_DATA_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'data')
 SIGNALCLI_ATTACHMENT_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'attachments')
+SIGNALCLI_STICKERS_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'stickers')
 
 SCLI_DATA_FOLDER = os.path.join(DATA_FOLDER, 'scli')
 SCLI_ATTACHMENT_FOLDER = os.path.join(SCLI_DATA_FOLDER, 'attachments')
@@ -311,6 +312,10 @@ def get_envelope_remote_delete(envelope):
     return get_envelope_data_val(envelope, 'remoteDelete')
 
 
+def get_envelope_sticker(envelope):
+    return get_envelope_data_val(envelope, 'sticker')
+
+
 def get_envelope_attachments(envelope):
     return get_envelope_data_val(envelope, 'attachments')
 
@@ -332,6 +337,12 @@ def get_attachment_path(attachment):
     if not os.path.exists(received_attachment):
         received_attachment = os.path.join(SIGNALCLI_LEGACY_ATTACHMENT_FOLDER, aid)
     return received_attachment
+
+
+def get_sticker_file_path(sticker):
+    dir_name = b64_to_hex_str(sticker['packId'])
+    file_name = str(sticker['stickerId'])
+    return os.path.join(SIGNALCLI_STICKERS_FOLDER, dir_name, file_name)
 
 
 def b64_to_bytearray(group_id):
@@ -580,6 +591,7 @@ class Daemon(AsyncProc):
                     'receive_sync_message',
                     'receive_receipt',
                     'receive_reaction',
+                    'receive_sticker',
                     'sending_message',
                     'sending_done',
                     'contact_typing',
@@ -672,6 +684,8 @@ class Daemon(AsyncProc):
             self.callbacks['contacts_sync']()
         elif get_envelope_remote_delete(envelope):
             self.callbacks['remote_delete'](envelope)
+        elif get_envelope_sticker(envelope):
+            self.callbacks['receive_sticker'](envelope)
         else:
             logging.info('No action for received envelope: %s', pprint.pformat(envelope))
 
@@ -2692,6 +2706,7 @@ class MessageWidget(urwid.WidgetWrap):
 
     TYPING_INDICATOR_MARKUP = '...'
     REMOTE_DELETE_MARKUP = ('italic', '[deleted]')
+    STICKER_MARKUP = ('italic', '[sticker]')
 
     FORMAT_MAP = {'_': 'italic', '*': 'bold', '~': 'strikethrough'}
     MENTION_BRACKET_CHAR = chr(31)  # arbitrary non-printable char
@@ -2757,6 +2772,8 @@ class MessageWidget(urwid.WidgetWrap):
             markups = (self._get_call_message_markup(), )
         elif getattr(self.msg, 'remote_delete', None):
             markups = ([self.REMOTE_DELETE_MARKUP], )
+        elif get_envelope_sticker(self.msg.envelope) is not None:
+            markups = ([self.STICKER_MARKUP], )
         else:
             markups = (
                 self._get_sender_markup(),
@@ -3179,9 +3196,12 @@ class MessageInfo(ListBoxPlus):
             if urls:
                 items.extend(self._get_urls_ws(urls))
 
-        attachments = get_envelope_attachments(msg.envelope)
-        if attachments:
-            items.extend(self._get_attachments_ws(attachments))
+        if msg.attachments:
+            items.extend(self._get_attachments_ws(msg.attachments))
+
+        sticker = get_envelope_sticker(msg.envelope)
+        if sticker:
+            items.append(self._get_sticker_w(sticker))
 
         reactions = getattr(msg, 'reactions', None)
         if reactions is not None:
@@ -3228,6 +3248,14 @@ class MessageInfo(ListBoxPlus):
                     )
             ret.append(atch_w)
         return ret
+
+    def _get_sticker_w(self, sticker):
+        file_path = get_sticker_file_path(sticker)
+        sticker_w = self.OpenPath(
+                text=get_text_markup(self._prop_val_w('Sticker', file_path)),
+                fpath=file_path,
+                )
+        return sticker_w
 
     @staticmethod
     def _get_reactions_ws(reactions):
@@ -3655,13 +3683,20 @@ class Actions:
 
     def open_attach(self, envelope):
         attachments = get_envelope_attachments(envelope)
-        if not attachments:
+        if attachments:
+            for attachment in attachments:
+                file_path = get_attachment_path(attachment)
+                if file_path:
+                    self.open_file(file_path)
             return attachments
-        for attachment in attachments:
-            file_path = get_attachment_path(attachment)
+        # Treating stickers as attachments with a different dir path
+        sticker = get_envelope_sticker(envelope)
+        if sticker:
+            file_path = get_sticker_file_path(sticker)
             if file_path:
                 self.open_file(file_path)
-        return attachments
+            return sticker
+        return None
 
     def open_last_attach(self):
         for txt in reversed(self._chats_data.current_chat):
@@ -3825,6 +3860,13 @@ class Actions:
                 return(txt,
                         ' '.join((
                             txt, 'from', repr(sender_name)
+                            ))
+                        )
+
+            if get_envelope_sticker(msg.envelope):
+                return('[sticker]',
+                        ''.join((
+                            'New sticker from: ', repr(sender_name)
                             ))
                         )
 
@@ -4087,6 +4129,10 @@ class Coordinate:
                     "\n",
                     ] + notification
         self._actions.set_status_line(notification)
+
+    def _on_receive_sticker(self, envelope):
+        msg = self._chats_data.chats.add_envelope(envelope)
+        self._on_new_message(msg)
 
 
 # #############################################################################
