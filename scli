@@ -406,9 +406,8 @@ class clip:
                                 suffix=suffix,
                                 delete=False,
                             )
-                        clip_file.write(content)
-                        clip_file.flush()
-                        clip_file.close()
+                        with clip_file:
+                            clip_file.write(content)
                         return [clip_file.name]
                     elif mtype == 'text/uri-list':
                         content = clip.xrun_lines(mtype)
@@ -428,8 +427,9 @@ class clip:
                     )
         except OSError:
             return
-        proc.stdin.write(txt)
-        proc.stdin.close()
+        else:
+            with proc:
+                proc.stdin.write(txt)
 
     @staticmethod
     def put(txt):
@@ -3660,9 +3660,10 @@ class Actions:
         if is_path(filename):
             msg_file_path = os.path.expanduser(filename)
         else:
-            msg_file_path = tmpfile = tempfile.NamedTemporaryFile(
+            with tempfile.NamedTemporaryFile(
                     suffix='.md', delete=False
-                    ).name
+                    ) as temp_fo:
+                msg_file_path = tmpfile = temp_fo.name
             message = args
         if message:
             with open(msg_file_path, "w") as msg_file:
@@ -4554,46 +4555,46 @@ def link_device(device_name):
                 )
     print("Retrieving QR code, please wait...")
     cmd_link = ['signal-cli', 'link', '-n', device_name]
-    pipe_link = subprocess.Popen(cmd_link, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    line = pipe_link.stdout.readline().strip()
+    with subprocess.Popen(
+            cmd_link, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+            ) as proc_link:
+        line = proc_link.stdout.readline().strip()
+        if line.startswith(('tsdevice:/', 'sgnl://linkdevice')):
+            qr_obj = pyqrcode.create(line, version=10)
+            print(qr_obj.terminal(module_color='black', background='white'))
+        else:
+            sys.exit(
+                    "ERROR: Encountered a problem while linking:\n"
+                    f"{line}\n"
+                    f"{proc_link.stderr.read()}"
+                    )
 
-    if line.startswith(('tsdevice:/', 'sgnl://linkdevice')):
-        qr_obj = pyqrcode.create(line, version=10)
-        print(qr_obj.terminal(module_color='black', background='white'))
-    else:
-        sys.exit(
-                "ERROR: Encountered a problem while linking:\n"
-                f"{line}\n"
-                f"{pipe_link.stderr.read()}"
+        print(
+                "Scan the QR code with Signal app on your phone and wait for the linking process to finish.\n"
+                "You might need to zoom out for the QR code to display properly.\n"
+                "This may take a moment..."
                 )
-
-    print(
-            "Scan the QR code with Signal app on your phone and wait for the linking process to finish.\n"
-            "You might need to zoom out for the QR code to display properly.\n"
-            "This may take a moment..."
-            )
-
-    pipe_link.wait()
-    if pipe_link.returncode != 0:
-        sys.exit(
-                "ERROR: Encountered a problem while linking:\n"
-                f"{pipe_link.stderr.read()}"
-                )
+        proc_link.wait()
+        if proc_link.returncode != 0:
+            sys.exit(
+                    "ERROR: Encountered a problem while linking:\n"
+                    f"{proc_link.stderr.read()}"
+                    )
 
     print('Receiving data for the first time...')
 
     cmd_receive = 'signal-cli -u {} receive'.format(detect_user_name())
-    pipe_receive = subprocess.Popen(cmd_receive.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
-    for receive_out in iter(pipe_receive.stdout.readline, ''):
-        print(receive_out, end='')
-
-    pipe_receive.wait()
-    if pipe_receive.returncode != 0:
-        sys.exit(
-                "ERROR: Encountered a problem while receiving:\n"
-                f"{pipe_receive.stderr.read()}"
-                )
+    with subprocess.Popen(
+            cmd_receive.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+            ) as proc_receive:
+        for receive_out in iter(proc_receive.stdout.readline, ''):
+            print(receive_out, end='')
+        proc_receive.wait()
+        if proc_receive.returncode != 0:
+            sys.exit(
+                    "ERROR: Encountered a problem while receiving:\n"
+                    f"{proc_receive.stderr.read()}"
+                    )
 
     print('Done.')
     sys.exit(0)
