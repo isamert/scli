@@ -137,7 +137,7 @@ def get_version():
 
     version_file_path = os.path.join(prog_dir, 'VERSION')
     try:
-        with open(version_file_path) as f:
+        with open(version_file_path, encoding='utf-8') as f:
             version_str = f.readline()
     except OSError:
         return '?'
@@ -897,7 +897,7 @@ class SignalData:
         self._data = None
 
     def parse_data_file(self):
-        with open(self._file_path) as f:
+        with open(self._file_path, encoding="utf-8") as f:
             self._data = json.load(f)
 
         logging.debug("signal-cli account: %s device", "linked" if self.is_linked_device else "master")
@@ -963,7 +963,7 @@ class SignalData:
 
     def _get_recipients(self):
         recipients_store_file = os.path.join(self._file_path + '.d', 'recipients-store')
-        with open(recipients_store_file) as f:
+        with open(recipients_store_file, encoding="utf-8") as f:
             recipients_data = json.load(f)
 
         ret = []
@@ -1686,14 +1686,14 @@ class ChatsData:
                         return tuple(o)
                     raise
 
-        with open(self._history, 'w') as history_fileobj:
+        with open(self._history, 'w', encoding="utf-8") as history_fileobj:
             json.dump(items, history_fileobj, ensure_ascii=False, cls=JSONSetEncoder, indent=2)
 
     def _load_history(self):
         history_backup_filename = self._history + '.bak'
         for history_filename in (self._history, history_backup_filename):
             try:
-                with open(history_filename, 'r') as history_fileobj:
+                with open(history_filename, 'r', encoding="utf-8") as history_fileobj:
                     history = json.load(history_fileobj)
             except (FileNotFoundError, json.JSONDecodeError) as err:
                 if isinstance(err, json.JSONDecodeError):
@@ -3666,7 +3666,7 @@ class Actions:
                 msg_file_path = tmpfile = temp_fo.name
             message = args
         if message:
-            with open(msg_file_path, "w") as msg_file:
+            with open(msg_file_path, "w", encoding="utf-8") as msg_file:
                 msg_file.write(*message)
 
         self._daemon.main_loop.stop()
@@ -3674,7 +3674,7 @@ class Actions:
         self.callf(cmd)
         self._daemon.main_loop.start()
 
-        with open(msg_file_path, 'r') as msg_file:
+        with open(msg_file_path, 'r', encoding="utf-8") as msg_file:
             msg = msg_file.read().strip()
             if msg:
                 self.send_message_curr_contact(msg)
@@ -3688,7 +3688,7 @@ class Actions:
         message = ''
         if is_path(path_or_cmd):
             try:
-                with open(os.path.expanduser(path_or_cmd), 'r') as file:
+                with open(os.path.expanduser(path_or_cmd), 'r', encoding="utf-8") as file:
                     message = file.read()
             except OSError as err:
                 logging.exception(err)
@@ -4454,7 +4454,7 @@ def get_opt_val_flags(parser):
 def parse_cfg_file(parser, cli_args):
     cfg_file_path = os.path.expanduser(cli_args.config_file)
     try:
-        with open(cfg_file_path) as cfg_f:
+        with open(cfg_file_path, encoding="utf-8") as cfg_f:
             cfg_f_args_dict = get_cfg_file_args(cfg_f)
     except FileNotFoundError:
         if cli_args.config_file == parser.get_default('config_file'):
