@@ -3698,6 +3698,7 @@ class Actions:
     def open_file(self, path):
         if not os.path.exists(path):
             logging.warning("File does not exist: %s", path)
+            self.set_status_line('File does not exist: ' + path)
             return None
         return self.callf(cfg.open_command, {'%u': path}, background=True)
 
