@@ -3094,6 +3094,10 @@ class ChatView(ListBoxPlus):
             action_request.open_urls(envelope) or action_request.open_attach(envelope)      # pylint: disable=expression-not-assigned
         elif key == 'y':
             txt = get_envelope_msg(envelope)
+            if not txt:
+                attachments = get_envelope_attachments(envelope)
+                if attachments is not None:
+                    txt = ' '.join(get_attachment_path(attach) for attach in attachments)
             clip.put(txt)
         elif key == 'd':
             self._delete_message(message_widget.msg)
