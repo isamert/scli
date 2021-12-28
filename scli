@@ -3749,8 +3749,8 @@ class Actions:
         return None
 
     def open_last_attach(self):
-        for txt in reversed(self._chats_data.current_chat):
-            if self.open_attach(txt.envelope):
+        for msg in reversed(self._chats_data.current_chat):
+            if self.open_attach(msg.envelope):
                 return
 
     def open_url(self, url):
