@@ -4788,7 +4788,11 @@ def make_arg_parser():
 
     parser.add_argument(
         '--daemon-command',
-        default='signal-cli -u %u --output=json daemon',
+        default=('signal-cli '
+                '-u %u '
+                '--output=json '
+                #'--trust-new-identities=always '  # requires s-cli v0.9.0+; does not notify of safety number change (see signal-cli#826)
+                'daemon'),
         help='Command for starting signal-cli daemon. The `%%u` in command will be replaced with username (phone number).',
     )
 
