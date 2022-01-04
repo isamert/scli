@@ -143,12 +143,7 @@ def get_version():
     if version_str.startswith('$'):
         # Neither a release, nor is there a `.git` dir (e.g. manually dl'ed blob)
         return '?'
-    tag_re = re.compile(r"tag: v(.+?)[,)]")
-        # Assumes VERSION file is formatted with `$Format:%h %d$`
-    tag_re_match = tag_re.search(version_str)
-    if tag_re_match:
-        return tag_re_match.group(1)
-    return version_str.split(maxsplit=1)[0]   # commit hash
+    return version_str.split()[-1] # tag or commit hash
 
 
 def get_default_editor():
