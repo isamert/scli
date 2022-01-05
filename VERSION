@@ -1,4 +1,4 @@
-$Format:%h %d$
+$Format:%(describe:match=v*)$
 
 
 # The format string above is expanded with values during the execution of

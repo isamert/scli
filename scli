@@ -140,15 +140,11 @@ def get_version():
             version_str = f.readline()
     except OSError:
         return '?'
-    if version_str.startswith('$'):
-        # Neither a release, nor is there a `.git` dir (e.g. manually dl'ed blob)
+    if not version_str.startswith('v'):
+        # '$Format:...' - not a `git archive` (e.g. a manually dl'ed blob)
+        # '%(..)' - `git archive` if git < 2.32
         return '?'
-    tag_re = re.compile(r"tag: v(.+?)[,)]")
-        # Assumes VERSION file is formatted with `$Format:%h %d$`
-    tag_re_match = tag_re.search(version_str)
-    if tag_re_match:
-        return tag_re_match.group(1)
-    return version_str.split(maxsplit=1)[0]   # commit hash
+    return version_str[1:]  # `git-describe`-like string
 
 
 def get_default_editor():
