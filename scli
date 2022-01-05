@@ -140,10 +140,11 @@ def get_version():
             version_str = f.readline()
     except OSError:
         return '?'
-    if version_str.startswith('$'):
-        # Neither a release, nor is there a `.git` dir (e.g. manually dl'ed blob)
+    if not version_str.startswith('v'):
+        # '$Format:...' - not a `git archive` (e.g. a manually dl'ed blob)
+        # '%(..)' - `git archive` if git < 2.32
         return '?'
-    return version_str.split()[-1] # tag or commit hash
+    return version_str[1:]  # `git-describe`-like string
 
 
 def get_default_editor():
