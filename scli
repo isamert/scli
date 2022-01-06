@@ -3155,17 +3155,17 @@ class MessageInfo(ListBoxPlus):
     def __init__(self, msg):
         self._msg = msg
 
-        name_w = FocusableText([
-            ('bold', 'Sender : '),
-            action_request.get_contact_name(msg.sender_num),
-            ])
-        num_w = FocusableText([('bold', 'Number : '), msg.sender_num])
+        name_w = self._prop_val_w(
+                'Sender',
+                action_request.get_contact_name(msg.sender_num),
+                )
+        num_w = self._prop_val_w('Number', msg.sender_num)
         date = strftimestamp(msg.timestamp)
-        date_w = FocusableText([('bold', 'Date   : '), date])
+        date_w = self._prop_val_w('Date', date)
         items = [name_w, num_w, date_w]
 
         if msg.text:
-            txt_w = FocusableText([('bold', 'Message: '), msg.text])
+            txt_w = self._prop_val_w('Message', msg.text)
             items.append(txt_w)
 
         delivery_status_w = self._get_delivery_status_w()
@@ -3192,6 +3192,15 @@ class MessageInfo(ListBoxPlus):
 
         super().__init__(items)
 
+    @staticmethod
+    def _prop_val_w(prop_name, prop_val):
+        padding_width = 8
+        prop_name_str = prop_name.ljust(padding_width) + ': '
+        return FocusableText([
+            ('bold', prop_name_str),
+            prop_val
+            ])
+
     def _get_delivery_status_w(self):
         status_detailed = self._msg.delivery_status_detailed
         status_str = status_detailed.str
@@ -3199,7 +3208,7 @@ class MessageInfo(ListBoxPlus):
             return None
         when_str = strftimestamp(status_detailed.when, strformat='%H:%M:%S %Y-%m-%d')
         status_when = f' ({when_str})' if status_detailed.when else ''
-        return FocusableText([('bold', 'Status : '), status_str, status_when])
+        return self._prop_val_w('Status', status_str + status_when)
 
     def _get_urls_ws(self, urls):
         header_w = urwid.Text([('bold', 'Links')], align='center')
