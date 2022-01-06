@@ -3295,16 +3295,21 @@ class PopUpPlaceholder(urwid.WidgetPlaceholder):
         self._orig_w = w
             # Urwid's terminology here might be confusing: "WidgetPlaceholder.original_widget" means "currently displayed widget", not the one it is originally initialized with.
 
-    def _show_pop_up(self, widget, title='', buttons=True, shadow_len=2)
+    def _show_pop_up(self, widget, title='', buttons=True, shadow_len=2, **overlay_params):
         pop_up_box = PopUpBox(widget, title, buttons, shadow_len)
         urwid.connect_signal(pop_up_box, 'closed', self._remove_pop_up)
+        overlay_args = dict(
+                align='center',
+                valign='middle',
+                width=('relative', 85),
+                height=('relative', 65),
+                )
+        overlay_args.update(overlay_params)
+
         pop_up_overlay = urwid.Overlay(
             pop_up_box,
             self._orig_w,
-            align='center',
-            valign='middle',
-            width=('relative', 85),
-            height=('relative', 65),
+            **overlay_args,
         )
         self.original_widget = pop_up_overlay
 
