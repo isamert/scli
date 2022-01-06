@@ -1054,18 +1054,18 @@ class Contact:
 
 class Contacts:
     def __init__(self, sigdata):
-        self._sigdata = sigdata
+        self.sigdata = sigdata
         self.reload()
 
     def reload(self):
-        indivs_dicts, groups_dicts = self._sigdata.parse_data_file()
+        indivs_dicts, groups_dicts = self.sigdata.parse_data_file()
         self.indivs = set(Contact(c) for c in indivs_dicts)
         self.groups = set(Contact(g) for g in groups_dicts)
         self.map = {c.id: c for c in self.indivs | self.groups}
 
     def set_groups_membership(self):
         for group in self.groups:
-            group.members_ids.discard(self._sigdata.own_num)
+            group.members_ids.discard(self.sigdata.own_num)
             group.member_contacts = self._get_group_members(group)
                 # Naming: group.members == group._record['members'] (from signal-cli data)
 
