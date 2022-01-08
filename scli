@@ -2415,6 +2415,14 @@ class ContactsListWidget(ListBoxPlus):
             return None
         return self._contact_widgets_map[current_contact.id]
 
+    def _get_focused_contact_widget(self):
+        focused_contact_w = self.focus
+        # NOTE: self.focus can be None e.g. when searching through contacts returns no results.
+        if cfg.partition_contacts and not isinstance(focused_contact_w, ContactWidget):
+            # Widget in focus is urwid.Text (a header) or urwid.Divider. They are normally not supposed to get the focus, but sometimes may: e.g. after pressing `home`, or after doing a search with `/`, or when there are no other widgets (e.g. no search results).
+            return None
+        return focused_contact_w
+
     def _unhighlight_current_contact_widget(self):
         # Remove highlighting from the "current" (not for long) contact's widget.
         try:
@@ -2424,12 +2432,8 @@ class ContactsListWidget(ListBoxPlus):
 
     def _select_focused_contact(self, focus_widget=None):
         # The `focus_widget` parameter is passed through from caller to emit_signal. It specifies whether the focus should be set on `input`, `chat` or `contacts` widgets after switching to a new contact.
-        focused_contact_w = self.focus
+        focused_contact_w = self._get_focused_contact_widget()
         if focused_contact_w is None:
-            # This can happen e.g. when searching through contacts returns no results.
-            return
-        if cfg.partition_contacts and not isinstance(focused_contact_w, ContactWidget):
-            # Widget in focus is urwid.Text (a header) or urwid.Divider. They are normally not supposed to get the focus, but sometimes may: e.g. after pressing `home`, or after doing a search with `/`, or when there are no other widgets (e.g. no search results).
             return
         contact = focused_contact_w.contact
         focused_contact_w.fail_mark_set = False
@@ -2465,12 +2469,23 @@ class ContactsListWidget(ListBoxPlus):
             return
         self._select_focused_contact()
 
+    def _increment_focused_unread_count(self):
+        # NOTE: Does not increment unread count in the status line. However it will be updated after switching to another contact.
+        focused_contact_w = self._get_focused_contact_widget()
+        if focused_contact_w is None:
+            return
+        contact_id = focused_contact_w.contact.id
+        self._chats_data.unread_counts[contact_id] += 1
+        self.update_contact_unread_count(contact_id)
+
     def keypress(self, size, key):
         key = super().keypress(size, key)
         if key == 'enter':
             self._select_focused_contact(focus_widget='input')
         elif key == 'right':
             self._select_focused_contact()
+        elif key == 'U':
+            self._increment_focused_unread_count()
         else:
             return key
         return None

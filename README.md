@@ -130,6 +130,7 @@ A simple two-paned interface is provided. Left pane contains the contact list an
 - `G` focuses last contact/message.
 - `d` deletes the message from your screen (and from your history, if history is enabled).
 - `i` show a popup that contains detailed information about the message.
+- `U` in contacts list increments contact's unread count (can be used to mark conversation as unread).
 - `Alt+Enter` inserts a newline in message composing input field.
 - `Alt+J` / `Alt+K` (and `Alt+↓` / `Alt+↑`) open next / previous conversation.
 
