@@ -3061,7 +3061,7 @@ class ChatView(ListBoxPlus):
 
     def _delete_message(self, msg):
         index = self.focus_position if not self.is_filter_on else None
-        action_request.delete_message(msg, index)
+        action_request.delete_message_prompt(msg, index)
         if self.is_filter_on:
             del self.contents[self.focus_position]
 
@@ -3183,8 +3183,11 @@ class StatusLine(urwid.WidgetWrap):
             "Unread messages count: ",
             ('bold', f"{unread_count}"),
             ])
-        cols = urwid.Columns([self._text, ('pack', self._unreads_widget)], dividechars=1)
-        super().__init__(cols)
+        self._status_cols = urwid.Columns([self._text, ('pack', self._unreads_widget)], dividechars=1)
+        self._prompt = None
+        self._prompt_response_callback = None
+        placeholder = urwid.WidgetPlaceholder(self._status_cols)
+        super().__init__(placeholder)
 
     def set_text(self, new_text, append=False):
         if append:
@@ -3196,6 +3199,23 @@ class StatusLine(urwid.WidgetWrap):
     def set_unread_count(self, count):
         txt = str(count) if count else str()
         self._unreads_widget.set_text(('bold', txt))
+
+    def show_prompt(self, text, callback):
+        self._prompt_response_callback = callback
+        self._prompt = urwid.Edit(caption=text)
+        self._w.original_widget = self._prompt
+
+    def keypress(self, size, key):
+        # Keypresses are passed to this widget only when it has focus, which only happens when the prompt is on.
+        key = super().keypress(size, key)
+        if key == 'enter':
+            self._prompt_response_callback(self._prompt.edit_text)
+        elif key == 'esc':
+            self._prompt_response_callback(None)
+        else:
+            return key
+        self._w.original_widget = self._status_cols
+        return None
 
 
 class MessageInfo(ListBoxPlus):
@@ -3493,6 +3513,26 @@ class MainWindow(urwid.WidgetWrap):
         self.chat_w.on_contact_selected(contact)
         if focus_widget:
             self.focus_widget_name = focus_widget
+
+    def prompt_on_status_line(self, text, callback):
+        def callback_wrapper(prompt_response):
+            if prompt_response is not None:
+                callback(prompt_response)
+            self._w.focus_position = 'body'
+        self.status_line.show_prompt(text, callback_wrapper)
+        self._w.focus_position = 'footer'
+
+    def prompt_on_status_line_yn(self, text, callback, default_response='y'):
+        text += " [y/n]: ".replace(
+                default_response.lower(),
+                default_response.upper()
+                )
+        def callback_wrapper(prompt_response):
+            if not prompt_response:
+                prompt_response = default_response
+            if prompt_response.lower() in ('y', 'yes'):
+                callback()
+        self.prompt_on_status_line(text, callback_wrapper)
 
     def show_help(self):
         self._popup_ph.show_help()
@@ -3834,15 +3874,21 @@ class Actions:
             new_name = args
         self._daemon.rename_contact(contact_id, new_name, is_group, lambda *i: self.reload())
 
-    def delete_message(self, msg, index=None):
+    def _delete_message(self, msg, index=None):
         self._chats_data.chats.delete_message(msg, index)
         self._chats_data.delivery_status.delete(msg.timestamp)
+
+    def delete_message_prompt(self, msg, index=None):
+        self._urwid_ui.main_w.prompt_on_status_line_yn(
+                f"Delete message `{textwrap.shorten(msg.text, 20)}` from local history?",
+                lambda: self._delete_message(msg, index)
+                )
 
     def resend_message(self, msg, index=None):
         if msg.delivery_status != 'send_failed':
             # Only allow re-sending previously failed-to-send messages
             raise TypeError
-        self.delete_message(msg, index)
+        self._delete_message(msg, index)
         self.set_status_line('')    # remove 'send-failed' status line
         envelope = msg.envelope
         contact_id = get_envelope_contact_id(envelope)
