@@ -2235,6 +2235,19 @@ class ContactWidget(FocusableText):
             markup.append(self.GROUP_MARKUP)
         return markup
 
+    def _update_markup(self):
+        markup = []
+        if self._fail_mark_set:
+            markup.extend([self.SEND_FAILED_MARKUP, " "])
+        if self._unread_count:
+            markup.extend([('bold', f"({self._unread_count})"), " "])
+                # Moving the " " into the ('bold', ..) element removes the italic in [GRP] when contact selected and unread count shown.
+        if self._highlight:
+            markup.append((self.HIGHLIGHT_MARKUP_ATTR, self._name_markup))
+        else:
+            markup.extend(self._name_markup)
+        self.set_text(markup)
+
     @property
     def unread_count(self):
         return self._unread_count
@@ -2244,8 +2257,7 @@ class ContactWidget(FocusableText):
         if count == self._unread_count:
             return
         self._unread_count = count
-        unread_count_markup = '' if not count else [('bold', f"({count})"), " "]
-        self.set_text([unread_count_markup, self._name_markup])
+        self._update_markup()
 
     @property
     def fail_mark_set(self):
@@ -2256,8 +2268,7 @@ class ContactWidget(FocusableText):
         if self._fail_mark_set == true_false:
             return
         self._fail_mark_set = true_false
-        fail_markup = [self.SEND_FAILED_MARKUP, " "] if self._fail_mark_set else [""]
-        self.set_text(fail_markup + self._name_markup)
+        self._update_markup()
 
     @property
     def highlight(self):
@@ -2268,9 +2279,7 @@ class ContactWidget(FocusableText):
         if self._highlight == new_val:
             return
         self._highlight = new_val
-        highlight_attr = self.HIGHLIGHT_MARKUP_ATTR if self._highlight else None
-        self.set_text((highlight_attr, self._name_markup))
-            # Note: this removes any additional markup the widget had (failed-send, unread count). But that's OK currently, as it's used only on switching between contacts, when those additional things should get cleared anyway.
+        self._update_markup()
 
 
 class PartitionedContactsListWalker(urwid.SimpleListWalker):
