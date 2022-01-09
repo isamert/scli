@@ -736,6 +736,35 @@ class Daemon(AsyncProc):
 
         self._dbus_send_signal_cli(args, *proc_args, **proc_kwargs)
 
+    def _parse_send_proc_output(self, proc, envelope, callback_name):
+        if proc.returncode != 0:
+            if any(s in proc.output for s in (
+                    "UntrustedIdentity",
+                    "Untrusted Identity",
+                    "Unregistered user",
+                    )):
+                # Related signal-cli issues: #348, #828.
+                if not is_envelope_group_message(envelope):
+                    self.callbacks['untrusted_identity_err'](envelope)
+                else:
+                    # Ad-hoc parsing of signal-cli's stderr output.
+                    timestamp_adj = int(proc.output.splitlines()[0].rsplit(': ', 1)[-1])
+                    logging.warning("some group members have uninstalled signal: %s", proc.output)
+                    self.callbacks[callback_name](envelope, 'ignore_receipts', timestamp_adj)
+                    return
+            self.callbacks[callback_name](envelope, 'send_failed')
+            return
+
+        # Set envelope timestamp to that returned by signal-cli
+        try:
+            timestamp_adj = int(proc.output.rsplit(maxsplit=1)[1])
+        except (IndexError, AttributeError) as err:
+            logging.error("send_message: Failed to get adjusted envelope timestamp")
+            logging.exception(err)
+            self.callbacks[callback_name](envelope)
+        else:
+            self.callbacks[callback_name](envelope, 'sent', timestamp_adj)
+
     def send_message(self, contact_id, message="", attachments=None):
         is_group = not is_number(contact_id)
 
@@ -767,33 +796,7 @@ class Daemon(AsyncProc):
                     os.remove(attachment)
 
             # Check if send command succeeded
-            if proc.returncode != 0:
-                if any(s in proc.output for s in (
-                        "UntrustedIdentity",
-                        "Untrusted Identity",
-                        "Unregistered user",
-                        )):
-                    # Related signal-cli issues: #348, #828.
-                    if not is_group:
-                        self.callbacks['untrusted_identity_err'](envelope)
-                    else:
-                        # Ad-hoc parsing of signal-cli's stderr output.
-                        timestamp_adj = int(proc.output.splitlines()[0].rsplit(': ', 1)[-1])
-                        logging.warning("send_message: some group members have uninstalled signal: %s", proc.output)
-                        self.callbacks['sending_done'](envelope, 'ignore_receipts', timestamp_adj)
-                        return
-                self.callbacks['sending_done'](envelope, 'send_failed')
-                return
-
-            # Set envelope timestamp to that returned by signal-cli
-            try:
-                timestamp_adj = int(proc.output.rsplit(maxsplit=1)[1])
-            except (IndexError, AttributeError) as err:
-                logging.error("send_message: Failed to get adjusted envelope timestamp")
-                logging.exception(err)
-                self.callbacks['sending_done'](envelope)
-            else:
-                self.callbacks['sending_done'](envelope, 'sent', timestamp_adj)
+            self._parse_send_proc_output(proc, envelope, 'sending_done')
 
         self._send_message_dbus_cmd(
                 message,
