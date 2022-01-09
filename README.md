@@ -24,6 +24,8 @@ The following methods are supported by community and may be outdated.
 
 [![Packaging status](https://repology.org/badge/vertical-allrepos/scli-signal-cli.svg)](https://repology.org/project/scli-signal-cli/versions)
 
+- [Debian / Ubuntu](https://gitlab.com/packaging/scli/)
+
 ### Manual
 
 Clone the repo
