@@ -120,29 +120,30 @@ if you have put it on your system's `$PATH`, or specify the full `/path/to/execu
 A simple two-paned interface is provided. Left pane contains the contact list and right pane contains current conversation. You can switch focus between panes with `Tab` (or `Shift + Tab`). Hitting tab for the first time focuses the conversation, hitting it again focuses to input line. So the focus order is `Contacts -> Conversation -> Input`. You can use `Shift + Tab` for cycling backwards.
 
 ### Keys
-- Use `j`/`k` to go down/up in contacts list or in messages.
-- Hitting `enter` on a contact opens the conversation and focuses to input line.
-- Hitting `l` on a contact only opens the conversation.
-- Hitting `o` on a message opens the URL if there is one, if not it opens the attachment if there is one.
-- Hitting `enter` on a message opens the attachment if there is one, if not it opens the URL if there is one.
-- Hitting `y` on a message puts it into system clipboard. (needs `xclip`)
+- `j`/`k` move the cursor down/up in a conversation and the contacts list.
 - `g` focuses first contact/message.
 - `G` focuses last contact/message.
+- `enter` on a contact opens its conversation and focuses the input line.
+- `l` on a contact opens its conversation without focusing input line.
+- `enter` on a message opens attachment or URL if there is one.
+- `o` on a message opens URL or attachment if there is one.
+- `y` on a message puts it into system clipboard. (needs `xclip`).
 - `e` or `R` on a message opens an emoji picker and sends it as a reaction. Sending an 'empty' reaction removes the previously set reaction.
-- `d` deletes the message from your screen (and from your history, if history is enabled).
-- `i` show a popup that contains detailed information about the message.
+- `d` deletes the message _locally_.
+- `i` shows a message info popup with the message's details.
 - `U` in contacts list increments contact's unread count (can be used to mark conversation as unread).
 - `Alt+Enter` inserts a newline in message composing input field.
 - `Alt+J` / `Alt+K` (and `Alt+↓` / `Alt+↑`) open next / previous conversation.
+- If [`urwid_readline`](https://github.com/rr-/urwid_readline/) is installed, all of its keybindings can be used in the message compose input field.
 
 ### Commands
-There are some basic commands that you can use. Hit `:` to enter command mode (or simply focus the input line and type `:`).
+Commands can be entered by typing `:` following one of the commands below.
 
 - `:edit` or `:e` lets you edit your message in your `$EDITOR`.
 - `:attach FILE_PATH` or `:a FILE_PATH` attaches given file to message.
-- `:attachClip` or `:c` attaches clipboard content to message. This command tries to detect clipboard content. If clipboard contains something with the mime-type `image/png` or `image/jpg`, simply attaches the image to message. If clipboard contains `text/uri-list` it attaches all the files in that URI list to your message. This command needs `xclip` installed.
-- `:openUrl` or `:u` opens last URL in messages, if there is one.
-- `:openAttach` or `:o` opens last attachment in messages, if there is one.
+- `:attachClip` or `:c` attaches clipboard content to message. This command tries to detect clipboard content. If clipboard contains something with the mime-type `image/png` or `image/jpg`, it simply attaches the image to message. If clipboard contains `text/uri-list` it attaches all the files in that URI list to the message. This command needs `xclip` installed.
+- `:openUrl` or `:u` opens the last URL in conversation, if there is one.
+- `:openAttach` or `:o` opens the last attachment in conversation, if there is one.
 - `:toggleNotifications` or `:n` toggles desktop notifications.
 - `:toggleContactsSort` or `:s` toggles between sorting contacts alphabetically and by the most recent message.
 - `:toggleAutohide` or `:h` hides the contacts pane when it's not in focus.
@@ -161,14 +162,12 @@ Examples:
 **Note**: Commands are case insensitive, `:quit` and `:qUiT` do the same thing.
 
 ### Searching
-There is a built-in search feature. Simply hit `/` while you are on the chat window (or focus the input line then type `/`) and start typing, the chat will be filtered out based on your input. You can focus any of the search results and hit `enter` (or `l`) to open that result in full conversation.
-
-For searching through contacts, you need to hit `/` while you are on the contacts window and start typing, contacts will be filtered out while you are typing. Hit `enter` to focus the results. Hitting `Esc` will clear the search.
+Filtering messages in a conversation is done by typing `/` followed by the match text. Hitting `enter` (or `l`) on a message shows it in the full conversation. Hitting `Esc` clears the search. Searching through the contacts is done similarly.
 
 ### Configuration
-There are some simple configuration options. You can either pass them as command-line arguments or add them to your configuration file `~/.config/sclirc`. Run `scli --help` to see all options.
+Configuration options can be passed to scli as command-line arguments or added to the configuration file in `~/.config/sclirc`. Run `scli --help` to show all available options.
 
-Configuration file syntax is also pretty easy. Lines starting with `#` and empty lines are ignored, other lines are `key = value` pairs. Optional arguments (flags) like `--debug`, can be enabled in config file with any of: `true`, `t`, `yes`, `y` (with any capitalization, case insensitive).
+In the configuration file the empty lines and lines starting with `#` are ignored. Other lines are `key = value` pairs. Optional arguments (flags) like `--debug` can be enabled in config file with any of: `true`, `t`, `yes`, `y` (with any capitalization, case insensitive).
 
 #### Example
 ```sh
@@ -183,7 +182,7 @@ enable-notifications = true
 
 #### History
 
-Conversations history can be enabled with `--save-history` or `-s` flag. If enabled, the file is saved in plain text (to `~/.local/share/scli/history` by default).
+Conversations history can be enabled with `--save-history` or `-s` flag. The file will be saved in plain text (to `~/.local/share/scli/history` by default).
 
 #### Colors
 
