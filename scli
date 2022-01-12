@@ -2407,7 +2407,7 @@ class ContactsListWidget(ListBoxPlus):
                 pos_new = self.contents.index(self._indiv_header_w) + 2
                 pos_in_prefilter = len(self._contacts.groups) + 5
         self.move_item(w, pos_new, pos_in_prefilter)
-        self.focus_position = pos_new
+        self.try_set_focus(pos_new)
 
     def _get_current_contact_widget(self):
         current_contact = self._chats_data.current_contact
