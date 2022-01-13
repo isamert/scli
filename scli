@@ -597,7 +597,9 @@ class Daemon(AsyncProc):
                     'receive_reaction',
                     'receive_sticker',
                     'sending_message',
+                    'sending_reaction',
                     'sending_done',
+                    'sending_reaction_done',
                     'contact_typing',
                     'call_message',
                     'contacts_sync',
@@ -736,6 +738,21 @@ class Daemon(AsyncProc):
 
         self._dbus_send_signal_cli(args, *proc_args, **proc_kwargs)
 
+    def _send_reaction_dbus_cmd(self, emoji, remove, target_author, target_sent_timestamp, recipient, is_group=False, *proc_args, **proc_kwargs):
+        dbus_args = [
+                ('org.asamk.Signal.sendMessageReaction'
+                    if not is_group else
+                    'org.asamk.Signal.sendGroupMessageReaction'),
+                "string:" + emoji,
+                "boolean:" + str(remove).lower(),
+                "string:" + target_author,
+                "int64:" + str(target_sent_timestamp),
+                ('string:' + recipient
+                    if not is_group else
+                    'array:byte:' + b64_to_bytearray(recipient))
+                ]
+        self._dbus_send_signal_cli(dbus_args, *proc_args, **proc_kwargs)
+
     def _parse_send_proc_output(self, proc, envelope, callback_name):
         if proc.returncode != 0:
             if any(s in proc.output for s in (
@@ -808,6 +825,45 @@ class Daemon(AsyncProc):
 
         logging.info('send_message: %s', envelope)
         self.callbacks['sending_message'](envelope)
+
+    def send_reaction(self, contact_id, emoji, orig_author, orig_ts, remove=False):
+        is_group = not is_number(contact_id)
+        timestamp = get_current_timestamp_ms()
+        envelope = {
+                'source': self._username,
+                'target': contact_id,
+                'timestamp': timestamp,
+                'dataMessage': {
+                    'message': None,
+                    'timestamp': timestamp,
+                    'reaction': {
+                        'emoji': emoji,
+                        'isRemove': remove,
+                        'targetAuthor': orig_author,
+                        'targetAuthorNumber': orig_author,
+                        'targetSentTimestamp': orig_ts,
+                        },
+                    },
+                }
+        if is_group:
+            envelope['dataMessage']['groupInfo'] = {
+                    'groupId': contact_id,
+                    }
+
+        def after_send_proc_returns(proc):
+            self._parse_send_proc_output(proc, envelope, 'sending_reaction_done')
+
+        self._send_reaction_dbus_cmd(
+                emoji,
+                remove,
+                orig_author,
+                orig_ts,
+                contact_id,
+                is_group,
+                callback=after_send_proc_returns
+                )
+        logging.info('send_reaction: %s', envelope)
+        self.callbacks['sending_reaction'](envelope)
 
     def rename_contact(self, contact_id, new_name, is_group=False, *proc_args, **proc_kwargs):
         """Rename a contact or group.
@@ -3131,6 +3187,9 @@ class LazyEvalMessageListWalker(LazyEvalListWalker):
 
 
 class ChatView(ListBoxPlus):
+
+    signals = ['pick_reaction']
+
     def __init__(self):
         lw = LazyEvalMessageListWalker(urwid.MonitoredList())
         super().__init__(lw)
@@ -3214,6 +3273,8 @@ class ChatView(ListBoxPlus):
             # Replying / quoting not supported by signal-cli
             # https://github.com/AsamK/signal-cli/issues/213
             pass
+        elif key in ('R', 'e'):
+            urwid.emit_signal(self, 'pick_reaction', size, self.calculate_visible(size, True))
         else:
             return key
         return None
@@ -3510,6 +3571,74 @@ class HelpDialog(ListBoxPlus):
         super().__init__(items)
 
 
+class ReactionPicker(ViBindingsMixin, urwid.WidgetWrap):
+    signals = ['closed']
+
+    _emoji_regex = re.compile(
+            r'[^\w\s!"#$%&\'()*+,-./:;<=>?@[\]\\^_`{|}~]'  # from `string.punctuation`
+            )
+            # Currently doing a simple test that the input text is a single non-word or punctuation char.
+
+    class EditEmoji(urwid.Edit):
+        signals = ['return']
+
+        def keypress(self, size, key):
+            if key in ('j', 'k', 'q'):
+                return key
+            elif key == 'enter':
+                urwid.emit_signal(self, 'return', self, self.edit_text)
+                return None
+            return super().keypress(size, key)
+
+    def __init__(self, msg):
+        self._msg = msg
+        grid_items = [
+                urwid.Button(
+                    label=emoji,
+                    on_press=self._reaction_picked,
+                    user_data=emoji,
+                    ) for emoji in (
+                    '💗',
+                    '👍',
+                    '👎',
+                    '😂',
+                    '😮',
+                    '😥',
+                    )
+                ]
+        custom_emoji_input_w = self.EditEmoji(wrap='clip')
+        self._custom_emoji_text_w = urwid.Text('···', align='right')
+        grid_items.append(self._custom_emoji_text_w)
+        grid_items.append(custom_emoji_input_w)
+        grid_w = urwid.GridFlow(
+                grid_items,
+                cell_width=6,
+                h_sep=2,
+                v_sep=1,
+                align='center',
+                )
+        fill_w = urwid.Filler(grid_w)
+        urwid.connect_signal(
+                custom_emoji_input_w,
+                'return',
+                self._reaction_picked
+                )
+        super().__init__(fill_w)
+
+    def _is_single_emoji(self, text):
+        return self._emoji_regex.fullmatch(text)
+        # A check to reject sending non-emoji reactions.
+            # They are delivered successfully, but are not displayed by the official clients (see signal-cli#834).
+            # The current simple regex test is meant to notify a user of accidentally entered non-emoji text. It does not catch all possible strings that are not displayed on official clients. It also rejects some emoji that normally *would* be displayed, e.g. combined ones, like 👨‍👩‍👦‍👦 that report len!=1.
+
+    def _reaction_picked(self, _widget, emoji):
+        if self._is_single_emoji(emoji) or not emoji:
+            self._emit('closed')
+            action_request.send_reaction(self._msg, emoji)
+        else:
+            self._custom_emoji_text_w.set_text('❌⚠️👉')
+
+
 class PopUpPlaceholder(urwid.WidgetPlaceholder):
     def __init__(self, w):
         super().__init__(w)
@@ -3569,6 +3698,26 @@ class PopUpPlaceholder(urwid.WidgetPlaceholder):
                 remove_callback=message_widget.unhighlight,
                 )
 
+    def show_reaction_picker(self, frame_top_bottom_method, size, visible):
+        input_w_rows = frame_top_bottom_method(size, focus=True)[0][1]
+        focus_offset = visible[0][0]
+        bottom_offset = input_w_rows + (size[1] - focus_offset) + 1
+        msg_widget = visible[0][1]
+        msg_widget.highlight()
+        self._show_pop_up(
+                ReactionPicker(msg_widget.msg),
+                buttons=False,
+                shadow_len=0,
+                remove_callback=msg_widget.unhighlight,
+                align=msg_widget.align,
+                left=2,
+                right=2,
+                valign='bottom',
+                bottom = bottom_offset,
+                width=30,
+                height=7,
+                )
+
     def keypress(self, size, key):
         key = super().keypress(size, key)
         if not self._is_popup_shown:
@@ -3592,6 +3741,13 @@ class MainWindow(urwid.WidgetWrap):
 
         total_unread_count = self._chats_data.unread_counts.total
         self.status_line = StatusLine(total_unread_count)
+
+        urwid.connect_signal(
+                self.chat_w.chat_view,
+                'pick_reaction',
+                self._popup_ph.show_reaction_picker,
+                user_args=[self.chat_w.frame_top_bottom]
+                )
 
         w = urwid.Frame(self._columns, footer=self.status_line)
         super().__init__(w)
@@ -3899,6 +4055,23 @@ class Actions:
         else:
             self.set_status_line('Clipboard is empty.')
 
+    def send_reaction(self, msg, emoji):
+        is_remove = not emoji
+        if is_remove:
+            try:
+                current_reaction_envelope = msg.reactions[self._contacts.sigdata.own_num]
+                emoji = get_envelope_reaction(current_reaction_envelope)['emoji']
+            except (AttributeError, KeyError):
+                emoji = '👍'
+                # Official signal clients do not remove emojis if emoji=="". It needs to be any (non-empty) emoji.
+        self._daemon.send_reaction(
+                msg.contact_id,
+                emoji,
+                msg.sender_num,
+                msg.timestamp,
+                is_remove,
+                )
+
     def open_file(self, path):
         if not os.path.exists(path):
             logging.warning("File does not exist: %s", path)
@@ -4202,6 +4375,14 @@ class Coordinate:
         self._ui.chat.try_set_focus(-1)
         self._ui.contacts.on_new_message(msg)
 
+    def _on_sending_reaction(self, envelope):
+        self._chats_data.delivery_status.on_sending_message(envelope)
+        self._add_reaction(envelope)
+        self._ui.chat.try_set_focus(-1)
+            # Ensuring the last message does not get pushed down out of the view by the new reaction row.
+            # None of the following alternatives solve this:
+                # self._ui.chat.set_focus_valign('bottom'), focus_position=<orig_focus>, set_focus(<orig_focus>, coming_from='below')
+
     def _on_sending_done(self, envelope, status='sent', timestamp_adj=None):
         self._chats_data.delivery_status.on_sending_done(envelope, status, timestamp_adj)
         self._ui.contacts.on_sending_done(envelope, status, timestamp_adj)
@@ -4228,6 +4409,24 @@ class Coordinate:
             self._ui.chat.try_set_focus(-1)
 
         self._chats_data.delivery_status.process_buffered_receipts(msg.timestamp)
+
+    def _on_sending_reaction_done(self, envelope, status='sent', timestamp_adj=None):
+        if status == 'sent':
+            status = 'ignore_receipts'
+        self._chats_data.delivery_status.on_sending_done(envelope, status, timestamp_adj)
+        self._ui.contacts.on_sending_done(envelope, status, timestamp_adj)
+
+        if status != 'send_failed':
+            return
+        reaction = get_envelope_reaction(envelope)
+        emoji = reaction['emoji']
+        self._actions.set_status_line(
+                f'Reaction "{emoji}" failed to send.',
+                append=True,
+                )
+        reaction['isRemove'] = True
+        self._add_reaction(envelope)
+        # NOTE: When attempting to _replace_ an emoji with anoter one 'send_fail's, the old one will be removed (not shown) locally in scli, while continuing to be visible for the original recepients.
 
     def _on_receive_message(self, envelope):
         logging.info('MESSAGE: %s', envelope)
@@ -4278,16 +4477,28 @@ class Coordinate:
             self._ui.main_w.update_unread_count(contact_id)
         self._actions.show_new_msg_notifications(msg)
 
+    def _add_reaction(self, envelope):
+        msg = self._chats_data.chats.add_reaction_envelope(envelope)
+        if not msg:
+            return None
+        msg_w = self._ui.msg_ws_cache.get(msg)
+        msg_w.update_reactions_w()
+        return msg
+
     def _on_receive_receipt(self, envelope):
         self._chats_data.delivery_status.on_receive_receipt(envelope)
 
     def _on_receive_reaction(self, envelope):
-        msg = self._chats_data.chats.add_reaction_envelope(envelope)
-        if not msg:
-            return
-        msg_w = self._ui.msg_ws_cache.get(msg)
-        msg_w.update_reactions_w()
-        self._on_new_message(msg)
+        msg = self._add_reaction(envelope)
+        if msg is not None:
+            self._on_new_message(msg)
+            # Not focusing on the received reaction message (same behavior as signal-desktop)
+        else:
+            # Show a notification for reaction to an "unknown" message (not in Chats)
+            reaction = get_envelope_reaction(envelope)
+            msg = Message({'source': reaction['targetAuthor']})
+            msg.add_reaction(envelope)
+            self._actions.show_new_msg_notifications(msg)
 
     def _on_daemon_log(self, log_line):
         if log_line.startswith("ERROR") and not self.daemon.is_dbus_service_running:

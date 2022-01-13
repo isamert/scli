@@ -128,6 +128,7 @@ A simple two-paned interface is provided. Left pane contains the contact list an
 - Hitting `y` on a message puts it into system clipboard. (needs `xclip`)
 - `g` focuses first contact/message.
 - `G` focuses last contact/message.
+- `e` or `R` on a message opens an emoji picker and sends it as a reaction. Sending an 'empty' reaction removes the previously set reaction.
 - `d` deletes the message from your screen (and from your history, if history is enabled).
 - `i` show a popup that contains detailed information about the message.
 - `U` in contacts list increments contact's unread count (can be used to mark conversation as unread).
