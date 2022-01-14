@@ -1275,6 +1275,15 @@ class Message:
         ret += text[pos:]
         return ret
 
+    @property
+    def not_repliable(self):
+        envelope = self.envelope
+        return (
+                'typingMessage' in envelope
+                or envelope.get('callMessage') is not None
+                or getattr(self, 'remote_delete', None)
+                )
+
 
 class ReorderedTimestamps(list):
     def __init__(self, *args, **kwargs):
@@ -3273,7 +3282,7 @@ class ChatView(ListBoxPlus):
             # Replying / quoting not supported by signal-cli
             # https://github.com/AsamK/signal-cli/issues/213
             pass
-        elif key in ('R', 'e'):
+        elif key in ('R', 'e') and not message_widget.msg.not_repliable:
             urwid.emit_signal(self, 'pick_reaction', size, self.calculate_visible(size, True))
         else:
             return key
