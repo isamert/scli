@@ -4543,7 +4543,10 @@ class Coordinate:
 
     def _on_contact_typing(self, envelope):
         self._chats_data.typing_indicators.on_typing_message(envelope)
-        self._ui.chat.try_set_focus(-1)
+        contact_id = get_envelope_contact_id(envelope)
+        if (self._chats_data.current_contact is not None
+                and contact_id == self._chats_data.current_contact.id):
+            self._ui.chat.try_set_focus(-1)
 
     def _on_call_message(self, envelope):
         call_message = envelope['callMessage']
