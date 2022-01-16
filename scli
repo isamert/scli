@@ -2879,23 +2879,23 @@ class MessageWidget(urwid.WidgetWrap):
 
     def __init__(self, msg):
         self.msg = msg
-        self._align = (
+        self.align = (
                 'left'
                 if (not is_envelope_outgoing(self.msg.envelope)
                     or cfg.one_sided)
                 else 'right'
                 )
         msg_markup = self._get_message_markup()
-        self._text_w = FocusableText(msg_markup or '', align=self._align)
+        self._text_w = FocusableText(msg_markup or '', align=self.align)
             # urwid.Text throws an error if given an empty list for markup. Not sure `msg_markup` can ever end up being empty though.
-        msg_pad_w = urwid.Padding(self._text_w, self._align, width=cfg.wrap_at)
+        msg_pad_w = urwid.Padding(self._text_w, self.align, width=cfg.wrap_at)
         status_markup = self._get_status_markup()
-        self._status_w = urwid.Text(status_markup, self._align)
-        status_w_valign = 'top' if self._align == 'left' else 'bottom'
+        self._status_w = urwid.Text(status_markup, self.align)
+        status_w_valign = 'top' if self.align == 'left' else 'bottom'
         status_filler_w = urwid.Filler(self._status_w, status_w_valign)
         cols = [(DeliveryStatus.MARKUP_WIDTH, status_filler_w), msg_pad_w]
         box_columns = [0]
-        if self._align == 'right':
+        if self.align == 'right':
             cols.reverse()
             box_columns = [1]
         columns_w = urwid.Columns(cols, dividechars=1, box_columns=box_columns)
@@ -2996,7 +2996,7 @@ class MessageWidget(urwid.WidgetWrap):
         if quote_attachments:
             ret.extend(['\n', '| '])
             ret.extend(self._get_attachments_markup(quote_attachments))
-        if self._align == 'right':
+        if self.align == 'right':
             del ret[0]
             for ind, elem in enumerate(ret):
                 if elem == '| ' and ret[ind-1] == '\n':
@@ -3052,18 +3052,18 @@ class MessageWidget(urwid.WidgetWrap):
             self._add_reactions_w(emojis_markup)
 
     def _add_reactions_w(self, emojis_markup):
-        self._reactions_w = urwid.Text(emojis_markup, align=self._align)
-        react_pad_w = urwid.Padding(self._reactions_w, self._align, width=cfg.wrap_at)
-        react_sym_markup = '╰╴' if self._align == 'left' else '╶╯'
+        self._reactions_w = urwid.Text(emojis_markup, align=self.align)
+        react_pad_w = urwid.Padding(self._reactions_w, self.align, width=cfg.wrap_at)
+        react_sym_markup = '╰╴' if self.align == 'left' else '╶╯'
         react_sym_w = urwid.Text(
                 react_sym_markup,
-                align='right' if self._align == 'left' else 'left',
+                align='right' if self.align == 'left' else 'left',
                 )
         cols = [
                 (DeliveryStatus.MARKUP_WIDTH + len(react_sym_markup), react_sym_w),
                 react_pad_w,
                 ]
-        if self._align == 'right':
+        if self.align == 'right':
             cols.reverse()
         react_cols_w = urwid.Columns(cols)
         self._w.original_widget = urwid.Pile([self._w.original_widget, react_cols_w])
