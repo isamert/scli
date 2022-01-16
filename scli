@@ -2798,8 +2798,8 @@ class MessageWidget(urwid.WidgetWrap):
             cols.reverse()
             box_columns = [1]
         columns_w = urwid.Columns(cols, dividechars=1, box_columns=box_columns)
-        color = None if not cfg.color else cfg.color.for_message(msg)
-        display_w = urwid.AttrMap(columns_w, color, focus_map=REVERSED_FOCUS_MAP)
+        self._color = None if not cfg.color else cfg.color.for_message(msg)
+        display_w = urwid.AttrMap(columns_w, self._color, focus_map=REVERSED_FOCUS_MAP)
         super().__init__(display_w)
         self._reactions_w = None
         self.update_reactions_w()
@@ -2925,6 +2925,12 @@ class MessageWidget(urwid.WidgetWrap):
     def reload_markup(self):
         msg_markup = self._get_message_markup()
         self._text_w.set_text(msg_markup or '')
+
+    def highlight(self):
+        self._w.set_attr_map(REVERSED_FOCUS_MAP)
+
+    def unhighlight(self):
+        self._w.set_attr_map({None: self._color})
 
     def update_reactions_w(self):
         try:
@@ -3403,9 +3409,22 @@ class PopUpPlaceholder(urwid.WidgetPlaceholder):
         self._orig_w = w
             # Urwid's terminology here might be confusing: "WidgetPlaceholder.original_widget" means "currently displayed widget", not the one it is originally initialized with.
 
-    def _show_pop_up(self, widget, title='', buttons=True, shadow_len=2, **overlay_params):
+    def _show_pop_up(
+            self,
+            widget,
+            title='',
+            buttons=True,
+            shadow_len=2,
+            remove_callback=None,
+            **overlay_params
+            ):
         pop_up_box = PopUpBox(widget, title, buttons, shadow_len)
-        urwid.connect_signal(pop_up_box, 'closed', self._remove_pop_up)
+        urwid.connect_signal(
+                pop_up_box,
+                'closed',
+                self._remove_pop_up,
+                user_args=[remove_callback]
+                )
         overlay_args = dict(
                 align='center',
                 valign='middle',
@@ -3421,7 +3440,9 @@ class PopUpPlaceholder(urwid.WidgetPlaceholder):
         )
         self.original_widget = pop_up_overlay
 
-    def _remove_pop_up(self, *_sender_ws):
+    def _remove_pop_up(self, remove_callback, *_sender_ws):
+        if remove_callback is not None:
+            remove_callback()
         self.original_widget = self._orig_w
 
     @property
@@ -3432,9 +3453,14 @@ class PopUpPlaceholder(urwid.WidgetPlaceholder):
         self._show_pop_up(HelpDialog(), title='Help')
 
     def show_message_info(self, message_widget):
+        message_widget.highlight()
         info = MessageInfo(message_widget.msg)
         fill = urwid.Filler(info, height=('relative', 100), top=1, bottom=1)
-        self._show_pop_up(fill, title='Message info')
+        self._show_pop_up(
+                fill,
+                title='Message info',
+                remove_callback=message_widget.unhighlight,
+                )
 
     def keypress(self, size, key):
         key = super().keypress(size, key)
