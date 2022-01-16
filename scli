@@ -5062,7 +5062,7 @@ def main():
         atexit.register(proc.kill)
         action_request.set_status_line("Initializing signal-cli daemon... ")
 
-    for sig in {signal_ipc.SIGHUP, signal_ipc.SIGTERM}:
+    for sig in (signal_ipc.SIGHUP, signal_ipc.SIGTERM):
         signal_ipc.signal(sig, lambda signum, frame: action_request.quit())
 
     with BracketedPasteMode():
