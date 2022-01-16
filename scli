@@ -3065,9 +3065,9 @@ class ChatView(ListBoxPlus):
         elif self.is_filter_on:
             self._reset_search()
 
-    def _delete_message(self, msg):
+    def _delete_message(self, message_widget):
         index = self.focus_position if not self.is_filter_on else None
-        action_request.delete_message_prompt(msg, index)
+        action_request.delete_message_prompt(message_widget, index)
         if self.is_filter_on:
             del self.contents[self.focus_position]
 
@@ -3106,7 +3106,7 @@ class ChatView(ListBoxPlus):
                     txt = ' '.join(get_attachment_path(attach) for attach in attachments)
             clip.put(txt)
         elif key == 'd':
-            self._delete_message(message_widget.msg)
+            self._delete_message(message_widget)
         elif key == 'r':
             self._resend_message(message_widget.msg)
         elif key == 'q':
@@ -3540,15 +3540,17 @@ class MainWindow(urwid.WidgetWrap):
         if focus_widget:
             self.focus_widget_name = focus_widget
 
-    def prompt_on_status_line(self, text, callback):
+    def prompt_on_status_line(self, text, callback, callback_finally=None):
         def callback_wrapper(prompt_response):
             if prompt_response is not None:
                 callback(prompt_response)
+            if callback_finally is not None:
+                callback_finally()
             self._w.focus_position = 'body'
         self.status_line.show_prompt(text, callback_wrapper)
         self._w.focus_position = 'footer'
 
-    def prompt_on_status_line_yn(self, text, callback, default_response='y'):
+    def prompt_on_status_line_yn(self, text, callback, default_response='y', callback_finally=None):
         text += " [y/n]: ".replace(
                 default_response.lower(),
                 default_response.upper()
@@ -3558,7 +3560,7 @@ class MainWindow(urwid.WidgetWrap):
                 prompt_response = default_response
             if prompt_response.lower() in ('y', 'yes'):
                 callback()
-        self.prompt_on_status_line(text, callback_wrapper)
+        self.prompt_on_status_line(text, callback_wrapper, callback_finally)
 
     def show_help(self):
         self._popup_ph.show_help()
@@ -3904,10 +3906,13 @@ class Actions:
         self._chats_data.chats.delete_message(msg, index)
         self._chats_data.delivery_status.delete(msg.timestamp)
 
-    def delete_message_prompt(self, msg, index=None):
+    def delete_message_prompt(self, message_widget, index=None):
+        message_widget.highlight()
+        msg = message_widget.msg
         self._urwid_ui.main_w.prompt_on_status_line_yn(
-                f"Delete message `{textwrap.shorten(msg.text, 20)}` from local history?",
-                lambda: self._delete_message(msg, index)
+                "Delete message from local history?",
+                callback=lambda: self._delete_message(msg, index),
+                callback_finally=message_widget.unhighlight,
                 )
 
     def resend_message(self, msg, index=None):
