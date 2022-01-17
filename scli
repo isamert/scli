@@ -1277,6 +1277,17 @@ class Chat(urwid.MonitoredList):
         else:
             bisect.insort(self, msg)
 
+    def delete(self, msg, index=None):
+        # The `index` is optional, but if known, will save cpu cycles for finding the message in chat.
+        try:
+            if index is None:
+                index = self.index(msg)
+            del self[index]
+        except (ValueError, IndexError) as err:
+            logging.info("Chat.delete(): message not found; envelope = %s", msg.envelope)
+            logging.exception(err)
+            raise ValueError from err
+
     def adjust_timestamp(self, msg, timestamp_adj):
         """Adjust message's timestamp, ensuring that Chat remains sorted"""
         index = self.index(msg)
@@ -1354,16 +1365,8 @@ class Chats:
         return msg
 
     def delete_message(self, msg, index=None):
-        # The `index` is optional, but if known, will save cpu cycles for finding the message in chat.
         chat = self.get_chat_for_envelope(msg.envelope)
-        try:
-            if index is None:
-                index = chat.index(msg)
-            del chat[index]
-        except (ValueError, IndexError) as err:
-            logging.info("delete_message(): message not found; envelope = %s", msg.envelope)
-            logging.exception(err)
-            raise ValueError from err
+        chat.delete(msg, index)
 
     def serialize(self):
         envelopes = []
