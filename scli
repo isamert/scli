@@ -204,6 +204,10 @@ def split_path(string):
     return [path, rest] if rest else [path]
 
 
+def get_current_timestamp_ms():
+    return int(datetime.now().timestamp() * 1000)
+
+
 def utc2local(utc_dt):
     return utc_dt.replace(tzinfo=timezone.utc).astimezone(tz=None)
 
@@ -640,6 +644,7 @@ class Daemon(AsyncProc):
                 logging.error('Could not parse daemon output: %s', line)
                 logging.exception(err)
             else:
+                logging.debug("Daemon: json_data = \n%s", pprint.pformat(json_data))
                 error_data = json_data.get('error')
                 if error_data is not None:
                     self._error_data_handler(error_data, envelope)
@@ -661,7 +666,7 @@ class Daemon(AsyncProc):
                     )
 
     def _envelope_handler(self, envelope):
-        logging.debug("Daemon: envelope = \n%s", pprint.pformat(envelope))
+        envelope['_received_timestamp'] = get_current_timestamp_ms()
         if get_envelope_msg(envelope) or get_envelope_attachments(envelope):
             if get_nested(envelope, 'syncMessage', 'sentMessage') is not None:
                 self.callbacks['receive_sync_message'](envelope)
@@ -741,7 +746,7 @@ class Daemon(AsyncProc):
             logging.warning('send_message: Attached file(s) does not exist.')
             return
 
-        timestamp = int(datetime.now().timestamp() * 1000)
+        timestamp = get_current_timestamp_ms()
         envelope = {
             'source': self._username,
             'target': contact_id,
@@ -1128,7 +1133,10 @@ class Message:
         return self.envelope == other_msg.envelope
 
     def __lt__(self, other_msg):
-        return self.timestamp < other_msg.timestamp
+        return self.local_timestamp < other_msg.local_timestamp
+
+    def __le__(self, other_msg):
+        return self.local_timestamp <= other_msg.local_timestamp
 
     @property
     def timestamp(self):
@@ -1138,6 +1146,10 @@ class Message:
     def timestamp(self, ts_new):
         # NOTE: For Message in Chat, use Chat.adjust_timestamp(), rather then this setter directly, to ensure that Chat remains sorted.
         self.envelope['timestamp'] = self.envelope['dataMessage']['timestamp'] = ts_new
+
+    @property
+    def local_timestamp(self):
+        return self.envelope.get('_received_timestamp') or self.timestamp
 
     @property
     def text(self):
@@ -1205,7 +1217,68 @@ class Message:
         return ret
 
 
-class Chat(urwid.MonitoredList):
+class ReorderedTimestamps(list):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._reordered_timestamps = {}
+
+    def _is_neighbd_monotonic(self, index):
+        try:
+            return self[index-1] <= self[index] <= self[index+1]
+            # Works for index=(0, len(self)), i.e. not 0 or -1. Not worth it to add checks for those cases.
+        except IndexError:
+            return True
+            # `self[index]` is either the last or the only message in Chat. In the former case, if it is out of order, the first comparison will return False, and IndexError will not be raised.
+
+    def _add_reordered_neighbors(self, index):
+        # When calling this method, ensure that len(self) > 1 and index == -1 for the last element (not len(self)-1).
+        if index == -1:
+            pre_post_pairs = ((self[-2], self[-1]), )
+        elif index == 0:
+            pre_post_pairs = ((self[0], self[1]), )
+        else:
+            pre_post_pairs = (
+                    (self[index-1], self[index]),
+                    (self[index], self[index+1]),
+                    )
+        for pre_post in pre_post_pairs:
+            for tlr in (True, False):
+                local, received = pre_post if tlr else reversed(pre_post)
+                received_ts = received.envelope.get('_received_timestamp')
+                if received_ts is None:
+                    continue
+                original_ts = received.timestamp
+                left_right = (original_ts, received_ts)
+                left, right = left_right if tlr else reversed(left_right)
+                if left <= local.local_timestamp <= right:
+                    self._reordered_timestamps[
+                            (received.sender_num, original_ts)
+                            ] = received_ts
+                            # Including sender_num in the dict's key to prevent collisions in group chats between same-timestamp, different-sender messages.
+
+    def _delete_from_reordered(self, msg, index):
+        # This method is assumed to be run *after* the msg itself is already deleted.
+        self._reordered_timestamps.pop((msg.sender_num, msg.timestamp), None)
+        edge = True
+        if index == len(self):
+            # Assuming the supplied index != -1. However _add_reordered_neighbors() requires -1.
+            index = -1
+        elif index:
+            index -= 1
+            edge = False
+        modified = False
+        for ioffset in range(1) if edge else range(-1, 1):
+            try:
+                neighb = self[index+ioffset]
+                del self._reordered_timestamps[(neighb.sender_num, neighb.timestamp)]
+                modified = True
+            except (IndexError, KeyError):
+                pass
+        if modified:
+            self._add_reordered_neighbors(index)
+
+
+class Chat(ReorderedTimestamps, urwid.MonitoredList):
     # An `urwid.MonitoredList` is a subclass of a regular `list`, that modifies the "mutating" (modifying `self`) methods, so that they call the `self._modified()` method at the end.
         # The `self._modified()` method is set to simply do `pass`, until a callback is assigned to it in ListWalker's __init__.
 
@@ -1234,7 +1307,7 @@ class Chat(urwid.MonitoredList):
             return (
                     msg.timestamp == timestamp
                     and
-                    (sender_num is None or msg.sender_num == sender_num)
+                    (msg.sender_num == sender_num or sender_num is None)
                     )
 
         try:
@@ -1245,17 +1318,31 @@ class Chat(urwid.MonitoredList):
         if match_test(msg):
             # First check the last msg before doing bisect_left, as bisect starts in the middle. See also comment in self.add()
             return len(self) - 1
-        dummy_message = Message({'timestamp': timestamp})
+        dummy_message = Message({'timestamp':
+            self._reordered_timestamps.get((sender_num, timestamp))
+            or timestamp
+            })
         index = bisect.bisect_left(self, dummy_message)
         if index != len(self):
-            msg = self[index]
-            if match_test(msg):
-                return index
+            for ind in (i for r in ((index, index-1), range(index+1, len(self))) for i in r):
+                # This generator expression is a "re-implementation" of itertools.chain().
+                    # The indecies are ordered with the more likely matches tested first.
+                    # The range(..) checks for msgs with the same timestamp (e.g. msgs in a group chat from different senders).
+                    # index-1 might be a match if it is not in _reordered_timestamps and its _received_timestamp < timestamp.
+                msg = self[ind]
+                if match_test(msg):
+                    return ind
+                if msg.timestamp > timestamp and ind > index:
+                    break
         raise ValueError
 
-    def get_msg_for_envelope(self, envelope):
+    def get_index_for_envelope(self, envelope):
         dummy_message = Message(envelope)
         index = self.index(dummy_message)
+        return index
+
+    def get_msg_for_envelope(self, envelope):
+        index = self.get_index_for_envelope(envelope)
         return self[index]
 
     def get_msg_for_timestamp(self, timestamp, sender_num=None):
@@ -1263,19 +1350,23 @@ class Chat(urwid.MonitoredList):
         return self[ind]
 
     def add(self, msg):
+        index = -1
+            # Not using len(self)-1 because after self.append() it will shift.
         try:
-            msg_last = self[-1]
+            msg_last = self[index]
         except IndexError:
             # The chat is empty
             self.append(msg)
             return
-        if msg_last.timestamp < msg.timestamp:
+        if msg_last <= msg:
             # Check first if the message should be appended at the end of Chat container.
-                # This is the case for most of the messages. The exceptions might be the sync messages.
+                # This is the case for most of the messages. The exceptions might occur if the system's clock has been moved back.
                 # `bisect` starts searching for the place for new item from the middle of the container, which takes more steps.
             self.append(msg)
         else:
-            bisect.insort(self, msg)
+            index = bisect.bisect(self, msg)
+            self.insert(index, msg)
+        self._add_reordered_neighbors(index)
 
     def delete(self, msg, index=None):
         # The `index` is optional, but if known, will save cpu cycles for finding the message in chat.
@@ -1287,24 +1378,19 @@ class Chat(urwid.MonitoredList):
             logging.info("Chat.delete(): message not found; envelope = %s", msg.envelope)
             logging.exception(err)
             raise ValueError from err
+        self._delete_from_reordered(msg, index)
 
-    def adjust_timestamp(self, msg, timestamp_adj):
+    def adjust_timestamp(self, msg, timestamp_adj, index=None):
         """Adjust message's timestamp, ensuring that Chat remains sorted"""
-        index = self.index(msg)
         msg.timestamp = timestamp_adj
 
         # Ensure that Chat remains sorted
-        # This should rarely be necessary, as signal-cli's timestamp adjustments are small enough (~50ms) to not modify the messages' order.
-        try:
-            if self[index-1].timestamp <= msg.timestamp <= self[index+1].timestamp:
-                return
-        except IndexError:
-            # The `msg` is either the last or the only message in Chat.
-                # In the former case, there's no need to move the msg in chat: if its timestamp moved forwards, the msg is still the latest; if it moved backwards far enough to now come before the previous message, the first clause of the `if` test above would fail, and the `IndexError` would not be raised.
-            return
-        logging.debug("Chat: moving msg to maintain sorted history.")
-        del self[index]
-        self.add(msg)
+            # This should rarely be necessary, as signal-cli's timestamp adjustments are small enough (~50ms) to not modify the messages' order.
+        index = index or self.index(msg)
+        if not self._is_neighbd_monotonic(index):
+            logging.debug("Chat: moving msg to maintain sorted history: %s", timestamp_adj)
+            self.delete(msg, index)
+            self.add(msg)
 
 
 class Chats:
@@ -1317,15 +1403,19 @@ class Chats:
     def get_chat_for_envelope(self, envelope):
         return self._dict[get_envelope_contact_id(envelope)]
 
-    def get_msg_for_envelope(self, envelope):
+    def get_chat_index_for_envelope(self, envelope):
         try:
             chat = self.get_chat_for_envelope(envelope)
-            msg = chat.get_msg_for_envelope(envelope)
-            return msg
+            index = chat.get_index_for_envelope(envelope)
+            return chat, index
         except (KeyError, ValueError, IndexError) as err:
             logging.error("get_msg_for_envelope(): envelope = %s", envelope)
             logging.exception(err)
             raise ValueError from err
+
+    def get_msg_for_envelope(self, envelope):
+        chat, index = self.get_chat_index_for_envelope(envelope)
+        return chat[index]
 
     def get_msg_for_timestamp(self, envelope, timestamp, sender_num=None):
         chat = self.get_chat_for_envelope(envelope)
@@ -1346,7 +1436,7 @@ class Chats:
                     sender_num=reaction['targetAuthor']
                     )
         except ValueError:
-            logging.error("Message not found for reaction: %s", envelope)
+            logging.error("Message not found for reaction: %s", pprint.pformat(envelope))
             return None
         msg.add_reaction(envelope)
         return msg
@@ -2333,7 +2423,7 @@ class ContactsListWidget(ListBoxPlus):
                 last_msg = chat[-1]
             except (KeyError, IndexError):
                 return (0, contact_name.casefold())
-            return (-last_msg.timestamp, contact_name.casefold())
+            return (-last_msg.local_timestamp, contact_name.casefold())
 
         if not cfg.partition_contacts:
             return sorted(self._contacts.map.values(), key=sorter)
@@ -3256,6 +3346,12 @@ class MessageInfo(ListBoxPlus):
         date_w = self._prop_val_w('Date', date)
         items = [name_w, num_w, date_w]
 
+        if msg.local_timestamp is not msg.timestamp:
+            received_timestamp = strftimestamp(msg.local_timestamp)
+            items.append(
+                    self._prop_val_w('Received', received_timestamp)
+                    )
+
         if msg.text:
             txt_w = self._prop_val_w('Message', msg.text)
             items.append(txt_w)
@@ -4103,9 +4199,10 @@ class Coordinate:
         self._ui.contacts.on_sending_done(envelope, status, timestamp_adj)
 
         try:
-            msg = self._chats_data.chats.get_msg_for_envelope(envelope)
+            chat, index = self._chats_data.chats.get_chat_index_for_envelope(envelope)
         except ValueError:
             return
+        msg = chat[index]
 
         if status == 'send_failed':
             msg_txt = textwrap.shorten(msg.text, 20)
@@ -4118,8 +4215,7 @@ class Coordinate:
 
         if timestamp_adj is not None:
             self._ui.msg_ws_cache.adjust_timestamp(msg, timestamp_adj)
-            chat = self._chats_data.chats.get_chat_for_envelope(envelope)
-            chat.adjust_timestamp(msg, timestamp_adj)
+            chat.adjust_timestamp(msg, timestamp_adj, index)
             self._ui.chat.try_set_focus(-1)
 
         self._chats_data.delivery_status.process_buffered_receipts(msg.timestamp)
