@@ -604,6 +604,7 @@ class Daemon(AsyncProc):
                     'call_message',
                     'contacts_sync',
                     'remote_delete',
+                    'sending_remote_delete_done',
                     'untrusted_identity_err',
                 ]
             }
@@ -753,6 +754,18 @@ class Daemon(AsyncProc):
                 ]
         self._dbus_send_signal_cli(dbus_args, *proc_args, **proc_kwargs)
 
+    def _send_remote_delete_dbus_cmd(self, target_sent_timestamp, recipient, is_group=False, *proc_args, **proc_kwargs):
+        dbus_args = [
+                ('org.asamk.Signal.sendRemoteDeleteMessage'
+                    if not is_group else
+                    'org.asamk.Signal.sendGroupRemoteDeleteMessage'),
+                "int64:" + str(target_sent_timestamp),
+                ('string:' + recipient
+                    if not is_group else
+                    'array:byte:' + b64_to_bytearray(recipient))
+                ]
+        self._dbus_send_signal_cli(dbus_args, *proc_args, **proc_kwargs)
+
     def _parse_send_proc_output(self, proc, envelope, callback_name):
         if proc.returncode != 0:
             if any(s in proc.output for s in (
@@ -864,6 +877,33 @@ class Daemon(AsyncProc):
                 )
         logging.info('send_reaction: %s', envelope)
         self.callbacks['sending_reaction'](envelope)
+
+    def send_remote_delete(self, contact_id, orig_ts):
+        is_group = not is_number(contact_id)
+        timestamp = get_current_timestamp_ms()
+        envelope = {
+                'source': self._username,
+                'target': contact_id,
+                'timestamp': timestamp,
+                'dataMessage': {
+                    'message': None,
+                    'timestamp': timestamp,
+                    'remoteDelete': {
+                        'timestamp': orig_ts,
+                        },
+                    },
+                }
+        if is_group:
+            envelope['dataMessage']['groupInfo'] = {
+                    'groupId': contact_id,
+                    }
+        self._send_remote_delete_dbus_cmd(
+                orig_ts,
+                contact_id,
+                is_group,
+                callback=lambda proc: self._parse_send_proc_output(proc, envelope, 'sending_remote_delete_done')
+                )
+        self.callbacks['remote_delete'](envelope)
 
     def rename_contact(self, contact_id, new_name, is_group=False, *proc_args, **proc_kwargs):
         """Rename a contact or group.
@@ -3278,6 +3318,8 @@ class ChatView(ListBoxPlus):
             self._delete_message(message_widget)
         elif key == 'r':
             self._resend_message(message_widget.msg)
+        elif key == 'D':
+            action_request.send_remote_delete_prompt(message_widget)
         elif key == 'q':
             # Replying / quoting not supported by signal-cli
             # https://github.com/AsamK/signal-cli/issues/213
@@ -4216,6 +4258,20 @@ class Actions:
         attachments = get_envelope_attachments(envelope)
         self._daemon.send_message(contact_id, message, attachments)
 
+    def send_remote_delete_prompt(self, message_widget):
+        msg = message_widget.msg
+        if msg.sender_num != self._contacts.sigdata.own_num:
+            return
+        message_widget.highlight()
+        self._urwid_ui.main_w.prompt_on_status_line_yn(
+                "Remote delete message?",
+                callback=lambda: self._daemon.send_remote_delete(
+                    msg.contact_id,
+                    msg.timestamp,
+                    ),
+                callback_finally=message_widget.unhighlight,
+                )
+
     def update_groups_async(self):
         def on_groups_updated():
             self._contacts.set_groups_membership()
@@ -4568,6 +4624,21 @@ class Coordinate:
         msg = self._chats_data.chats.add_remote_delete_envelope(envelope)
         if not msg:
             return
+        msg_w = self._ui.msg_ws_cache.get(msg)
+        msg_w.reload_markup()
+
+    def _on_sending_remote_delete_done(self, envelope, status='sent', _timestamp_adj=None):
+        # Not tracking delivery receipts for remote delete messages. Letting them be buffered by DeliveryStatus and then discarded on exit.
+        if status != 'send_failed':
+            return
+        self._actions.set_status_line(
+                'Sending remote delete message failed.',
+                append=True,
+                )
+        msg = self._chats_data.chats.add_remote_delete_envelope(envelope)
+        if not msg:
+            return
+        delattr(msg, 'remote_delete')
         msg_w = self._ui.msg_ws_cache.get(msg)
         msg_w.reload_markup()
 

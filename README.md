@@ -129,7 +129,8 @@ A simple two-paned interface is provided. Left pane contains the contact list an
 - `o` on a message opens URL or attachment if there is one.
 - `y` on a message puts it into system clipboard. (needs `xclip`).
 - `e` or `R` on a message opens an emoji picker and sends it as a reaction. Sending an 'empty' reaction removes the previously set reaction.
-- `d` deletes the message _locally_.
+- `d` deletes the message locally (from the current device's history).
+- `D` remote-deletes the message (for everyone in the conversation).
 - `i` shows a message info popup with the message's details.
 - `U` in contacts list increments contact's unread count (can be used to mark conversation as unread).
 - `Alt+Enter` inserts a newline in message composing input field.
