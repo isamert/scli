@@ -699,7 +699,7 @@ class Daemon(AsyncProc):
 
     def _error_data_handler(self, error_data, envelope):
         logging.error("Daemon: error = \n%s", pprint.pformat(error_data))
-        if error_data['type'] == 'UntrustedIdentityException':
+        if error_data.get('type') == 'UntrustedIdentityException':
             self.callbacks['untrusted_identity_err'](envelope)
 
     def _dbus_send(self, args, *proc_args, async_proc=True, **proc_kwargs):
