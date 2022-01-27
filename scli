@@ -4028,6 +4028,7 @@ class Actions:
             rmap[token] = text
         rmap['_optionals'] = ('%s', '%m')
         self.callf(cfg.notification_command, rmap, background=True)
+        print('\a')
 
     def send_message_curr_contact(self, message="", attachments=None):
         if self._chats_data.current_contact is None:
