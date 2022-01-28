@@ -146,6 +146,7 @@ Commands can be entered by typing `:` following one of the commands below.
 - `:openUrl` or `:u` opens the last URL in conversation, if there is one.
 - `:openAttach` or `:o` opens the last attachment in conversation, if there is one.
 - `:toggleNotifications` or `:n` toggles desktop notifications.
+- `:toggleNotificationsBell` or `:b` toggles terminal bell on notifications.
 - `:toggleContactsSort` or `:s` toggles between sorting contacts alphabetically and by the most recent message.
 - `:toggleAutohide` or `:h` hides the contacts pane when it's not in focus.
 - `:addContact NUMBER [NAME]` adds a new contact to the contact list. Added contacts' names are local (not synced with signal servers).  
