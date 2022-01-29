@@ -3094,22 +3094,23 @@ class MessageWidget(urwid.WidgetWrap):
             logging.error("Failed to extract a quote from %s", self.msg.envelope)
             return None
         def quote(entries):
-            return ['\n'.join([f'| {line}' for line in entry.splitlines()]) for entry in entries]
+            (left, right) = ('| ', '') if self.align == 'left' else ('', ' |')
+            result = []
+            for entry in entries:
+                txt = entry if isinstance(entry, str) else entry[1]
+                if '\n' in txt:
+                    txt = '\n'.join([f'{left}{line}{right}' for line in txt.split('\n')])
+                val = txt if isinstance(entry, str) else (entry[0], txt)
+                result.append(val)
+            return result
         author_name = action_request.get_contact_name(quote_author_num)
-        ret = ['| ', ('bolditalic', author_name)]
+        ret = ['| ', ('bolditalic', author_name)] if self.align == 'left' else [('bolditalic', author_name), ' |']
         if quote_text:
             ret.append('\n')
             ret.extend(quote(self._get_text_markup(quote_text)))
         if quote_attachments:
             ret.append('\n')
             ret.extend(quote(self._get_attachments_markup(quote_attachments)))
-        if self.align == 'right':
-            del ret[0]
-            for ind, elem in enumerate(ret):
-                if elem == '| ' and ret[ind-1] == '\n':
-                    del ret[ind]
-                    ret.insert(ind-1, ' |')
-            ret.append(' |')
         return ret
 
     def _get_call_message_markup(self):
