@@ -4294,12 +4294,17 @@ class Actions:
     def show_new_msg_notifications(self, msg):
         sender_name = self.get_contact_name(msg.sender_num)
 
+        try:
+            *_, reaction_envelope = msg.reactions.values()  # the latest reaction envelope
+        except (AttributeError, ValueError):
+            reaction_envelope = None
+        else:
+            sender_name = self.get_contact_name(
+                    get_envelope_sender_id(reaction_envelope)
+                    )
+
         def get_msg_notif():
-            try:
-                *_, reaction_envelope = msg.reactions.values()  # the latest reaction envelope
-            except (AttributeError, ValueError):
-                pass
-            else:
+            if reaction_envelope is not None:
                 reaction = get_envelope_reaction(reaction_envelope)
                 if reaction.get('isRemove'):
                     return None
