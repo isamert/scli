@@ -1293,15 +1293,15 @@ class Message:
             # Don't want to add `reactions` attribute to every Message instance; only to those that actually have reactions.
         self.reactions[get_envelope_sender_id(envelope)] = envelope
 
-    def text_w_mentions(self, bracket_char=''):
+    @classmethod
+    def text_w_mentions_generic(cls, text, mentions, bracket_char=''):
         # See also: What is the Mention's "length" parameter?
         # https://github.com/AsamK/signal-cli/discussions/409
         ret = ''
         pos = 0
-        text = get_envelope_msg(self.envelope)
-        for mention in self.mentions:
+        for mention in mentions:
             contact_num = mention['name']
-            contact = self._get_contact(contact_num)
+            contact = cls._get_contact(contact_num)
             contact_name = contact.name_or_id if contact else contact_num
             start = mention['start']
             ret = ''.join((
@@ -1314,6 +1314,10 @@ class Message:
             pos = start + 1
         ret += text[pos:]
         return ret
+
+    def text_w_mentions(self, bracket_char=''):
+        text = get_envelope_msg(self.envelope)
+        return self.text_w_mentions_generic(text, self.mentions, bracket_char)
 
     @property
     def not_repliable(self):
@@ -3038,39 +3042,50 @@ class MessageWidget(urwid.WidgetWrap):
                 ret.extend(markup)
         return ret
 
-    def _get_text_markup(self, text=None):
-        if text is None:
-            text = self.msg.text
+    @classmethod
+    def _get_text_markup_generic(cls, text, mentions):
         if not text:
             return None
-        if not (cfg.use_formatting or self.msg.mentions):
+        if not (cfg.use_formatting or mentions):
             return [text]
-        if self.msg.mentions:
-            text = self.msg.text_w_mentions(bracket_char=self.MENTION_BRACKET_CHAR)
+        if mentions:
+            text = Message.text_w_mentions_generic(
+                    text,
+                    mentions,
+                    bracket_char=cls.MENTION_BRACKET_CHAR,
+                    )
         ret = []
         pos = 0
-        for match in self.FORMATTING_RE.finditer(text):
+        for match in cls.FORMATTING_RE.finditer(text):
             if pos != match.start():
                 # Do not add empty strings. Urwid breaks on markup like:
                 # [.., ('bold', 'txt1'), '', ('bold', 'txt2'), ...]
                 ret.append(text[pos : match.start()])
-            ret.append((self.FORMAT_MAP[match[1]], match.group()[1:-1]))
+            ret.append((cls.FORMAT_MAP[match[1]], match.group()[1:-1]))
             pos = match.end()
         if pos != len(text):
             ret.append(text[pos:])
         return ret
 
-    def _get_attachments_markup(self, attachments=None):
-        if attachments is None:
-            attachments = self.msg.attachments
+    def _get_text_markup(self):
+        return self._get_text_markup_generic(
+                get_envelope_msg(self.msg.envelope),
+                self.msg.mentions,
+                )
+
+    @classmethod
+    def _get_attachments_markup_generic(cls, attachments):
         if not attachments:
             return None
         attach_list = [get_attachment_name(attach) for attach in attachments]
-        if len(attachments) > self.MAX_ATTACHS_SHOW:
-            attach_list = attach_list[: self.MAX_ATTACHS_SHOW]
-            attach_list.append(f'... ({len(attachments)-self.MAX_ATTACHS_SHOW} more)')
+        if len(attachments) > cls.MAX_ATTACHS_SHOW:
+            attach_list = attach_list[: cls.MAX_ATTACHS_SHOW]
+            attach_list.append(f'... ({len(attachments)-cls.MAX_ATTACHS_SHOW} more)')
         attach_txt = ', '.join(attach_list)
         return ['[attached: ', ('italic', attach_txt), ']']
+
+    def _get_attachments_markup(self):
+        return self._get_attachments_markup_generic(self.msg.attachments)
 
     def _get_sender_markup(self):
         envelope = self.msg.envelope
@@ -3096,11 +3111,15 @@ class MessageWidget(urwid.WidgetWrap):
         author_name = action_request.get_contact_name(quote_author_num)
         ret = ['| ', ('bolditalic', author_name)]
         if quote_text:
+            quote_markup = self._get_text_markup_generic(
+                        text=quote_text,
+                        mentions=quote.get('mentions'),
+                    )
             ret.extend(['\n', '| '])
-            ret.extend(self._get_text_markup(quote_text))
+            ret.extend(quote_markup)
         if quote_attachments:
             ret.extend(['\n', '| '])
-            ret.extend(self._get_attachments_markup(quote_attachments))
+            ret.extend(self._get_attachments_markup_generic(quote_attachments))
         if self.align == 'right':
             del ret[0]
             for ind, elem in enumerate(ret):
