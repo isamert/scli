@@ -3943,7 +3943,6 @@ class Commands:
             (['openAttach', 'o'], self._actions.open_last_attach),
             (['openUrl', 'u'], self._actions.open_last_url),
             (['toggleNotifications', 'n'], self._actions.toggle_notifications),
-            (['toggleNotificationsBell', 'b'], self._actions.toggle_notifications_bell),
             (['toggleAutohide', 'h'], self._actions.toggle_autohide),
             (['toggleContactsSort', 's'], self._actions.toggle_sort_contacts),
             (['renameContact'], self._actions.rename_contact),
@@ -4021,8 +4020,6 @@ class Actions:
             return None
 
     def send_desktop_notification(self, sender, message):
-        if cfg.enable_notifications_bell:
-            print('\a', end='')
         if not cfg.enable_notifications:
             return
         rmap = {}
@@ -4031,6 +4028,8 @@ class Actions:
             rmap[token] = text
         rmap['_optionals'] = ('%s', '%m')
         self.callf(cfg.notification_command, rmap, background=True)
+        if not cfg.notification_no_bell:
+            print('\a', end='')
 
     def send_message_curr_contact(self, message="", attachments=None):
         if self._chats_data.current_contact is None:
@@ -4188,17 +4187,8 @@ class Actions:
                 '.'
                 ))
         self.set_status_line(notif)
-
-    def toggle_notifications_bell(self):
-        cfg.enable_notifications_bell = not cfg.enable_notifications_bell
-        notif = ''.join((
-                'Terminal bell on notifications is ',
-                'ON' if cfg.enable_notifications_bell else 'OFF',
-                '.'
-                ))
-        self.set_status_line(notif)
-
     # pylint: enable=attribute-defined-outside-init
+
     def add_contact(self, args):
         """Add a new contact.
 
@@ -4805,17 +4795,16 @@ def make_arg_parser():
     )
 
     parser.add_argument(
-        '-b',
-        '--enable-notifications-bell',
-        action='store_true',
-        help='Enable terminal bell on notifications. (Also see --enable-notifications)',
-    )
-
-    parser.add_argument(
         '-n',
         '--enable-notifications',
         action='store_true',
         help='Enable desktop notifications. (Also see --notification-command)',
+    )
+
+    parser.add_argument(
+        '--notification-no-bell',
+        action='store_true',
+        help="Do not send a \"bell\" code to the terminal on notification. It sets the terminal window's urgency hint, making it more noticable. (The exact visual effect depends on the terminal emulator and the window manager)",
     )
 
     parser.add_argument(
