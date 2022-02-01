@@ -10,8 +10,8 @@
 ### Limitations
 
 - Not yet supported by [signal-cli](https://github.com/AsamK/signal-cli/issues):
-	- Quoting a message ([#213](https://github.com/AsamK/signal-cli/issues/213))
-	- Adding @-mentions in sent messages ([#584](https://github.com/AsamK/signal-cli/issues/584))
+	- Quoting a message ([#875](https://github.com/AsamK/signal-cli/issues/875))
+	- Adding @-mentions in sent messages ([#875](https://github.com/AsamK/signal-cli/issues/875))
 	- Voice calls ([#80](https://github.com/AsamK/signal-cli/issues/80))
 
 - *Sending* read receipts for received messages.
