@@ -327,7 +327,7 @@ def get_envelope_attachments(envelope):
 def get_attachment_name(attachment):
     if isinstance(attachment, dict):
         filename = attachment['filename']
-        return filename if filename is not None else attachment['contentType']
+        return filename if filename else attachment['contentType']
     else:
         return os.path.basename(attachment)
 
