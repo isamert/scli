@@ -4067,6 +4067,8 @@ class Actions:
             rmap[token] = text
         rmap['_optionals'] = ('%s', '%m')
         self.callf(cfg.notification_command, rmap, background=True)
+        if not cfg.notification_no_bell:
+            print('\a', end='')
 
     def send_message_curr_contact(self, message="", attachments=None):
         if self._chats_data.current_contact is None:
@@ -4841,6 +4843,12 @@ def make_arg_parser():
         '--enable-notifications',
         action='store_true',
         help='Enable desktop notifications. (Also see --notification-command)',
+    )
+
+    parser.add_argument(
+        '--notification-no-bell',
+        action='store_true',
+        help="Do not send a \"bell\" code to the terminal on notification. It sets the terminal window's urgency hint, making it more noticable. (The exact visual effect depends on the terminal emulator and the window manager)",
     )
 
     parser.add_argument(
