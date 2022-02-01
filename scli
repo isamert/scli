@@ -3108,25 +3108,45 @@ class MessageWidget(urwid.WidgetWrap):
         except KeyError:
             logging.error("Failed to extract a quote from %s", self.msg.envelope)
             return None
-        author_name = action_request.get_contact_name(quote_author_num)
-        ret = ['| ', ('bolditalic', author_name)]
-        if quote_text:
-            quote_markup = self._get_text_markup_generic(
-                        text=quote_text,
-                        mentions=quote.get('mentions'),
-                    )
-            ret.extend(['\n', '| '])
-            ret.extend(quote_markup)
-        if quote_attachments:
-            ret.extend(['\n', '| '])
-            ret.extend(self._get_attachments_markup_generic(quote_attachments))
+
+        if self.align == 'left':
+            ret = ['| ']
+            newline_sep = '\n| '
+            quote_sep_line = newline_sep + '---'
+        else:
+            ret = []
+            newline_sep = ' |\n'
+            quote_sep_line = '\n --- |'
+
+        text_markup = self._get_text_markup_generic(
+                text=quote_text,
+                mentions=quote.get('mentions'),
+                ) or []
+        for index, markup_element in enumerate(text_markup):
+            try:
+                text_markup[index] = markup_element.replace('\n', newline_sep)
+            except AttributeError:
+                continue
+
+        ret.append((
+            'bolditalic',
+            action_request.get_contact_name(quote_author_num),
+            ))
+        for m in (
+                text_markup,
+                self._get_attachments_markup_generic(quote_attachments),
+                ):
+            if m:
+                ret.append(newline_sep)
+                ret.extend(m)
         if self.align == 'right':
-            del ret[0]
-            for ind, elem in enumerate(ret):
-                if elem == '| ' and ret[ind-1] == '\n':
-                    del ret[ind]
-                    ret.insert(ind-1, ' |')
             ret.append(' |')
+
+        if len(markup_to_text(text_markup)) > 50:
+            # Additional separator after "long" quoted lines that might get soft-wrapped.
+            # 50 ~= 80 * 3/4 * 0.85  (assuming 80 columns, 3/4 for ChatWindow, 85% default wrap_at)
+            ret.append(quote_sep_line)
+
         return ret
 
     def _get_call_message_markup(self):
