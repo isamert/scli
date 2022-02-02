@@ -46,6 +46,7 @@ SIGNALCLI_LEGACY_ATTACHMENT_FOLDER = os.path.join(SIGNALCLI_LEGACY_FOLDER, 'atta
 SIGNALCLI_FOLDER = os.path.join(DATA_FOLDER, 'signal-cli')
 SIGNALCLI_DATA_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'data')
 SIGNALCLI_ATTACHMENT_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'attachments')
+SIGNALCLI_AVATARS_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'avatars')
 SIGNALCLI_STICKERS_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'stickers')
 
 SCLI_DATA_FOLDER = os.path.join(DATA_FOLDER, 'scli')
@@ -1175,6 +1176,17 @@ class Contact:
     @property
     def name_or_id(self):
         return self.name or self.profile_name or self.id
+
+    @property
+    def avatar(self):
+        if self._avatar is None:
+            profile = os.path.join(SIGNALCLI_AVATARS_FOLDER, f"profile-{self.id}")
+            contact = os.path.join(SIGNALCLI_AVATARS_FOLDER, f"contact-{self.id}")
+            if os.path.exists(profile):
+                self._avatar = profile
+            elif os.path.exists(contact):
+                self._avatar = contact
+        return self._avatar
 
 
 class Contacts:
@@ -4058,11 +4070,13 @@ class Actions:
                     )
             return None
 
-    def send_desktop_notification(self, sender, message):
+    def send_desktop_notification(self, sender, message, avatar):
         if not cfg.enable_notifications:
             return
+        if avatar is None:
+            avatar = 'scli'
         rmap = {}
-        for token, text in (('%s', sender), ('%m', message)):
+        for token, text in (('%s', sender), ('%m', message), ('%a', avatar)):
             text = text.replace(r"'", r"'\''")
             rmap[token] = text
         rmap['_optionals'] = ('%s', '%m')
@@ -4334,6 +4348,7 @@ class Actions:
 
     def show_new_msg_notifications(self, msg):
         sender_name = self.get_contact_name(msg.sender_num)
+        sender_avatar = self.get_contact_avatar(msg.sender_num)
 
         try:
             *_, reaction_envelope = msg.reactions.values()  # the latest reaction envelope
@@ -4395,7 +4410,7 @@ class Actions:
         except TypeError:
             return
         notif = textwrap.shorten(notif, 80)
-        self.send_desktop_notification(sender_name, msg_text)
+        self.send_desktop_notification(sender_name, msg_text, sender_avatar)
         if (self._chats_data.current_contact is None
                 or msg.contact_id != self._chats_data.current_contact.id):
             self.set_status_line(notif)
@@ -4403,6 +4418,10 @@ class Actions:
     def get_contact_name(self, contact_num):
         contact = self._contacts.get_by_id(contact_num)
         return contact.name_or_id if contact else contact_num
+
+    def get_contact_avatar(self, contact_num):
+        contact = self._contacts.get_by_id(contact_num)
+        return contact.avatar if contact else None
 
     def check_cmd_for_current_contact(self, fn):
         return (
@@ -4793,7 +4812,7 @@ def make_arg_parser():
     parser.add_argument(
         '-N',
         '--notification-command',
-        default="notify-send scli '%s - %m'",
+        default="notify-send -i '%a' scli '%s - %m'",
         help='Command to run when a new message arrives. %%m is replaced with the message, %%s is replaced with the sender.',
     )
 
