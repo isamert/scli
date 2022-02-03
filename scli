@@ -4358,6 +4358,9 @@ class Actions:
             sender_name = self.get_contact_name(
                     get_envelope_sender_id(reaction_envelope)
                     )
+            sender_avatar = self.get_contact_avatar(
+                    get_envelope_sender_id(reaction_envelope)
+                    )
 
         def get_msg_notif():
             if reaction_envelope is not None:
