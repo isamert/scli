@@ -28,6 +28,10 @@ decrypt() {
         gpg --batch --yes --passphrase "$GPGPASSWD" --decrypt "$HOME/.local/share/scli/attachments.tar.gz.gpg" \
             | tar -xzf -
     fi
+    if [[ -f "$HOME/.local/share/signal-cli/data" ]]; then
+        gpg --batch --yes --passphrase "$GPGPASSWD" --decrypt "$HOME/.local/share/signal-cli/data.tar.gz.gpg" \
+            | tar -xzf -
+    fi
 }
 encrypt() {
     echo "Encrypting history:"
@@ -39,6 +43,10 @@ encrypt() {
             | gpg --batch --yes --passphrase "$GPGPASSWD" -c \
                 -o "$HOME/.local/share/scli/attachments.tar.gz.gpg" && \
             rm -r "$HOME/.local/share/scli/attachments" 
+        tar -cz "$HOME/.local/share/signal-cli/data" \
+            | gpg --batch --yes --passphrase "$GPGPASSWD" -c \
+                -o "$HOME/.local/share/signal-cli/data.tar.gz.gpg" && \
+            rm -r "$HOME/.local/share/signal-cli/data" 
     fi
 }
 trap encrypt EXIT
