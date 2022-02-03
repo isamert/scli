@@ -8,11 +8,19 @@ while [ -h "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symli
 done
 DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
 
-echo -n "Password: "
-read -s GPGPASSWD
-
+prompt_password() {
+    echo -n "Password: "
+    read -s GPGPASSWD
+}
 decrypt() {
     if [[ -f "$HOME/.local/share/scli/history.gpg" ]]; then
+        test_password() {
+            gpg --batch --yes --dry-run --passphrase "$GPGPASSWD" --decrypt "$HOME/.local/share/scli/history.gpg" > /dev/null
+        }
+        while ! test_password; do
+            echo 'Bad password.'
+            prompt_password
+        done
         gpg --batch --yes --passphrase "$GPGPASSWD" --decrypt "$HOME/.local/share/scli/history.gpg" > \
             "$HOME/.local/share/scli/history" 
     fi
@@ -34,5 +42,6 @@ encrypt() {
     fi
 }
 trap encrypt EXIT
+prompt_password
 decrypt
 "${DIR}/scli"
