@@ -21,35 +21,54 @@ decrypt() {
             echo 'Bad password.'
             prompt_password
         done
-        gpg --batch --yes --passphrase "$GPGPASSWD" --decrypt "$HOME/.local/share/scli/history.gpg" > \
-            "$HOME/.local/share/scli/history" 
+        echo "Decrypting history..."
+        gpg --batch --yes --passphrase "$GPGPASSWD" \
+            --decrypt "$HOME/.local/share/scli/history.gpg" \
+            > "$HOME/.local/share/scli/history" 
     fi
-    if [[ -f "$HOME/.local/share/scli/attachments.gpg" ]]; then
-        gpg --batch --yes --passphrase "$GPGPASSWD" --decrypt "$HOME/.local/share/scli/attachments.tar.gz.gpg" \
-            | tar -xzf -
+    if [[ -f "$HOME/.local/share/scli/attachments.tar.gz.gpg" ]]; then
+        echo "Decrypting attachments..."
+        gpg --batch --yes --passphrase "$GPGPASSWD" \
+             --decrypt "$HOME/.local/share/scli/attachments.tar.gz.gpg" \
+            | tar -xzf - -C "$HOME/.local/share/scli/" \
+        && rm "$HOME/.local/share/scli/attachments.tar.gz.gpg" 
     fi
-    if [[ -f "$HOME/.local/share/signal-cli/data" ]]; then
-        gpg --batch --yes --passphrase "$GPGPASSWD" --decrypt "$HOME/.local/share/signal-cli/data.tar.gz.gpg" \
-            | tar -xzf -
+    if [[ -f "$HOME/.local/share/signal-cli/data.tar.gz.gpg" ]]; then
+        echo "Decrypting device link..."
+        gpg --batch --yes --passphrase "$GPGPASSWD" \
+            --decrypt "$HOME/.local/share/signal-cli/data.tar.gz.gpg" \
+            | tar -xzf - -C "$HOME/.local/share/signal-cli/" \
+        && rm "$HOME/.local/share/signal-cli/data.tar.gz.gpg" 
     fi
 }
 encrypt() {
-    echo "Encrypting history:"
     if [[ -f  "$HOME/.local/share/scli/history" ]]; then
-        gpg --batch --yes --passphrase "$GPGPASSWD" -c "$HOME/.local/share/scli/history" && \
-            rm "$HOME/.local/share/scli/history" && \
-            rm "$HOME/.local/share/scli/history.bak"
-        tar -cz "$HOME/.local/share/scli/attachments" \
-            | gpg --batch --yes --passphrase "$GPGPASSWD" -c \
-                -o "$HOME/.local/share/scli/attachments.tar.gz.gpg" && \
-            rm -r "$HOME/.local/share/scli/attachments" 
-        tar -cz "$HOME/.local/share/signal-cli/data" \
-            | gpg --batch --yes --passphrase "$GPGPASSWD" -c \
-                -o "$HOME/.local/share/signal-cli/data.tar.gz.gpg" && \
-            rm -r "$HOME/.local/share/signal-cli/data" 
+        echo "Encrypting history..."
+        gpg --batch --yes --passphrase "$GPGPASSWD" \
+            --symmetric "$HOME/.local/share/scli/history" \
+        && rm "$HOME/.local/share/scli/history" \
+        && if [[ -f "$HOME/.local/share/scli/history.bak" ]]; then
+            rm "$HOME/.local/share/scli/history.bak" 
+        fi
+
+        echo "Encrypting attachments..."
+        tar -czf "$HOME/.local/share/scli/attachments.tar.gz" \
+            -C "$HOME/.local/share/scli" "attachments" \
+        && gpg --batch --yes --passphrase "$GPGPASSWD" \
+                --symmetric "$HOME/.local/share/scli/attachments.tar.gz" \
+        && rm "$HOME/.local/share/scli/attachments.tar.gz" \
+        && rm -r "$HOME/.local/share/scli/attachments" 
+
+        echo "Encrypting device link..."
+        tar -czf "$HOME/.local/share/signal-cli/data.tar.gz" \
+            -C "$HOME/.local/share/signal-cli" "data" \
+        && gpg --batch --yes --passphrase "$GPGPASSWD" \
+                --symmetric "$HOME/.local/share/signal-cli/data.tar.gz" \
+        && rm -r "$HOME/.local/share/signal-cli/data.tar.gz" \
+        && rm -r "$HOME/.local/share/signal-cli/data" 
     fi
 }
-trap encrypt EXIT
 prompt_password
 decrypt
+trap encrypt EXIT
 "${DIR}/scli"
