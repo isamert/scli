@@ -4629,6 +4629,9 @@ class Coordinate:
 
     def _on_receive_reaction(self, envelope):
         msg = self._add_reaction(envelope)
+        if is_envelope_outgoing(envelope):
+            # Do not show notificitions for sync messages from linked devices
+            return
         if msg is not None:
             self._on_new_message(msg)
             # Not focusing on the received reaction message (same behavior as signal-desktop)
