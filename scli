@@ -344,7 +344,7 @@ def get_attachment_path(attachment):
 
 
 def get_sticker_file_path(sticker):
-    dir_name = b64_to_hex_str(sticker['packId'])
+    dir_name = sticker['packId']
     file_name = str(sticker['stickerId'])
     return os.path.join(SIGNALCLI_STICKERS_FOLDER, dir_name, file_name)
 
