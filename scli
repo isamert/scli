@@ -4173,6 +4173,19 @@ class Actions:
 
     def open_attach(self, envelope):
         attachments = get_envelope_attachments(envelope)
+        if not attachments:
+            quote = get_envelope_quote(envelope)
+            if quote is not None and quote.get('attachments'):
+                try:
+                    msg_orig = self._chats_data.chats.get_msg_for_timestamp(
+                            envelope,
+                            quote['id'],    # timestamp of orig message
+                            quote['author'],
+                            )
+                except (KeyError, ValueError):
+                    pass
+                else:
+                    self.open_attach(msg_orig.envelope)
         if attachments:
             for attachment in attachments:
                 file_path = get_attachment_path(attachment)
