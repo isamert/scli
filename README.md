@@ -138,7 +138,7 @@ A simple two-paned interface is provided. Left pane contains the contact list an
 - If [`urwid_readline`](https://github.com/rr-/urwid_readline/) is installed, all of its keybindings can be used in the message compose input field.
 
 ### Commands
-Commands can be entered by typing `:` following one of the commands below.
+Commands can be entered by typing `:` followed by one of the commands below.
 
 - `:edit` or `:e` lets you edit your message in your `$EDITOR`.
 - `:attach FILE_PATH` or `:a FILE_PATH` attaches given file to message.
