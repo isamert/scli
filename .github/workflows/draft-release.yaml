@@ -38,6 +38,7 @@ jobs:
           #git cat-file -p "$REF_NAME" | tail -n +8
           msg=$(git tag -l "$REF_NAME" --format='%(contents:body)')
             # Returns an empty string for non-annotated (ligthweight) tags.
+          msg="${msg//$'\n'/'%0A'}" # https://github.community/t/set-output-truncates-multiline-strings/16852
           echo "::set-output name=msg::${msg}"
 
       - name: Create new release draft
