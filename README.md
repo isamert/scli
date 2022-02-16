@@ -179,6 +179,7 @@ Configuration file equivalent of this command is:
 ## Long option forms are used in config file. (w = 80 is not valid.)
 wrap-at = 80
 enable-notifications = true
+notify-on-reactions = false
 ```
 
 #### History
