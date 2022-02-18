@@ -4076,13 +4076,13 @@ class Actions:
                     )
             return None
 
-    def send_desktop_notification(self, sender, message, avatar=None, is_reaction=False):
+    def send_desktop_notification(self, sender, message, is_reaction, avatar=None):
         if not cfg.enable_notifications:
+            return
+        if is_reaction and not cfg.notify_on_reactions:
             return
         if avatar is None:
             avatar = 'scli'
-        if is_reaction and not cfg.notify_on_reactions:
-            return
         rmap = {}
         for token, text in (('%s', sender), ('%m', message), ('%a', avatar)):
             text = text.replace(r"'", r"'\''")
@@ -4370,7 +4370,6 @@ class Actions:
     def show_new_msg_notifications(self, msg):
         sender_name = self.get_contact_name(msg.sender_num)
         contact_avatar = self._get_contact_avatar(msg.contact_id)
-        self.is_reaction = False
 
         try:
             *_, reaction_envelope = msg.reactions.values()  # the latest reaction envelope
@@ -4386,7 +4385,6 @@ class Actions:
 
         def get_msg_notif():
             if reaction_envelope is not None:
-                self.is_reaction = True
                 reaction = get_envelope_reaction(reaction_envelope)
                 if reaction.get('isRemove'):
                     return None
@@ -4436,9 +4434,7 @@ class Actions:
         except TypeError:
             return
         notif = textwrap.shorten(notif, 80)
-        self.send_desktop_notification(
-            sender_name, msg_text, contact_avatar, self.is_reaction,
-        )
+        self.send_desktop_notification(sender_name, msg_text, reaction_envelope is not None, contact_avatar)
         if (self._chats_data.current_contact is None
                 or msg.contact_id != self._chats_data.current_contact.id):
             self.set_status_line(notif)
@@ -4617,7 +4613,7 @@ class Coordinate:
             (sender_num + ': ' if sender_num != contact_id else ''),
             repr(msg_text),
             ])
-        self._actions.send_desktop_notification(sender_num, msg_text)
+        self._actions.send_desktop_notification(sender_num, msg_text, False)
         return None
 
     def _on_receive_sync_message(self, envelope):
