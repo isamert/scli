@@ -4620,13 +4620,13 @@ class Coordinate:
         self._on_sending_message(envelope)
         self._on_sending_done(envelope)
 
-    def _on_new_message(self, msg):
+    def _on_new_message(self, msg, should_increment_unread=True):
         self._ui.contacts.on_new_message(msg)
         contact_id = msg.contact_id
         if (self._chats_data.current_contact is not None
                 and contact_id == self._chats_data.current_contact.id):
             self._ui.chat.try_set_focus(-1)
-        else:
+        elif should_increment_unread:
             self._chats_data.unread_counts[contact_id] += 1
             self._ui.main_w.update_unread_count(contact_id)
         self._actions.show_new_msg_notifications(msg)
@@ -4648,7 +4648,7 @@ class Coordinate:
             # Do not show notificitions for sync messages from linked devices
             return
         if msg is not None:
-            self._on_new_message(msg)
+            self._on_new_message(msg, cfg.notify_on_reactions)
             # Not focusing on the received reaction message (same behavior as signal-desktop)
         else:
             # Show a notification for reaction to an "unknown" message (not in Chats)
