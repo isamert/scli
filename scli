@@ -4076,10 +4076,8 @@ class Actions:
                     )
             return None
 
-    def send_desktop_notification(self, sender, message, is_reaction, avatar=None):
+    def send_desktop_notification(self, sender, message, avatar=None):
         if not cfg.enable_notifications:
-            return
-        if is_reaction and not cfg.notify_on_reactions:
             return
         if avatar is None:
             avatar = 'scli'
@@ -4434,7 +4432,8 @@ class Actions:
         except TypeError:
             return
         notif = textwrap.shorten(notif, 80)
-        self.send_desktop_notification(sender_name, msg_text, reaction_envelope is not None, contact_avatar)
+        if reaction_envelope is None or cfg.notify_on_reactions:
+            self.send_desktop_notification(sender_name, msg_text, contact_avatar)
         if (self._chats_data.current_contact is None
                 or msg.contact_id != self._chats_data.current_contact.id):
             self.set_status_line(notif)
@@ -4613,20 +4612,20 @@ class Coordinate:
             (sender_num + ': ' if sender_num != contact_id else ''),
             repr(msg_text),
             ])
-        self._actions.send_desktop_notification(sender_num, msg_text, False)
+        self._actions.send_desktop_notification(sender_num, msg_text)
         return None
 
     def _on_receive_sync_message(self, envelope):
         self._on_sending_message(envelope)
         self._on_sending_done(envelope)
 
-    def _on_new_message(self, msg, should_increment_unread=True):
+    def _on_new_message(self, msg, increment_unread_count=True):
         self._ui.contacts.on_new_message(msg)
         contact_id = msg.contact_id
         if (self._chats_data.current_contact is not None
                 and contact_id == self._chats_data.current_contact.id):
             self._ui.chat.try_set_focus(-1)
-        elif should_increment_unread:
+        elif increment_unread_count:
             self._chats_data.unread_counts[contact_id] += 1
             self._ui.main_w.update_unread_count(contact_id)
         self._actions.show_new_msg_notifications(msg)
@@ -4648,7 +4647,7 @@ class Coordinate:
             # Do not show notificitions for sync messages from linked devices
             return
         if msg is not None:
-            self._on_new_message(msg, cfg.notify_on_reactions)
+            self._on_new_message(msg, increment_unread_count=cfg.notify_on_reactions)
             # Not focusing on the received reaction message (same behavior as signal-desktop)
         else:
             # Show a notification for reaction to an "unknown" message (not in Chats)
@@ -4892,10 +4891,9 @@ def make_arg_parser():
     )
 
     parser.add_argument(
-        '-R',
         '--notify-on-reactions',
         action='store_true',
-        help='Enable desktop notifications for reactions. (Also see --notification-command)',
+        help="Show notifications on receiving reaction messages.",
     )
 
     parser.add_argument(
