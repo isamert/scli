@@ -2821,6 +2821,7 @@ class BracketedPasteEdit(Edit):
         self._paste_mode_on = False
 
     def keypress(self, size, key):
+        logging.debug("BracketedPasteEdit: %s.keypress: key = `%s`, size = %s", self.__class__.__name__, key, size)
         if key == 'begin paste':
             self._paste_mode_on = True
         elif key == 'end paste':
@@ -2831,6 +2832,7 @@ class BracketedPasteEdit(Edit):
             # Allow inserting new lines with Alt+Enter. This is not a part of "bracketed paste mode" functionality.
             return super().keypress(size, 'enter')
         else:
+            logging.debug("\t... sending to %s: %s", super(), Edit)
             return super().keypress(size, key)
         return None
 
@@ -2929,6 +2931,7 @@ class InputLine(BracketedPasteEdit):
         return None
 
     def keypress(self, size, key):
+        logging.debug("%s.keypress: key = `%s`, size = %s", self.__class__.__name__, key, size)
         key_orig = key
         key = super().keypress(size, key)
         txt = self.get_edit_text()
@@ -3430,6 +3433,7 @@ class ChatWindow(urwid.Frame):
         self.chat_view.try_set_focus(-1)
 
     def keypress(self, size, key):
+        logging.debug("%s.keypress: key = `%s`, size = %s", self.__class__.__name__, key, size)
         key = super().keypress(size, key)
         if not self.input_line_w.edit_text.startswith('/'):
             return key
@@ -3827,6 +3831,7 @@ class PopUpPlaceholder(urwid.WidgetPlaceholder):
                 )
 
     def keypress(self, size, key):
+        logging.debug("%s.keypress: key = `%s`, size = %s", self.__class__.__name__, key, size)
         key = super().keypress(size, key)
         if not self._is_popup_shown:
             # When popup is shown, do not pass keys to other widgets until it's closed
@@ -3938,6 +3943,7 @@ class MainWindow(urwid.WidgetWrap):
         self.focus_widget_name = 'chat'
 
     def keypress(self, size, key):
+        logging.debug("%s.keypress: key = `%s`, size = %s", self.__class__.__name__, key, size)
         if key == 'esc':
             action_request.set_status_line('')
         key = super().keypress(size, key)
@@ -5225,6 +5231,14 @@ def main():
     else:
         logging.disable()
     logging.info("scli %s", __version__)
+    logging.debug("urwid %s", urwid.__version__)
+    logging.debug("python %s", sys.version)
+
+    import hashlib
+    h = hashlib.sha1()
+    with open(__file__, 'rb') as f:
+        h.update(f.read())
+    logging.debug("script hash: %s", h.hexdigest())
 
     cfg.set(args)
 
