@@ -5194,7 +5194,9 @@ def detect_user_name():
     ulist = []
     for folder in [SIGNALCLI_DATA_FOLDER, SIGNALCLI_LEGACY_DATA_FOLDER]:
         try:
-            users = [x for x in os.listdir(folder) if os.path.isfile(os.path.join(folder, x))]
+            users = [x for x in os.listdir(folder)
+                    if os.path.isfile(os.path.join(folder, x))
+                    and x.startswith('+')]
             ulist.extend(users)
         except FileNotFoundError:
             pass
