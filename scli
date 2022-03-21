@@ -996,7 +996,14 @@ class SignalData:
         if not os.path.exists(self._file_path):
             self._file_path = os.path.join(SIGNALCLI_LEGACY_DATA_FOLDER, self._username)
             if not os.path.exists(self._file_path):
-                raise FileNotFoundError(self._username + " does not exist!")
+                # TODO: Caching on parse_accounts_json()?
+                try:
+                    path = next(filter(
+                        lambda x: x["number"] == self._username,
+                        parse_accounts_json()))["path"]
+                except StopIteration:
+                    raise FileNotFoundError(self._username + " does not exist!")
+                self._file_path = os.path.join(SIGNALCLI_DATA_FOLDER, path)
 
         self._data = None
 
@@ -5139,14 +5146,36 @@ def link_device(device_name):
     sys.exit(0)
 
 
+# TODO: Put this somewhere logical; I'm not sufficiently familiar with the codebase
+def parse_accounts_json():
+    """Parses SIGNALCLI_DATA_FOLDER/accounts.json.
+
+    Returns:
+        [{ "username": username, "path": path, "uuid": uuid }]
+    """
+    accounts_json_path = os.path.join(SIGNALCLI_DATA_FOLDER, "accounts.json")
+    with open(accounts_json_path, 'r') as accounts_json_file:
+        accounts_json = json.load(accounts_json_file)
+    if "accounts" not in accounts_json:
+        # TODO: Should this raise an exception?
+        # OTOH, an empty file here should indicate that no accounts are registered
+        return []
+    # TODO: Should we check the integrity of the fields here?
+    return accounts_json["accounts"]
+
+
 def detect_user_name():
     ulist = []
-    for folder in [SIGNALCLI_DATA_FOLDER, SIGNALCLI_LEGACY_DATA_FOLDER]:
-        try:
-            users = [x for x in os.listdir(folder) if os.path.isfile(os.path.join(folder, x))]
-            ulist.extend(users)
-        except FileNotFoundError:
-            pass
+    if os.path.exists(os.path.join(SIGNALCLI_DATA_FOLDER, "accounts.json")):
+        print(parse_accounts_json())
+        ulist = [x["number"] for x in parse_accounts_json()]
+    else:
+        for folder in [SIGNALCLI_DATA_FOLDER, SIGNALCLI_LEGACY_DATA_FOLDER]:
+            try:
+                users = [x for x in os.listdir(folder) if os.path.isfile(os.path.join(folder, x))]
+                ulist.extend(users)
+            except FileNotFoundError:
+                pass
 
     if not ulist:
         sys.exit("ERROR: Could not find any registered accounts. "
