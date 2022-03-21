@@ -46,6 +46,7 @@ SIGNALCLI_LEGACY_ATTACHMENT_FOLDER = os.path.join(SIGNALCLI_LEGACY_FOLDER, 'atta
 SIGNALCLI_FOLDER = os.path.join(DATA_FOLDER, 'signal-cli')
 SIGNALCLI_DATA_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'data')
 SIGNALCLI_ATTACHMENT_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'attachments')
+SIGNALCLI_AVATARS_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'avatars')
 SIGNALCLI_STICKERS_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'stickers')
 
 SCLI_DATA_FOLDER = os.path.join(DATA_FOLDER, 'scli')
@@ -344,7 +345,7 @@ def get_attachment_path(attachment):
 
 
 def get_sticker_file_path(sticker):
-    dir_name = b64_to_hex_str(sticker['packId'])
+    dir_name = sticker['packId']
     file_name = str(sticker['stickerId'])
     return os.path.join(SIGNALCLI_STICKERS_FOLDER, dir_name, file_name)
 
@@ -1156,6 +1157,7 @@ class Contact:
 
     def __init__(self, record):
         self._record = record
+        self.avatar = self._get_avatar_file_path()
         if self.is_group:
             self.members_ids = set()
             self.member_contacts = set()
@@ -1166,6 +1168,22 @@ class Contact:
 
     def update_record(self, update_dict):
         self._record.update(update_dict)
+
+    def _get_avatar_file_path(self):
+        # Might be implemented in the future by signal-cli: https://github.com/AsamK/signal-cli/issues/869
+        def get_path(file_prefix, contact_id):
+            path = os.path.join(
+                    SIGNALCLI_AVATARS_FOLDER,
+                    f'{file_prefix}-{contact_id}',
+                    )
+            return path if os.path.exists(path) else None
+        if self.is_group:
+            return get_path('group', self.id.replace("/", "_"))
+        for file_prefix in ('profile', 'contact'):
+            path = get_path(file_prefix, self.id)
+            if path is not None:
+                return path
+        return None
 
     @property
     def is_group(self):
@@ -4065,11 +4083,13 @@ class Actions:
                     )
             return None
 
-    def send_desktop_notification(self, sender, message):
+    def send_desktop_notification(self, sender, message, avatar=None):
         if not cfg.enable_notifications:
             return
+        if avatar is None:
+            avatar = 'scli'
         rmap = {}
-        for token, text in (('%s', sender), ('%m', message)):
+        for token, text in (('%s', sender), ('%m', message), ('%a', avatar)):
             text = text.replace(r"'", r"'\''")
             rmap[token] = text
         rmap['_optionals'] = ('%s', '%m')
@@ -4180,6 +4200,19 @@ class Actions:
 
     def open_attach(self, envelope):
         attachments = get_envelope_attachments(envelope)
+        if not attachments:
+            quote = get_envelope_quote(envelope)
+            if quote is not None and quote.get('attachments'):
+                try:
+                    msg_orig = self._chats_data.chats.get_msg_for_timestamp(
+                            envelope,
+                            quote['id'],    # timestamp of orig message
+                            quote['author'],
+                            )
+                except (KeyError, ValueError):
+                    pass
+                else:
+                    self.open_attach(msg_orig.envelope)
         if attachments:
             for attachment in attachments:
                 file_path = get_attachment_path(attachment)
@@ -4341,6 +4374,7 @@ class Actions:
 
     def show_new_msg_notifications(self, msg):
         sender_name = self.get_contact_name(msg.sender_num)
+        contact_avatar = self._get_contact_avatar(msg.contact_id)
 
         try:
             *_, reaction_envelope = msg.reactions.values()  # the latest reaction envelope
@@ -4349,6 +4383,9 @@ class Actions:
         else:
             sender_name = self.get_contact_name(
                     get_envelope_sender_id(reaction_envelope)
+                    )
+            contact_avatar = self._get_contact_avatar(
+                    get_envelope_contact_id(reaction_envelope)
                     )
 
         def get_msg_notif():
@@ -4402,7 +4439,8 @@ class Actions:
         except TypeError:
             return
         notif = textwrap.shorten(notif, 80)
-        self.send_desktop_notification(sender_name, msg_text)
+        if reaction_envelope is None or cfg.notify_on_reactions:
+            self.send_desktop_notification(sender_name, msg_text, contact_avatar)
         if (self._chats_data.current_contact is None
                 or msg.contact_id != self._chats_data.current_contact.id):
             self.set_status_line(notif)
@@ -4410,6 +4448,10 @@ class Actions:
     def get_contact_name(self, contact_num):
         contact = self._contacts.get_by_id(contact_num)
         return contact.name_or_id if contact else contact_num
+
+    def _get_contact_avatar(self, contact_id):
+        contact = self._contacts.get_by_id(contact_id)
+        return contact.avatar if contact else None
 
     def check_cmd_for_current_contact(self, fn):
         return (
@@ -4584,13 +4626,13 @@ class Coordinate:
         self._on_sending_message(envelope)
         self._on_sending_done(envelope)
 
-    def _on_new_message(self, msg):
+    def _on_new_message(self, msg, increment_unread_count=True):
         self._ui.contacts.on_new_message(msg)
         contact_id = msg.contact_id
         if (self._chats_data.current_contact is not None
                 and contact_id == self._chats_data.current_contact.id):
             self._ui.chat.try_set_focus(-1)
-        else:
+        elif increment_unread_count:
             self._chats_data.unread_counts[contact_id] += 1
             self._ui.main_w.update_unread_count(contact_id)
         self._actions.show_new_msg_notifications(msg)
@@ -4608,8 +4650,11 @@ class Coordinate:
 
     def _on_receive_reaction(self, envelope):
         msg = self._add_reaction(envelope)
+        if is_envelope_outgoing(envelope):
+            # Do not show notificitions for sync messages from linked devices
+            return
         if msg is not None:
-            self._on_new_message(msg)
+            self._on_new_message(msg, increment_unread_count=cfg.notify_on_reactions)
             # Not focusing on the received reaction message (same behavior as signal-desktop)
         else:
             # Show a notification for reaction to an "unknown" message (not in Chats)
@@ -4800,8 +4845,8 @@ def make_arg_parser():
     parser.add_argument(
         '-N',
         '--notification-command',
-        default="notify-send scli '%s - %m'",
-        help='Command to run when a new message arrives. %%m is replaced with the message, %%s is replaced with the sender.',
+        default="notify-send -i '%a' scli '%s - %m'",
+        help="Command to run when a new message arrives. %%m is replaced with the message, %%s is replaced with the sender, %%a is replaced with the path to the contact's avatar file if it exists, or with \"scli\" otherwise.",
     )
 
     parser.add_argument(
@@ -4850,6 +4895,12 @@ def make_arg_parser():
         '--enable-notifications',
         action='store_true',
         help='Enable desktop notifications. (Also see --notification-command)',
+    )
+
+    parser.add_argument(
+        '--notify-on-reactions',
+        action='store_true',
+        help="Show notifications on receiving reaction messages.",
     )
 
     parser.add_argument(
@@ -5167,12 +5218,13 @@ def parse_accounts_json():
 def detect_user_name():
     ulist = []
     if os.path.exists(os.path.join(SIGNALCLI_DATA_FOLDER, "accounts.json")):
-        print(parse_accounts_json())
         ulist = [x["number"] for x in parse_accounts_json()]
     else:
         for folder in [SIGNALCLI_DATA_FOLDER, SIGNALCLI_LEGACY_DATA_FOLDER]:
             try:
-                users = [x for x in os.listdir(folder) if os.path.isfile(os.path.join(folder, x))]
+            users = [x for x in os.listdir(folder)
+                    if os.path.isfile(os.path.join(folder, x))
+                    and x.startswith('+')]
                 ulist.extend(users)
             except FileNotFoundError:
                 pass
