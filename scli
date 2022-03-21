@@ -5222,7 +5222,7 @@ def detect_user_name():
     else:
         for folder in [SIGNALCLI_DATA_FOLDER, SIGNALCLI_LEGACY_DATA_FOLDER]:
             try:
-            users = [x for x in os.listdir(folder)
+                users = [x for x in os.listdir(folder)
                     if os.path.isfile(os.path.join(folder, x))
                     and x.startswith('+')]
                 ulist.extend(users)
