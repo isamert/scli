@@ -1,0 +1,64 @@
+name: draft-release
+
+on:
+  push:
+    tags:
+      - v*
+
+
+jobs:
+
+  prepare_release:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout this repo sources
+        uses: actions/checkout@v2
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Create repo archive
+        # Make a static tarball with a checksum that does not change between downloads. This will ease packaging: see #143, #151.
+        id: git_archive
+        env:
+          PROJ_NAME: ${{ github.event.repository.name }}
+          REF_NAME: ${{ github.ref_name }}
+          EXT: tar.gz
+        run: |
+          filename=${PROJ_NAME}-${REF_NAME}.${EXT}
+          git archive -o "$filename" "$REF_NAME"
+          echo "::set-output name=filename::${filename}"
+
+      - name: Get annotated tag's message
+        id: tag_msg
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          #git cat-file -p "$REF_NAME" | tail -n +8
+          msg=$(git tag -l "$REF_NAME" --format='%(contents:body)')
+            # Returns an empty string for non-annotated (ligthweight) tags.
+          msg="${msg//$'\n'/'%0A'}" # https://github.community/t/set-output-truncates-multiline-strings/16852
+          echo "::set-output name=msg::${msg}"
+
+      - name: Create new release draft
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: "${{ github.ref_name }}"
+          release_name: "${{ github.ref_name }}"
+          body: "${{ steps.tag_msg.outputs.msg }}"
+          draft: true
+
+      - name: Upload archive file
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ${{ steps.git_archive.outputs.filename }}
+          asset_name: ${{ steps.git_archive.outputs.filename }}
+          asset_content_type: application/x-compressed-tar  # .tar.gz
+
