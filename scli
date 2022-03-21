@@ -46,6 +46,7 @@ SIGNALCLI_LEGACY_ATTACHMENT_FOLDER = os.path.join(SIGNALCLI_LEGACY_FOLDER, 'atta
 SIGNALCLI_FOLDER = os.path.join(DATA_FOLDER, 'signal-cli')
 SIGNALCLI_DATA_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'data')
 SIGNALCLI_ATTACHMENT_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'attachments')
+SIGNALCLI_AVATARS_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'avatars')
 SIGNALCLI_STICKERS_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'stickers')
 
 SCLI_DATA_FOLDER = os.path.join(DATA_FOLDER, 'scli')
@@ -327,7 +328,7 @@ def get_envelope_attachments(envelope):
 def get_attachment_name(attachment):
     if isinstance(attachment, dict):
         filename = attachment['filename']
-        return filename if filename is not None else attachment['contentType']
+        return filename if filename else attachment['contentType']
     else:
         return os.path.basename(attachment)
 
@@ -344,7 +345,7 @@ def get_attachment_path(attachment):
 
 
 def get_sticker_file_path(sticker):
-    dir_name = b64_to_hex_str(sticker['packId'])
+    dir_name = sticker['packId']
     file_name = str(sticker['stickerId'])
     return os.path.join(SIGNALCLI_STICKERS_FOLDER, dir_name, file_name)
 
@@ -1156,6 +1157,7 @@ class Contact:
 
     def __init__(self, record):
         self._record = record
+        self.avatar = self._get_avatar_file_path()
         if self.is_group:
             self.members_ids = set()
             self.member_contacts = set()
@@ -1166,6 +1168,22 @@ class Contact:
 
     def update_record(self, update_dict):
         self._record.update(update_dict)
+
+    def _get_avatar_file_path(self):
+        # Might be implemented in the future by signal-cli: https://github.com/AsamK/signal-cli/issues/869
+        def get_path(file_prefix, contact_id):
+            path = os.path.join(
+                    SIGNALCLI_AVATARS_FOLDER,
+                    f'{file_prefix}-{contact_id}',
+                    )
+            return path if os.path.exists(path) else None
+        if self.is_group:
+            return get_path('group', self.id.replace("/", "_"))
+        for file_prefix in ('profile', 'contact'):
+            path = get_path(file_prefix, self.id)
+            if path is not None:
+                return path
+        return None
 
     @property
     def is_group(self):
@@ -1300,15 +1318,15 @@ class Message:
             # Don't want to add `reactions` attribute to every Message instance; only to those that actually have reactions.
         self.reactions[get_envelope_sender_id(envelope)] = envelope
 
-    def text_w_mentions(self, bracket_char=''):
+    @classmethod
+    def text_w_mentions_generic(cls, text, mentions, bracket_char=''):
         # See also: What is the Mention's "length" parameter?
         # https://github.com/AsamK/signal-cli/discussions/409
         ret = ''
         pos = 0
-        text = get_envelope_msg(self.envelope)
-        for mention in self.mentions:
+        for mention in mentions:
             contact_num = mention['name']
-            contact = self._get_contact(contact_num)
+            contact = cls._get_contact(contact_num)
             contact_name = contact.name_or_id if contact else contact_num
             start = mention['start']
             ret = ''.join((
@@ -1321,6 +1339,10 @@ class Message:
             pos = start + 1
         ret += text[pos:]
         return ret
+
+    def text_w_mentions(self, bracket_char=''):
+        text = get_envelope_msg(self.envelope)
+        return self.text_w_mentions_generic(text, self.mentions, bracket_char)
 
     @property
     def not_repliable(self):
@@ -3045,39 +3067,50 @@ class MessageWidget(urwid.WidgetWrap):
                 ret.extend(markup)
         return ret
 
-    def _get_text_markup(self, text=None):
-        if text is None:
-            text = self.msg.text
+    @classmethod
+    def _get_text_markup_generic(cls, text, mentions):
         if not text:
             return None
-        if not (cfg.use_formatting or self.msg.mentions):
+        if not (cfg.use_formatting or mentions):
             return [text]
-        if self.msg.mentions:
-            text = self.msg.text_w_mentions(bracket_char=self.MENTION_BRACKET_CHAR)
+        if mentions:
+            text = Message.text_w_mentions_generic(
+                    text,
+                    mentions,
+                    bracket_char=cls.MENTION_BRACKET_CHAR,
+                    )
         ret = []
         pos = 0
-        for match in self.FORMATTING_RE.finditer(text):
+        for match in cls.FORMATTING_RE.finditer(text):
             if pos != match.start():
                 # Do not add empty strings. Urwid breaks on markup like:
                 # [.., ('bold', 'txt1'), '', ('bold', 'txt2'), ...]
                 ret.append(text[pos : match.start()])
-            ret.append((self.FORMAT_MAP[match[1]], match.group()[1:-1]))
+            ret.append((cls.FORMAT_MAP[match[1]], match.group()[1:-1]))
             pos = match.end()
         if pos != len(text):
             ret.append(text[pos:])
         return ret
 
-    def _get_attachments_markup(self, attachments=None):
-        if attachments is None:
-            attachments = self.msg.attachments
+    def _get_text_markup(self):
+        return self._get_text_markup_generic(
+                get_envelope_msg(self.msg.envelope),
+                self.msg.mentions,
+                )
+
+    @classmethod
+    def _get_attachments_markup_generic(cls, attachments):
         if not attachments:
             return None
         attach_list = [get_attachment_name(attach) for attach in attachments]
-        if len(attachments) > self.MAX_ATTACHS_SHOW:
-            attach_list = attach_list[: self.MAX_ATTACHS_SHOW]
-            attach_list.append(f'... ({len(attachments)-self.MAX_ATTACHS_SHOW} more)')
+        if len(attachments) > cls.MAX_ATTACHS_SHOW:
+            attach_list = attach_list[: cls.MAX_ATTACHS_SHOW]
+            attach_list.append(f'... ({len(attachments)-cls.MAX_ATTACHS_SHOW} more)')
         attach_txt = ', '.join(attach_list)
         return ['[attached: ', ('italic', attach_txt), ']']
+
+    def _get_attachments_markup(self):
+        return self._get_attachments_markup_generic(self.msg.attachments)
 
     def _get_sender_markup(self):
         envelope = self.msg.envelope
@@ -3100,21 +3133,45 @@ class MessageWidget(urwid.WidgetWrap):
         except KeyError:
             logging.error("Failed to extract a quote from %s", self.msg.envelope)
             return None
-        author_name = action_request.get_contact_name(quote_author_num)
-        ret = ['| ', ('bolditalic', author_name)]
-        if quote_text:
-            ret.extend(['\n', '| '])
-            ret.extend(self._get_text_markup(quote_text))
-        if quote_attachments:
-            ret.extend(['\n', '| '])
-            ret.extend(self._get_attachments_markup(quote_attachments))
+
+        if self.align == 'left':
+            ret = ['| ']
+            newline_sep = '\n| '
+            quote_sep_line = newline_sep + '---'
+        else:
+            ret = []
+            newline_sep = ' |\n'
+            quote_sep_line = '\n --- |'
+
+        text_markup = self._get_text_markup_generic(
+                text=quote_text,
+                mentions=quote.get('mentions'),
+                ) or []
+        for index, markup_element in enumerate(text_markup):
+            try:
+                text_markup[index] = markup_element.replace('\n', newline_sep)
+            except AttributeError:
+                continue
+
+        ret.append((
+            'bolditalic',
+            action_request.get_contact_name(quote_author_num),
+            ))
+        for m in (
+                text_markup,
+                self._get_attachments_markup_generic(quote_attachments),
+                ):
+            if m:
+                ret.append(newline_sep)
+                ret.extend(m)
         if self.align == 'right':
-            del ret[0]
-            for ind, elem in enumerate(ret):
-                if elem == '| ' and ret[ind-1] == '\n':
-                    del ret[ind]
-                    ret.insert(ind-1, ' |')
             ret.append(' |')
+
+        if len(markup_to_text(text_markup)) > 50:
+            # Additional separator after "long" quoted lines that might get soft-wrapped.
+            # 50 ~= 80 * 3/4 * 0.85  (assuming 80 columns, 3/4 for ChatWindow, 85% default wrap_at)
+            ret.append(quote_sep_line)
+
         return ret
 
     def _get_call_message_markup(self):
@@ -4026,15 +4083,19 @@ class Actions:
                     )
             return None
 
-    def send_desktop_notification(self, sender, message):
+    def send_desktop_notification(self, sender, message, avatar=None):
         if not cfg.enable_notifications:
             return
+        if avatar is None:
+            avatar = 'scli'
         rmap = {}
-        for token, text in (('%s', sender), ('%m', message)):
+        for token, text in (('%s', sender), ('%m', message), ('%a', avatar)):
             text = text.replace(r"'", r"'\''")
             rmap[token] = text
         rmap['_optionals'] = ('%s', '%m')
         self.callf(cfg.notification_command, rmap, background=True)
+        if not cfg.notification_no_bell:
+            print('\a', end='')
 
     def send_message_curr_contact(self, message="", attachments=None):
         if self._chats_data.current_contact is None:
@@ -4139,6 +4200,19 @@ class Actions:
 
     def open_attach(self, envelope):
         attachments = get_envelope_attachments(envelope)
+        if not attachments:
+            quote = get_envelope_quote(envelope)
+            if quote is not None and quote.get('attachments'):
+                try:
+                    msg_orig = self._chats_data.chats.get_msg_for_timestamp(
+                            envelope,
+                            quote['id'],    # timestamp of orig message
+                            quote['author'],
+                            )
+                except (KeyError, ValueError):
+                    pass
+                else:
+                    self.open_attach(msg_orig.envelope)
         if attachments:
             for attachment in attachments:
                 file_path = get_attachment_path(attachment)
@@ -4300,13 +4374,22 @@ class Actions:
 
     def show_new_msg_notifications(self, msg):
         sender_name = self.get_contact_name(msg.sender_num)
+        contact_avatar = self._get_contact_avatar(msg.contact_id)
+
+        try:
+            *_, reaction_envelope = msg.reactions.values()  # the latest reaction envelope
+        except (AttributeError, ValueError):
+            reaction_envelope = None
+        else:
+            sender_name = self.get_contact_name(
+                    get_envelope_sender_id(reaction_envelope)
+                    )
+            contact_avatar = self._get_contact_avatar(
+                    get_envelope_contact_id(reaction_envelope)
+                    )
 
         def get_msg_notif():
-            try:
-                *_, reaction_envelope = msg.reactions.values()  # the latest reaction envelope
-            except (AttributeError, ValueError):
-                pass
-            else:
+            if reaction_envelope is not None:
                 reaction = get_envelope_reaction(reaction_envelope)
                 if reaction.get('isRemove'):
                     return None
@@ -4356,7 +4439,8 @@ class Actions:
         except TypeError:
             return
         notif = textwrap.shorten(notif, 80)
-        self.send_desktop_notification(sender_name, msg_text)
+        if reaction_envelope is None or cfg.notify_on_reactions:
+            self.send_desktop_notification(sender_name, msg_text, contact_avatar)
         if (self._chats_data.current_contact is None
                 or msg.contact_id != self._chats_data.current_contact.id):
             self.set_status_line(notif)
@@ -4364,6 +4448,10 @@ class Actions:
     def get_contact_name(self, contact_num):
         contact = self._contacts.get_by_id(contact_num)
         return contact.name_or_id if contact else contact_num
+
+    def _get_contact_avatar(self, contact_id):
+        contact = self._contacts.get_by_id(contact_id)
+        return contact.avatar if contact else None
 
     def check_cmd_for_current_contact(self, fn):
         return (
@@ -4538,13 +4626,13 @@ class Coordinate:
         self._on_sending_message(envelope)
         self._on_sending_done(envelope)
 
-    def _on_new_message(self, msg):
+    def _on_new_message(self, msg, increment_unread_count=True):
         self._ui.contacts.on_new_message(msg)
         contact_id = msg.contact_id
         if (self._chats_data.current_contact is not None
                 and contact_id == self._chats_data.current_contact.id):
             self._ui.chat.try_set_focus(-1)
-        else:
+        elif increment_unread_count:
             self._chats_data.unread_counts[contact_id] += 1
             self._ui.main_w.update_unread_count(contact_id)
         self._actions.show_new_msg_notifications(msg)
@@ -4562,8 +4650,11 @@ class Coordinate:
 
     def _on_receive_reaction(self, envelope):
         msg = self._add_reaction(envelope)
+        if is_envelope_outgoing(envelope):
+            # Do not show notificitions for sync messages from linked devices
+            return
         if msg is not None:
-            self._on_new_message(msg)
+            self._on_new_message(msg, increment_unread_count=cfg.notify_on_reactions)
             # Not focusing on the received reaction message (same behavior as signal-desktop)
         else:
             # Show a notification for reaction to an "unknown" message (not in Chats)
@@ -4754,8 +4845,8 @@ def make_arg_parser():
     parser.add_argument(
         '-N',
         '--notification-command',
-        default="notify-send scli '%s - %m'",
-        help='Command to run when a new message arrives. %%m is replaced with the message, %%s is replaced with the sender.',
+        default="notify-send -i '%a' scli '%s - %m'",
+        help="Command to run when a new message arrives. %%m is replaced with the message, %%s is replaced with the sender, %%a is replaced with the path to the contact's avatar file if it exists, or with \"scli\" otherwise.",
     )
 
     parser.add_argument(
@@ -4804,6 +4895,18 @@ def make_arg_parser():
         '--enable-notifications',
         action='store_true',
         help='Enable desktop notifications. (Also see --notification-command)',
+    )
+
+    parser.add_argument(
+        '--notify-on-reactions',
+        action='store_true',
+        help="Show notifications on receiving reaction messages.",
+    )
+
+    parser.add_argument(
+        '--notification-no-bell',
+        action='store_true',
+        help="Do not send a \"bell\" code to the terminal on notification. It sets the terminal window's urgency hint, making it more noticable. (The exact visual effect depends on the terminal emulator and the window manager)",
     )
 
     parser.add_argument(
@@ -5115,12 +5218,13 @@ def parse_accounts_json():
 def detect_user_name():
     ulist = []
     if os.path.exists(os.path.join(SIGNALCLI_DATA_FOLDER, "accounts.json")):
-        print(parse_accounts_json())
         ulist = [x["number"] for x in parse_accounts_json()]
     else:
         for folder in [SIGNALCLI_DATA_FOLDER, SIGNALCLI_LEGACY_DATA_FOLDER]:
             try:
-                users = [x for x in os.listdir(folder) if os.path.isfile(os.path.join(folder, x))]
+            users = [x for x in os.listdir(folder)
+                    if os.path.isfile(os.path.join(folder, x))
+                    and x.startswith('+')]
                 ulist.extend(users)
             except FileNotFoundError:
                 pass

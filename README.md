@@ -10,8 +10,8 @@
 ### Limitations
 
 - Not yet supported by [signal-cli](https://github.com/AsamK/signal-cli/issues):
-	- Quoting a message ([#213](https://github.com/AsamK/signal-cli/issues/213))
-	- Adding @-mentions in sent messages ([#584](https://github.com/AsamK/signal-cli/issues/584))
+	- Quoting a message ([#875](https://github.com/AsamK/signal-cli/issues/875))
+	- Adding @-mentions in sent messages ([#875](https://github.com/AsamK/signal-cli/issues/875))
 	- Voice calls ([#80](https://github.com/AsamK/signal-cli/issues/80))
 
 - *Sending* read receipts for received messages.
@@ -138,7 +138,7 @@ A simple two-paned interface is provided. Left pane contains the contact list an
 - If [`urwid_readline`](https://github.com/rr-/urwid_readline/) is installed, all of its keybindings can be used in the message compose input field.
 
 ### Commands
-Commands can be entered by typing `:` following one of the commands below.
+Commands can be entered by typing `:` followed by one of the commands below.
 
 - `:edit` or `:e` lets you edit your message in your `$EDITOR`.
 - `:attach FILE_PATH` or `:a FILE_PATH` attaches given file to message.
@@ -183,7 +183,7 @@ enable-notifications = true
 
 #### History
 
-Conversations history can be enabled with `--save-history` or `-s` flag. The file will be saved in plain text (to `~/.local/share/scli/history` by default).
+Conversations history can be enabled with `--save-history` or `-s` flag. The file will be saved in plain text (to `~/.local/share/scli/history` by default). See the [Security](#data-storage) section regarding an encrypted storage.
 
 #### Colors
 
@@ -206,6 +206,15 @@ An `<urwid_color>` is one of urwid's [16 standard foreground colors](https://urw
 To see the available colors rendered in your terminal, run [palette_test.py](https://github.com/urwid/urwid/blob/master/examples/palette_test.py) from urwid's examples.
 The single quotes in `--color='...'` above are just shell-escaping, and not needed in `sclirc`.
 
+## Security
+This is an independent project not audited or endorsed by the [Signal foundation](https://signal.org/). That is also true of [signal-cli](https://github.com/AsamK/signal-cli) that scli uses as a backend.
+
+### Data storage
+Scli saves its history (when enabled, with `--save-history`) in plain text. Likewise, signal-cli stores its data (received attachments, contacts info, encryption keys) unencrypted. To secure this data at rest, it is recommended to use full-disk encryption or dedicated tools like [fscrypt](https://github.com/google/fscrypt).
+
+To protect the data from potentially malicious programs running in user-space, one can run scli and signal-cli under a separate user.
+
+For more detailed discussions, see: [[1]](https://github.com/AsamK/signal-cli/discussions/884), [[2]](https://github.com/isamert/scli/pull/169).
 
 ## Similar projects
 See [TUI clients](https://github.com/AsamK/signal-cli/wiki#user-content-terminal--tui-clients) on signal-cli wiki.
