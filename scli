@@ -992,14 +992,32 @@ class Daemon(AsyncProc):
 class SignalData:
     def __init__(self, username):
         self._username = username
-        self._file_path = os.path.join(SIGNALCLI_DATA_FOLDER, self._username)
-
-        if not os.path.exists(self._file_path):
-            self._file_path = os.path.join(SIGNALCLI_LEGACY_DATA_FOLDER, self._username)
-            if not os.path.exists(self._file_path):
-                raise FileNotFoundError(self._username + " does not exist!")
-
+        self._file_path = self._get_account_file_path()
         self._data = None
+
+    @staticmethod
+    def parse_accounts_json():
+        accounts_json_path = os.path.join(SIGNALCLI_DATA_FOLDER, "accounts.json")
+        try:
+            with open(accounts_json_path, encoding="utf-8") as f:
+                json_data = json.load(f)
+        except FileNotFoundError:
+            return []
+        return json_data["accounts"]
+
+    def _get_account_file_path(self):
+        accounts = self.parse_accounts_json()
+        if accounts:
+            for acc in accounts:
+                if acc["number"] == self._username:
+                    return os.path.join(SIGNALCLI_DATA_FOLDER, acc["path"])
+        for file_path in (
+                os.path.join(SIGNALCLI_DATA_FOLDER, self._username),
+                os.path.join(SIGNALCLI_LEGACY_DATA_FOLDER, self._username),
+                ):
+            if os.path.exists(file_path):
+                return file_path
+        raise FileNotFoundError(self._username + " does not exist!")
 
     def parse_data_file(self):
         with open(self._file_path, encoding="utf-8") as f:
@@ -5109,7 +5127,7 @@ def parse_args():
     if args.editor_command is None:
         args.editor_command = get_default_editor()
     if not args.username:
-        args.username = detect_user_name()
+        args.username = detect_username()
     if args.color:
         args.color = Color(args.color)
     args.partition_contacts = args.partition_contacts or args.group_contacts
@@ -5173,7 +5191,7 @@ def link_device(device_name):
 
     print('Receiving data for the first time...')
 
-    cmd_receive = 'signal-cli -u {} receive'.format(detect_user_name())
+    cmd_receive = 'signal-cli -u {} receive'.format(detect_username())
     with subprocess.Popen(
             cmd_receive.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
             ) as proc_receive:
@@ -5190,16 +5208,18 @@ def link_device(device_name):
     sys.exit(0)
 
 
-def detect_user_name():
-    ulist = []
-    for folder in [SIGNALCLI_DATA_FOLDER, SIGNALCLI_LEGACY_DATA_FOLDER]:
-        try:
-            users = [x for x in os.listdir(folder)
-                    if os.path.isfile(os.path.join(folder, x))
-                    and x.startswith('+')]
-            ulist.extend(users)
-        except FileNotFoundError:
-            pass
+def detect_username():
+    ulist = [acc["number"] for acc in SignalData.parse_accounts_json()]
+
+    if not ulist:
+        for folder in [SIGNALCLI_DATA_FOLDER, SIGNALCLI_LEGACY_DATA_FOLDER]:
+            try:
+                users = [x for x in os.listdir(folder)
+                        if os.path.isfile(os.path.join(folder, x))
+                        and x.startswith('+')]
+                ulist.extend(users)
+            except FileNotFoundError:
+                pass
 
     if not ulist:
         sys.exit("ERROR: Could not find any registered accounts. "
