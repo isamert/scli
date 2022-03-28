@@ -4103,7 +4103,7 @@ class Actions:
         for token, text in (('%s', sender), ('%m', message), ('%a', avatar)):
             text = text.replace(r"'", r"'\''")
             rmap[token] = text
-        rmap['_optionals'] = ('%s', '%m')
+        rmap['_optionals'] = ('%s', '%m', '%a')
         self.callf(cfg.notification_command, rmap, background=True)
         if not cfg.notification_no_bell:
             print('\a', end='')
