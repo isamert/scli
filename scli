@@ -4297,8 +4297,7 @@ class Actions:
 
     def add_group(self, args):
         """Add a new group.
-        in progress -- :addGroup [GROUPNAME] +NUMBER1 +NUMBER2
-        :addGroup [GROUPNAME] "Contact Name 1" "Contact Name 2"
+        :addGroup [GROUPNAME] +NUMBER1 +NUMBER2
         """
         group_name, members = split_path(args)
         members = members.split()
