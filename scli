@@ -639,7 +639,7 @@ class Daemon(AsyncProc):
 
         # The last item is either empty or an incomplete message, so we don't process it
         for line in lines[:-1]:
-            if not line.strip():
+            if not line or line.isspace():
                 continue
             try:
                 json_data = json.loads(line.decode('utf-8'))
