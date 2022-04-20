@@ -150,6 +150,7 @@ Commands can be entered by typing `:` followed by one of the commands below.
 - `:toggleAutohide` or `:h` hides the contacts pane when it's not in focus.
 - `:addContact NUMBER [NAME]` adds a new contact to the contact list. Added contacts' names are local (not synced with signal servers).  
 	_Note_: This command works only with signal-cli accounts registered as "master" (_not_ those linked with the phone app).
+- `:addGroup [NAME] NUMBER1 NUMBER2 NUMBER3...etc` creates a new group. Each phone number must belong to an existing contact. If the group name contains spaces, it must be wrapped in quotes.
 - `:renameContact [ID] NEW_NAME` renames contact `ID` to `NEW_NAME`. `ID` can be either contact's phone number or contact's name. If `ID` is skipped, the contact from the currently opened conversation is used. If `ID` is a name that contains spaces, they need to be escaped or the whole name put in quotes. `NEW_NAME` can contain spaces without quotes or escaping. 'Contact' can be a group as well as an individual. Individual contacts' renames are local (not synced with the signal servers).  
 	See _Note_ for `:addContact` command above.
 - `:reload` re-reads the `signal-cli`s data file. (Updates contacts list etc.)

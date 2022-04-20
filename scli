@@ -4301,8 +4301,16 @@ class Actions:
         :addGroup [GROUPNAME] "Contact Name 1" "Contact Name 2"
         """
         group_name, members = split_path(args)
+        members = members.split()
+        for number in members:
+            if not is_number(number):
+                self.set_status_line(f':addGroup "{number}": not a valid number')
+                return
+            elif self._contacts.get_by_id(number) is None:
+                self.set_status_line(f":addGroup Error: no contact with number {number} found")
+                return
 
-        self._daemon.rename_contact('', group_name, is_group=True, members=members.split(' '), callback=lambda *i: self.reload())
+        self._daemon.rename_contact('', group_name, is_group=True, members=members, callback=lambda *i: self.reload())
 
     def rename_contact(self, args):
         """Rename contact.
