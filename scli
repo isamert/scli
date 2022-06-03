@@ -1750,6 +1750,8 @@ class DeliveryStatus:
             status = 'delivered'
         elif receipt_message['isRead']:
             status = 'read'
+        elif receipt_message['isViewed']:
+            return
         else:
             logging.error('on_receive_receipt: unknown receipt type in envelope %s', envelope)
             return
