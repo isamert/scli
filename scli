@@ -97,10 +97,12 @@ def callf(cmd, rmap=None, background=False, **subprocess_kwargs):
         for arg in ('stdin', 'stdout', 'stderr'):
             subprocess_kwargs.setdefault(arg, subprocess.DEVNULL)
         proc = subprocess.Popen(cmd, **subprocess_kwargs)
+        logging.debug("callf(): proc.stdin = %s, proc.stdout = %s, proc.stderr = %s", proc.stdin, proc.stdout, proc.stderr)
         return proc
 
     subprocess_kwargs.setdefault('text', True)
     proc = subprocess.run(cmd, **subprocess_kwargs)
+    logging.debug("callf(): proc.stdin = %s, proc.stdout = %s, proc.stderr = %s", proc.stdin, proc.stdout, proc.stderr)
 
     if proc.returncode != 0:
         logging.error(
@@ -132,6 +134,7 @@ def get_version():
     git_cmd = ['git', '--git-dir', git_dir, 'describe']
     try:
         proc = subprocess.run(git_cmd, capture_output=True, check=True, text=True)
+        #logging.debug("get_version(): proc = %s", proc)
         return proc.stdout.strip('v\n')
     except (FileNotFoundError, subprocess.CalledProcessError):
         pass
@@ -522,6 +525,8 @@ class AsyncProc:
 
             proc.returncode = return_code   # overwrite the 'wrapper' command return code (always 0) with the actual command return code
             proc.output = proc.stderr.read().rstrip('\n')   # stderr stream is not seekable, so can be read only once
+            proc.stderr.close()     # close fd
+            logging.debug("watchpipe_handler(): proc.stdin = %s, proc.stdout = %s, proc.stderr = %s", proc.stdin, proc.stdout, proc.stderr)
 
             if return_code != 0:
                 logging.error(
@@ -536,9 +541,11 @@ class AsyncProc:
             self._callback_queue.on_proc_done(proc)
 
             os.close(watchpipe_fd)  # Close the write end of watch pipe.
+            logging.debug("Closed a watch pipe %s", watchpipe_fd)
             return False    # Close the read end of watch pipe and remove the watch from event_loop.
 
         watchpipe_fd = self.main_loop.watch_pipe(watchpipe_handler)
+        logging.debug("Opened a watch pipe %s", watchpipe_fd)
 
         # If the command is run with Popen(.., shell=True), shlex.quote is needed to escape special chars in args.
         sh_command = " ".join(
@@ -554,6 +561,7 @@ class AsyncProc:
                 stderr=subprocess.PIPE,
                 universal_newlines=True,
                 )
+        logging.debug("AsyncProc.run(): proc.stderr = %s, proc.stdin = %s", proc.stderr, proc.stdin)
         atexit.register(proc.kill)   # prevent orphaned processes surviving after the main program is stopped
         self._callback_queue.add_proc(proc)
         return proc
@@ -613,6 +621,7 @@ class Daemon(AsyncProc):
     def start(self):
         stdout_fd = self.main_loop.watch_pipe(self._daemon_stdout_handler)
         stderr_fd = self.main_loop.watch_pipe(self._daemon_stderr_handler)
+        logging.debug("Daemon: start(): stdout_fd = %s, stderr_fd = %s", stdout_fd, stderr_fd)
         try:
             proc = callf(
                     cfg.daemon_command,
@@ -715,6 +724,7 @@ class Daemon(AsyncProc):
             proc = self.run(args, *proc_args, **proc_kwargs)
         else:
             proc = subprocess.run(args, *proc_args, **proc_kwargs)
+            logging.debug("_dbus_send(): proc = %s", proc)
         return proc
 
     def _dbus_send_signal_cli(self, args, *proc_args, **proc_kwargs):
