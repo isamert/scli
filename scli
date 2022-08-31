@@ -97,12 +97,12 @@ def callf(cmd, rmap=None, background=False, **subprocess_kwargs):
         for arg in ('stdin', 'stdout', 'stderr'):
             subprocess_kwargs.setdefault(arg, subprocess.DEVNULL)
         proc = subprocess.Popen(cmd, **subprocess_kwargs)
-        logging.debug("callf(): proc.stdin = %s, proc.stdout = %s, proc.stderr = %s", proc.stdin, proc.stdout, proc.stderr)
+        #logging.debug("callf(): proc.stdin = %s, proc.stdout = %s, proc.stderr = %s", proc.stdin, proc.stdout, proc.stderr)
         return proc
 
     subprocess_kwargs.setdefault('text', True)
     proc = subprocess.run(cmd, **subprocess_kwargs)
-    logging.debug("callf(): proc.stdin = %s, proc.stdout = %s, proc.stderr = %s", proc.stdin, proc.stdout, proc.stderr)
+    logging.debug("callf(): proc.stdout = %s, proc.stderr = %s", proc.stdout, proc.stderr)
 
     if proc.returncode != 0:
         logging.error(
