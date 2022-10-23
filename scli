@@ -525,6 +525,7 @@ class AsyncProc:
 
             proc.returncode = return_code   # overwrite the 'wrapper' command return code (always 0) with the actual command return code
             proc.output = proc.stderr.read().rstrip('\n')   # stderr stream is not seekable, so can be read only once
+            proc.stderr.close()
 
             if return_code != 0:
                 logging.error(
