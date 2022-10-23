@@ -708,7 +708,7 @@ class Daemon(AsyncProc):
                 'dbus-send',
                 '--session',
                 '--type=method_call',
-                '--print-reply',
+                '--print-reply=literal',
                 *args
                 ]
         if async_proc:
@@ -930,10 +930,7 @@ class Daemon(AsyncProc):
 
     def get_group_name(self, group_id, callback, *cb_args, **cb_kwargs):
         def proc_callback(proc):
-            try:
-                name = proc.output.split('\n')[1][11:-1]   # Ad-hoc parsing of `dbus-send` output
-            except IndexError:
-                name = group_id[:10] + '[..]'
+            name = proc.output.strip() or group_id[:10] + '[..]'
             callback(name, *cb_args, **cb_kwargs)
         args = [
                 "org.asamk.Signal.getGroupName",
@@ -943,11 +940,8 @@ class Daemon(AsyncProc):
 
     def get_group_members(self, group_id, callback, *cb_args, **cb_kwargs):
         def proc_callback(proc):
-            members_ids = set()
-            for line in proc.output.split('\n')[2:-1]:
-                # Ad hoc parsing of `dbus-send` output
-                phone_num = line[14:-1]
-                members_ids.add(phone_num)
+            # Ad hoc parsing of `dbus-send` output
+            members_ids = set(proc.output.removeprefix("   array [")[:-1].split())
             callback(members_ids, *cb_args, **cb_kwargs)
         args = [
                 "org.asamk.Signal.getGroupMembers",
@@ -957,7 +951,7 @@ class Daemon(AsyncProc):
 
     def get_signal_cli_version(self, callback, *cb_args, **cb_kwargs):
         def proc_callback(proc):
-            version_num = proc.output.split('\n')[1][11:-1]   # Ad-hoc parsing of `dbus-send` output
+            version_num = proc.output.strip()
             version_string = "signal-cli " + version_num
             callback(version_string, *cb_args, **cb_kwargs)
         args = ["org.asamk.Signal.version"]
@@ -971,7 +965,7 @@ class Daemon(AsyncProc):
                 'org.freedesktop.DBus.ListNames'
                 ]
         proc = self._dbus_send(args, async_proc=False, capture_output=True, text=True, check=True)
-        signal_cli_str = 'string "org.asamk.Signal"'
+        signal_cli_str = "org.asamk.Signal"
         return signal_cli_str in proc.stdout
 
     def _run_when_dbus_service_started(self, callback):
