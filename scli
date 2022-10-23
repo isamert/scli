@@ -1151,11 +1151,14 @@ class Contact:
     def name_or_id(self):
         return self.name or self.profile_name or self.id
 
+    def serialize(self):
+        return self._record
+
 
 class Contacts:
-    def __init__(self, sigdata):
+    def __init__(self, sigdata, contacts_cache=None):
         self.sigdata = sigdata
-        self.reload()
+        self.update(contacts_cache, clear=True)
 
     def _clear(self):
         self.indivs = set()
@@ -1194,6 +1197,8 @@ class Contacts:
     def get_by_id(self, contact_id):
         return self.map.get(contact_id)
 
+    def serialize(self):
+        return {c.id: c.serialize() for c in self.map.values()}
 
 # #############################################################################
 # chats data
@@ -1849,6 +1854,7 @@ class ChatsData:
         self.typing_indicators = TypingIndicators(self.chats)
         self._history = history_file
         self.current_contact = None
+        self.contacts_cache = None
 
         if self._history:
             self._load_history()
@@ -1865,9 +1871,11 @@ class ChatsData:
         unread_counts = self.unread_counts.serialize()
         delivery_status = self.delivery_status.dump()
         items = {
+                'version': 5,
                 'envelopes': envelopes,
                 'unread_counts': unread_counts,
                 'delivery_status': delivery_status,
+                'contacts_cache': self.contacts_cache,
                 }
 
         class JSONSetEncoder(json.JSONEncoder):
@@ -1912,6 +1920,7 @@ class ChatsData:
                 self.chats.add_envelope(envelope)
 
         self.unread_counts = UnreadCounts(history.get('unread_counts', {}))
+        self.contacts_cache = history.get('contacts_cache', {})
 
 
 # #############################################################################
@@ -4318,6 +4327,7 @@ class Actions:
     def update_contacts_async(self):
         def on_contacts_updated():
             self._update_contacts_ui()
+            self._chats_data.contacts_cache = self._contacts.serialize()
         self._update_indiv_contacts_async(
                 self._update_groups_async,
                 on_contacts_updated,
@@ -4473,7 +4483,7 @@ class Coordinate:
     def __init__(self):
         self._chats_data = ChatsData(cfg.save_history)
         sigdata = SignalData(cfg.username)
-        self._contacts = Contacts(sigdata)
+        self._contacts = Contacts(sigdata, self._chats_data.contacts_cache)
         self._ui = UrwidUI(self._contacts, self._chats_data)
         self.daemon = Daemon(self._ui.loop, cfg.username)
         self._actions = Actions(self.daemon, self._contacts, self._chats_data, self._ui)
