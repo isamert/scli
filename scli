@@ -945,7 +945,7 @@ class Daemon(AsyncProc):
     def _get_group_members(self, group_id, callback, *cb_args, **cb_kwargs):
         def proc_callback(proc):
             # Ad hoc parsing of `dbus-send` output
-            members_ids = set(proc.output.removeprefix("   array [")[:-1].split())
+            members_ids = set(proc.output[10:-1].split())
             callback(members_ids, *cb_args, **cb_kwargs)
         args = [
                 "org.asamk.Signal.getGroupMembers",
