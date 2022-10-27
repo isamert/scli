@@ -358,6 +358,9 @@ def b64_to_hex_str(group_id):
     return base64.b64decode(group_id.encode()).hex()
 
 
+def hex_str_to_b64(hex_str):
+    return base64.b64encode(bytes.fromhex(hex_str)).decode()
+
 # #############################################################################
 # clipboard
 # #############################################################################
@@ -928,7 +931,7 @@ class Daemon(AsyncProc):
                     ]
         self._dbus_send_signal_cli(args, *proc_args, **proc_kwargs)
 
-    def get_group_name(self, group_id, callback, *cb_args, **cb_kwargs):
+    def _get_group_name(self, group_id, callback, *cb_args, **cb_kwargs):
         def proc_callback(proc):
             name = proc.output.strip() or group_id[:10] + '[..]'
             callback(name, *cb_args, **cb_kwargs)
@@ -938,7 +941,7 @@ class Daemon(AsyncProc):
                 ]
         self._dbus_send_signal_cli(args, callback=proc_callback)
 
-    def get_group_members(self, group_id, callback, *cb_args, **cb_kwargs):
+    def _get_group_members(self, group_id, callback, *cb_args, **cb_kwargs):
         def proc_callback(proc):
             # Ad hoc parsing of `dbus-send` output
             members_ids = set(proc.output[10:-1].split())
@@ -948,6 +951,78 @@ class Daemon(AsyncProc):
                 "array:byte:" + b64_to_bytearray(group_id)
                 ]
         self._dbus_send_signal_cli(args, callback=proc_callback)
+
+    def get_groups_ids(self, callback, *cb_args, **cb_kwargs):
+        def proc_callback(proc):
+            groups_ids = set()
+            bytearray_line_continued = False
+            for line in proc.output.splitlines():
+                # Ad hoc parsing of `dbus-send` output
+                if line.endswith('array of bytes ['):
+                    gid_bytes_array = ''
+                    bytearray_line_continued = True
+                elif bytearray_line_continued:
+                    if line.startswith("         ]"):
+                        bytearray_line_continued = False
+                        groups_ids.add(hex_str_to_b64(gid_bytes_array))
+                    else:
+                        gid_bytes_array += line.strip()
+            callback(groups_ids, *cb_args, **cb_kwargs)
+        args = ["org.asamk.Signal.listGroups"]
+        self._dbus_send_signal_cli(args, callback=proc_callback)
+
+    def populate_groups_dict(self, groups_ids, callback, **cb_kwargs):
+        groups_dict = {}
+        with self.callback_finally(callback, groups_dict=groups_dict, **cb_kwargs):
+            for group_id in groups_ids:
+                group = groups_dict[group_id] = {}
+                group['groupId'] = group_id
+                self._get_group_name(
+                        group_id,
+                        callback=lambda name, group=group: group.update({'name': name})
+                        )
+                self._get_group_members(
+                        group_id,
+                        callback=lambda members_ids, group=group: group.update({'members_ids': members_ids})
+                        )
+
+    def _get_contacts_numbers(self, callback, *cb_args, **cb_kwargs):
+        def proc_callback(proc):
+            # Ad-hoc parsing of `dbus-send` output
+            try:
+                numbers = proc.output.splitlines()[1][:-1].split()
+            except IndexError:
+                numbers = []
+            callback(numbers, *cb_args, **cb_kwargs)
+        args = ["org.asamk.Signal.listNumbers"]
+        self._dbus_send_signal_cli(args, callback=proc_callback)
+
+    def _get_contact_name(self, phone_num, callback, *cb_args, **cb_kwargs):
+        def proc_callback(proc):
+            name = proc.output.strip()
+            callback(phone_num, name, *cb_args, **cb_kwargs)
+        args = [
+                "org.asamk.Signal.getContactName",
+                "string:" + phone_num
+                ]
+        self._dbus_send_signal_cli(args, callback=proc_callback)
+
+    def get_indiv_contacts(self, callback, *cb_args, **cb_kwargs):
+        def on_got_numbers(numbers):
+            with self.callback_finally(
+                    callback=callback,
+                    contacts_dict=contacts_dict,
+                    *cb_args,
+                    **cb_kwargs,
+                    ):
+                for num in numbers:
+                    self._get_contact_name(num, callback=on_got_name)
+        def on_got_name(phone_num, name):
+            contacts_dict[phone_num] = {}
+            contacts_dict[phone_num]["name"] = name
+            contacts_dict[phone_num]["number"] = phone_num
+        contacts_dict = {}
+        self._get_contacts_numbers(callback=on_got_numbers)
 
     def get_signal_cli_version(self, callback, *cb_args, **cb_kwargs):
         def proc_callback(proc):
@@ -987,7 +1062,7 @@ class SignalData:
     def __init__(self, username):
         self._username = username
         self._file_path = self._get_account_file_path()
-        self._data = None
+        self._data = self._read_data_file()
 
     @staticmethod
     def parse_accounts_json():
@@ -1013,137 +1088,9 @@ class SignalData:
                 return file_path
         raise FileNotFoundError(self._username + " does not exist!")
 
-    def parse_data_file(self):
+    def _read_data_file(self):
         with open(self._file_path, encoding="utf-8") as f:
-            self._data = json.load(f)
-
-        logging.debug("signal-cli account: %s device", "linked" if self.is_linked_device else "master")
-
-        try:
-            indivs = self._get_recipients()
-        except FileNotFoundError:
-            indivs = self._get_recipients_v1()
-
-        groups = []
-        for g in get_nested(self._data, 'groupStore', 'groups', default=()):
-            if is_group_v2(g):
-                group_id = g['groupId']
-                cached_name = self._get_group_v2_cache_name(group_id)
-                g['name'] = cached_name or group_id[:10] + '[..]'
-            if g.get('archived') or not g.get('name'):
-                continue
-            g['name'] = strip_non_printable_chars(g['name'])
-            groups.append(g)
-
-        return indivs, groups
-
-    def _get_group_v2_cache_name(self, group_id):
-        # This is a crude hack to extract a group name from the group-cache's protobuf binary file without dealing with protobuf or querying signal-cli's `getGroupName`.
-        # See
-        # https://github.com/AsamK/signal-cli/issues/386
-        cache = None
-        for filename in (
-                group_id.replace("/", "_"),
-                b64_to_hex_str(group_id)
-                ):
-            # Since signal-cli v0.7.2, group-cache files' names are `group_id`s with `/` replaced with `_`. Existing group-cache filenames (hex-formatted) from v0.7.{0,1} are kept without renaming, so here we have to try both.
-            path = os.path.join(self._file_path + '.d', 'group-cache', filename)
-            try:
-                with open(path, 'br') as fo:
-                    cache = fo.read()
-            except FileNotFoundError:
-                logging.debug(
-                        "Could not open v2 group cache file\n\t"
-                        "group_id = %s\n\t"
-                        "filepath = %s",
-                        group_id, path
-                        )
-                continue
-            else:
-                break
-        if cache is None:
-            logging.warning(
-                    "Could not open v2 group cache file\n\t"
-                    "group_id = %s",
-                    group_id
-                    )
-            return None
-        cache_part = cache[2:]
-        for name_end_str in (b'"\x00', b'\x1aI'):
-            cache_part = cache_part.partition(name_end_str)[0]
-        if len(cache_part) == len(cache) - 2:
-            return None
-        try:
-            return cache_part.decode()
-        except UnicodeDecodeError:
-            return None
-
-    def _get_recipients(self):
-        recipients_store_file = os.path.join(self._file_path + '.d', 'recipients-store')
-        with open(recipients_store_file, encoding="utf-8") as f:
-            recipients_data = json.load(f)
-
-        ret = []
-        for recip in recipients_data['recipients']:
-            # Skip contact if the number is `null`
-            if not recip['number']:
-                continue
-
-            # Flatten contact's data dictionary to match signal-cli data file v1 structure
-            try:
-                for key, val in recip['contact'].items():
-                    recip[key] = val
-            except (KeyError, AttributeError):
-                pass
-
-            # Strip bidi chars (see #115)
-            try:
-                recip['name'] = strip_non_printable_chars(recip['name'])
-            except (KeyError, AttributeError):
-                pass
-
-            # Add profile name
-            profile_name = ''
-            for n in ('givenName', 'familyName'):
-                name_part = get_nested(recip, 'profile', n)
-                if name_part:
-                    profile_name += name_part
-            recip['profile_name'] = profile_name or None
-
-            ret.append(recip)
-        return ret
-
-    def _get_recipients_v1(self):
-        profile_names = self._get_profile_names_v1()
-
-        indivs = []
-        for cont in self._data['contactStore']['contacts']:
-            if not cont['number']:
-                continue
-            cont['profile_name'] = profile_names.get(get_contact_id(cont))
-                # snake_case in key name, so it should never clash with signal-cli's own key names, in camelCase.
-            try:
-                cont['name'] = strip_non_printable_chars(cont['name'])
-            except (KeyError, AttributeError):
-                pass
-            indivs.append(cont)
-
-        return indivs
-
-    def _get_profile_names_v1(self):
-        profile_names = {}
-        try:
-            profiles = self._data['profileStore']['profiles']
-        except KeyError:
-            return profile_names
-        for prof in profiles:
-            try:
-                num = prof['name']
-                profile_name = prof['profile']['name']
-            except (KeyError, TypeError):
-                continue
-            profile_names[num] = profile_name
-        return profile_names
+            return json.load(f)
 
     @property
     def own_num(self):
@@ -1164,7 +1111,7 @@ class Contact:
         self._record = record
         self.avatar = self._get_avatar_file_path()
         if self.is_group:
-            self.members_ids = set()
+            self.members_ids = record.get('members_ids') or set()
             self.member_contacts = set()
 
     def __getattr__(self, attr):
@@ -1204,25 +1151,40 @@ class Contact:
 
     @property
     def name_or_id(self):
-        return self.name or self.profile_name or self.id
+        return self.name or self.id
 
 
 class Contacts:
-    def __init__(self, sigdata):
+    def __init__(self, sigdata, contacts_cache=None):
         self.sigdata = sigdata
-        self.reload()
+        self.indivs = set()
+        self.groups = set()
+        self.map = {}
+        self.update(contacts_cache, clear=True)
 
-    def reload(self):
-        indivs_dicts, groups_dicts = self.sigdata.parse_data_file()
-        self.indivs = set(Contact(c) for c in indivs_dicts)
-        self.groups = set(Contact(g) for g in groups_dicts)
-        self.map = {c.id: c for c in self.indivs | self.groups}
+    def _clear(self):
+        self.indivs = set()
+        self.groups = set()
+        self.map = {}
+
+    def update(self, contacts_dict=None, clear=False):
+        if clear:
+            self._clear()
+        if not contacts_dict:
+            return
+        for cid, contact_dict in contacts_dict.items():
+            contact = Contact(contact_dict)
+            self.map[cid] = contact
+            if is_contact_group(contact_dict):
+                self.groups.add(contact)
+            else:
+                self.indivs.add(contact)
 
     def set_groups_membership(self):
         for group in self.groups:
             group.members_ids.discard(self.sigdata.own_num)
             group.member_contacts = self._get_group_members(group)
-                # Naming: group.members == group._record['members'] (from signal-cli data)
+                # Naming: was (historically), group.members == group._record['members'] (from signal-cli data)
 
     def _get_group_members(self, group):
         members = set()
@@ -2469,10 +2431,6 @@ class ContactWidget(FocusableText):
             markup.append(name)
             if name == cfg.username:
                 markup.append(self.NOTE_TO_SELF_MARKUP)
-            else:
-                profile_name = self.contact.profile_name
-                if profile_name:
-                    markup.append(('italic', ' ~' + profile_name))
         if self.contact.is_group and not cfg.partition_contacts:
             markup.append(self.GROUP_MARKUP)
         return markup
@@ -4056,12 +4014,10 @@ class Actions:
         self._urwid_ui = urwid_ui
 
     def reload(self):
-        self._contacts.reload()
         if self._daemon.is_dbus_service_running:
-            self.update_groups_async()
+            self.update_contacts_async()
         else:
-            self._update_contacts_ui()
-                # _update_contacts_ui() is included in update_groups_async() callback because it needs to run _after_ groups are updated.
+            self.set_status_line("reload error: signal-cli daemon is not running")
 
     def _update_contacts_ui(self):
         self._urwid_ui.contacts.update()
@@ -4360,24 +4316,35 @@ class Actions:
                 callback_finally=message_widget.unhighlight,
                 )
 
-    def update_groups_async(self):
-        def on_groups_updated():
-            self._contacts.set_groups_membership()
+    def update_contacts_async(self):
+        def on_contacts_updated():
             self._update_contacts_ui()
-        with self._daemon.callback_finally(on_groups_updated):
-            for group in self._contacts.groups:
-                self._daemon.get_group_name(
-                        group.id,
-                        callback=lambda name, group=group: group.update_record(
-                            {'name': strip_non_printable_chars(name)}
-                            )
-                        )
-                self._daemon.get_group_members(
-                        group.id,
-                        callback=lambda members_ids, group=group: setattr(
-                            group, 'members_ids', members_ids
-                            )
-                        )
+        self._update_indiv_contacts_async(
+                self._update_groups_async,
+                on_contacts_updated,
+                )
+
+    def _update_indiv_contacts_async(self, callback, *cb_args, **cb_kwargs):
+        def on_indiv_contacts_updated(contacts_dict):
+            self._contacts.update(contacts_dict, clear=True)
+            callback(*cb_args, **cb_kwargs)
+        self._daemon.get_indiv_contacts(
+                callback=on_indiv_contacts_updated
+                )
+
+    def _update_groups_async(self, callback, *cb_args, **cb_kwargs):
+        def on_got_groups_dicts(groups_dict):
+            self._contacts.update(groups_dict)
+            self._contacts.set_groups_membership()
+            callback(*cb_args, **cb_kwargs)
+        def on_got_groups_ids(groups_ids):
+            self._daemon.populate_groups_dict(
+                    groups_ids,
+                    callback=on_got_groups_dicts,
+                    )
+        self._daemon.get_groups_ids(
+                callback=on_got_groups_ids
+                )
 
     def show_new_msg_notifications(self, msg):
         sender_name = self.get_contact_name(msg.sender_num)
@@ -4689,7 +4656,7 @@ class Coordinate:
         def clear_status_line(*_args):
             self._actions.set_status_line("")
         self._ui.loop.set_alarm_in(2, clear_status_line)
-        self._actions.update_groups_async()
+        self._actions.update_contacts_async()
         self.daemon.get_signal_cli_version(callback=logging.info)
 
     def _on_contact_selected(self, contact, focus_widget):
