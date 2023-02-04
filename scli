@@ -653,10 +653,14 @@ class Daemon(AsyncProc):
                 logging.exception(err)
             else:
                 logging.debug("Daemon: json_data = \n%s", pprint.pformat(json_data))
-                error_data = json_data.get('error')
-                if error_data is not None:
+                error_data = None
+                for error_key in ('error', 'exception'):
+                    try:
+                        error_data = json_data[error_key]
+                    except KeyError:
+                        continue
                     self._error_data_handler(error_data, envelope)
-                else:
+                if error_data is None:
                     self._envelope_handler(envelope)
 
     def _daemon_stderr_handler(self, bytes_recv):
