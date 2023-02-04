@@ -459,62 +459,15 @@ class clip:
 # #############################################################################
 
 
-class CallbackQueue:
-    def __init__(self):
-        # The _queue is a list with each item a tuple: ({proc1, proc2, ..}, callback, callback_kwargs, proc_callback, proc_callback_kwargs)
-        self._queue = []
-        self._accepting_new_procs_for_item = False
-
-    def new_item(self, callback, callback_kwargs, proc_callback, proc_callback_kwargs):
-        if callback is None and proc_callback is None:
-            return
-        self._queue.append(
-                (set(), callback, callback_kwargs, proc_callback, proc_callback_kwargs)
-                )
-        self._accepting_new_procs_for_item = True
-
-    def add_proc(self, proc):
-        if not self._accepting_new_procs_for_item:
-            return
-        curr_item = self._queue[-1]
-        procs = curr_item[0]
-        procs.add(proc)
-
-    def finalize_item(self):
-        self._accepting_new_procs_for_item = False
-        if self._queue and not self._queue[-1][0]:
-            # All background procs have already finished, or there had been none started
-            self._pop_callback(-1)
-
-    def on_proc_done(self, proc):
-        for ind, item in enumerate(self._queue):
-            procs, *_ = item
-            if proc not in procs:
-                continue
-            self._run_proc_callback(ind, proc)
-            procs.remove(proc)
-            if not procs and not self._accepting_new_procs_for_item:
-                self._pop_callback(ind)
-            return
-
-    def _run_proc_callback(self, queue_index, proc):
-        *_, proc_callback, proc_callback_kwargs = self._queue[queue_index]
-        if proc_callback is not None:
-            proc_callback(proc, **proc_callback_kwargs)
-
-    def _pop_callback(self, queue_index):
-        _, callback, callback_kwargs, *_ = self._queue.pop(queue_index)
-        if callback is not None:
-            callback(**callback_kwargs)
-
-
 class AsyncProc:
     def __init__(self, main_loop):
         # The `main_loop` is an object like `urwid.MainLoop`, that implements `watch_pipe()` and `set_alarm_in()` methods.
         self.main_loop = main_loop
-        self._callback_queue = CallbackQueue()
 
-    def run(self, args, callback=None, *callback_args, shell=False, **callback_kwargs):
+    def _on_proc_started(self, proc): pass
+    def _on_proc_done(self, proc): pass
+
+    def run(self, args, shell, callback, callback_args, callback_kwargs):
         """ Run the command composed of `args` in the background (asynchronously); run the `callback` function when it finishes """
 
         def watchpipe_handler(line):
@@ -537,7 +490,7 @@ class AsyncProc:
 
             if callback is not None:
                 callback(proc, *callback_args, **callback_kwargs)
-            self._callback_queue.on_proc_done(proc)
+            self._on_proc_done(proc)
 
             os.close(watchpipe_fd)  # Close the write end of watch pipe.
             return False    # Close the read end of watch pipe and remove the watch from event_loop.
@@ -559,8 +512,113 @@ class AsyncProc:
                 universal_newlines=True,
                 )
         atexit.register(proc.kill)   # prevent orphaned processes surviving after the main program is stopped
-        self._callback_queue.add_proc(proc)
+        self._on_proc_started(proc)
         return proc
+
+
+class AsyncQueued(AsyncProc):
+
+    _MAX_BACKGROUND_PROCS = 12 # TODO: temp
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._curr_running = set()
+        self._run_queue = collections.deque()
+
+    @property
+    def _max_procs_reached(self):
+        return len(self._curr_running) == self._MAX_BACKGROUND_PROCS
+
+    def _add_run_to_queue(self, run_args):
+        self._run_queue.append(run_args)
+
+    def run(self, args, callback=None, *callback_args, shell=False, **callback_kwargs):
+        run_args = {k: v for k, v in locals().items() if k not in ('self', '__class__')}
+        if not self._max_procs_reached:
+            return super().run(**run_args)
+        else:
+            return self._add_run_to_queue(run_args)
+
+    def _on_proc_started(self, proc):
+        super()._on_proc_started(proc)
+        self._curr_running.add(proc)
+
+    def _pop_run(self, proc):
+        self._curr_running.remove(proc)
+        try:
+            return self._run_queue.popleft()
+        except IndexError:
+            return None
+
+    def _on_proc_done(self, proc):
+        super()._on_proc_done(proc)
+        run_args_next = self._pop_run(proc)
+        if run_args_next is not None:
+            started_proc = super().run(**run_args_next)
+        else:
+            started_proc = None
+        return (run_args_next, started_proc)
+
+
+class AsyncContext(AsyncQueued):
+
+    class ContextItem:
+        __slots__ = (
+                'procs',
+                'callback',
+                'callback_kwargs',
+                'proc_callback',
+                'proc_callback_kwargs',
+                'buffered_runs',
+                )
+
+        def __init__(self, callback, callback_kwargs, proc_callback, proc_callback_kwargs):
+            self.procs = set()
+            self.callback = callback
+            self.callback_kwargs = callback_kwargs
+            self.proc_callback = proc_callback
+            self.proc_callback_kwargs = proc_callback_kwargs
+            self.buffered_runs = set()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._context_items = collections.deque()
+        self._accepting_new_procs_for_item = False
+
+    def _new_item(self, callback, callback_kwargs, proc_callback, proc_callback_kwargs):
+        if callback is None and proc_callback is None:
+            return
+        self._context_items.append(
+                self.ContextItem(callback, callback_kwargs, proc_callback, proc_callback_kwargs)
+                )
+        self._accepting_new_procs_for_item = True
+
+    @property
+    def _curr_item(self):
+        return self._context_items[-1]
+
+    def _on_proc_started(self, proc):
+        super()._on_proc_started(proc)
+        if not self._accepting_new_procs_for_item:
+            return
+        self._curr_item.procs.add(proc)
+
+    def _finalize_item(self):
+        self._accepting_new_procs_for_item = False
+        if not self._context_items:
+            return
+        curr_item = self._curr_item
+        if not (curr_item.procs or curr_item.buffered_runs):
+            # No background procs have been started
+            self._pop_callback()
+
+    def _pop_callback(self, item=None):
+        if item is None:
+            item = self._context_items.pop()
+        else:
+            self._context_items.remove(item)
+        if item.callback is not None:
+            item.callback(**item.callback_kwargs)
 
     @contextlib.contextmanager
     def callback_finally(
@@ -577,17 +635,56 @@ class AsyncProc:
 
         proc_callback_kwargs = proc_callback_kwargs or {}
         try:
-            yield self._callback_queue.new_item(
+            yield self._new_item(
                     callback,
                     callback_kwargs,
                     proc_callback,
                     proc_callback_kwargs,
                     )
         finally:
-            self._callback_queue.finalize_item()
+            self._finalize_item()
+
+    def _run_id(self, run_params):
+        return id(run_params)
+
+    def _add_buffered_run(self, run_params):
+        if not self._accepting_new_procs_for_item:
+            return
+        self._curr_item.buffered_runs.add(self._run_id(run_params))
+
+    def _add_run_to_queue(self, run_args):
+        super()._add_run_to_queue(run_args)
+        self._add_buffered_run(run_args)
+
+    def _remove_buffered_run(self, run_params, started_proc):
+        if run_params is None:
+            return
+        run_id = self._run_id(run_params)
+        for item in self._context_items:
+            try:
+                item.buffered_runs.remove(run_id)
+            except KeyError:
+                continue
+            else:
+                item.procs.add(started_proc)
+                    # There should be no race condition if the proc has already finished: the python code is executed in a single thread, and this is always run before the proc's return is processed.
+                return
+
+    def _on_proc_done(self, proc):
+        self._remove_buffered_run(*super()._on_proc_done(proc))
+        for item in self._context_items:
+            try:
+                item.procs.remove(proc)
+            except KeyError:
+                continue
+            if item.proc_callback is not None:
+                item.proc_callback(proc, **item.proc_callback_kwargs)
+            if not (item.procs or item.buffered_runs or self._accepting_new_procs_for_item):
+                self._pop_callback(item)
+            return
 
 
-class Daemon(AsyncProc):
+class Daemon(AsyncContext):
     def __init__(self, main_loop, username):
         super().__init__(main_loop)
         self._username = username
