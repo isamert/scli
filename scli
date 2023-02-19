@@ -2404,9 +2404,6 @@ class LazyEvalListWalker(urwid.ListWalker):
 
     def set_focus(self, position):
         if position < 0 or position >= len(self.contents):
-            # NOTE: there is crash in this method that I can not reliably recproduce:
-                # Happens when I start a search through message widgets w `/` and mash the keyboard. Seems to only happen if I push many keys fast enough..
-                # This might well be an urwid bug
             raise IndexError
         self.focus = position
         self._modified()
@@ -3414,7 +3411,7 @@ class ChatView(ListBoxPlus):
         def test_match(msg):
             if not msg.text:
                 return None
-            return txt in msg.text.casefold()
+            return txt.casefold() in msg.text.casefold()
         self.filter_contents(test_match, scope)
         self.try_set_focus(-1)
 
