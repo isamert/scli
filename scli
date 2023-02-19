@@ -712,7 +712,7 @@ class Daemon(AsyncContext):
     def __init__(self, main_loop, username):
         super().__init__(main_loop)
         self._username = username
-        self._buffer = b''
+        self._buffer = ''
         self.callbacks = {
                 cb_name: noop for cb_name in [
                     'daemon_started',
@@ -745,6 +745,7 @@ class Daemon(AsyncContext):
                     background=True,
                     stdout=stdout_fd,
                     stderr=stderr_fd,
+                    #text=True,  # urwid returns bytes-objects anyway; see comment in _daemon_stdout_handler
                     )
         except FileNotFoundError:
             sys.exit(
@@ -753,39 +754,38 @@ class Daemon(AsyncContext):
                     )
         return proc
 
-    def _daemon_stdout_handler(self, bytes_recv):
-        bytes_recv = self._buffer + bytes_recv
-        lines = bytes_recv.split(b'\n')
-        if lines[-1] != b'':
-            # Not a complete message. Store in buffer
-            self._buffer = lines[-1]
-        else:
-            self._buffer = b''
+    def _daemon_stdout_handler(self, output):
+        output = self._buffer + output.decode()
+            # The `output` (supplied by urwid) is a `bytes` object, even when the `subprocess` is launched with `text=True`.
+        if self._msg_processing_paused:
+            self._buffer = output
+            return
+        lines = output.split('\n')  # Different from splitlines(): adds a final '' element after '\n'
+        self._buffer = lines.pop()
 
-        # The last item is either empty or an incomplete message, so we don't process it
-        for line in lines[:-1]:
+        for line in lines:
             if not line or line.isspace():
                 continue
             try:
-                json_data = json.loads(line.decode('utf-8'))
+                json_data = json.loads(line)
                 envelope = json_data['envelope']
             except (json.JSONDecodeError, KeyError) as err:
                 logging.error('Could not parse daemon output: %s', line)
                 logging.exception(err)
-            else:
-                logging.debug("Daemon: json_data = \n%s", pprint.pformat(json_data))
-                error_data = None
-                for error_key in ('error', 'exception'):
-                    try:
-                        error_data = json_data[error_key]
-                    except KeyError:
-                        continue
-                    self._error_data_handler(error_data, envelope)
-                if error_data is None:
-                    self._envelope_handler(envelope)
+                return
+            logging.debug("Daemon: json_data = \n%s", pprint.pformat(json_data))
+            error_data = None
+            for error_key in ('error', 'exception'):
+                try:
+                    error_data = json_data[error_key]
+                except KeyError:
+                    continue
+                self._error_data_handler(error_data, envelope)
+            if error_data is None:
+                self._envelope_handler(envelope)
 
-    def _daemon_stderr_handler(self, bytes_recv):
-        line = bytes_recv.decode().strip()
+    def _daemon_stderr_handler(self, output):
+        line = output.decode().strip()
         if not line:
             return
         logging.info('daemon_log: %s', line)
