@@ -4153,9 +4153,9 @@ class Actions:
         self._chats_data = chats_data
         self._urwid_ui = urwid_ui
 
-    def reload(self):
+    def reload(self, callback=None, **callback_kwargs):
         if self._daemon.is_dbus_service_running:
-            self.update_contacts_async()
+            self.update_contacts_async(callback, **callback_kwargs)
         else:
             self.set_status_line("reload error: signal-cli daemon is not running")
 
@@ -4456,11 +4456,15 @@ class Actions:
                 callback_finally=message_widget.unhighlight,
                 )
 
-    def update_contacts_async(self):
+    def update_contacts_async(self, callback=None, **callback_kwargs):
         def on_contacts_updated():
+            if self._chats_data.current_contact not in self._contacts.map:
+                self._chats_data.current_contact = None
             self._update_contacts_ui()
             self._chats_data.contacts_cache = self._contacts.serialize()
             self._daemon.unpause_message_processing()
+            if callback is not None:
+                callback(**callback_kwargs)
         self._daemon.pause_message_processing()
         self._update_indiv_contacts_async(
                 self._update_groups_async,
