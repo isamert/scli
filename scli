@@ -713,6 +713,8 @@ class Daemon(AsyncContext):
         super().__init__(main_loop)
         self._username = username
         self._buffer = ''
+        self._msg_processing_paused = True
+            # Paused initially, to prevent a race condition betw registering the dbus service and getting a message on stdout (e.g. while polling in _run_when_dbus_service_started)
         self.callbacks = {
                 cb_name: noop for cb_name in [
                     'daemon_started',
@@ -831,6 +833,13 @@ class Daemon(AsyncContext):
         logging.error("Daemon: error = \n%s", pprint.pformat(error_data))
         if error_data.get('type') == 'UntrustedIdentityException':
             self.callbacks['untrusted_identity_err'](envelope)
+
+    def pause_message_processing(self):
+        self._msg_processing_paused = True
+
+    def unpause_message_processing(self):
+        self._msg_processing_paused = False
+        self._daemon_stdout_handler(b'')
 
     def _dbus_send(self, args, *proc_args, async_proc=True, **proc_kwargs):
         args = [
@@ -1114,8 +1123,8 @@ class Daemon(AsyncContext):
 
     def _get_contacts_numbers(self, callback, *cb_args, **cb_kwargs):
         def proc_callback(proc):
-            # Ad-hoc parsing of `dbus-send` output
             try:
+                # Ad-hoc parsing of `dbus-send` output
                 numbers = proc.output.splitlines()[1][:-1].split()
             except IndexError:
                 numbers = []
@@ -4451,6 +4460,8 @@ class Actions:
         def on_contacts_updated():
             self._update_contacts_ui()
             self._chats_data.contacts_cache = self._contacts.serialize()
+            self._daemon.unpause_message_processing()
+        self._daemon.pause_message_processing()
         self._update_indiv_contacts_async(
                 self._update_groups_async,
                 on_contacts_updated,
