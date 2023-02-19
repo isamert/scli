@@ -2072,7 +2072,6 @@ REVERSED_FOCUS_MAP = {
 
 
 def _fill_palette():
-    global PALETTE, REVERSED_FOCUS_MAP   # pylint: disable=global-statement
     palette_reversed = []
     for item in PALETTE:
         name, fg = item[0:2]
