@@ -4709,39 +4709,48 @@ class Coordinate:
         self._add_reaction(envelope)
         # NOTE: When attempting to _replace_ an emoji with anoter one 'send_fail's, the old one will be removed (not shown) locally in scli, while continuing to be visible for the original recepients.
 
-    def _on_receive_message(self, envelope):
-        logging.info('MESSAGE: %s', envelope)
-        contact_id = get_envelope_contact_id(envelope)
-        if contact_id not in self._contacts.map:
-            if not self._on_unknown_contact(envelope):
-                return
-
+    def _process_msg_envelope(self, envelope):
         sender_num = get_envelope_sender_id(envelope)
         self._chats_data.typing_indicators.remove(sender_num)
-
         msg = self._chats_data.chats.add_envelope(envelope)
         self._on_new_message(msg)
 
-    def _on_unknown_contact(self, envelope):
-        logging.info("Message from unknown contact: %s", envelope)
-        self._actions.reload()
+    def _on_receive_message(self, envelope):
+        logging.info('Message envelope: %s', pprint.pformat(envelope))
         contact_id = get_envelope_contact_id(envelope)
-        try:
-            return self._contacts.map[contact_id]
-        except KeyError:
-            pass
-        logging.error("Message from unknown contact: %s", envelope)
-        sender_num = get_envelope_sender_id(envelope)
-        msg_text = get_envelope_msg(envelope)
-        self._actions.set_status_line([
-            'Message from unknown chat ',
-            repr(contact_id),
-            '\n',
-            (sender_num + ': ' if sender_num != contact_id else ''),
-            repr(msg_text),
-            ])
-        self._actions.send_desktop_notification(sender_num, msg_text)
-        return None
+        if contact_id in self._contacts.map:
+            self._process_msg_envelope(envelope)
+        else:
+            def after_contacts_reload(new_contact):
+                if new_contact is not None:
+                    self._process_msg_envelope(envelope)
+            self._on_unknown_contact(envelope, callback=after_contacts_reload)
+
+    def _on_unknown_contact(self, envelope, callback):
+        logging.info("Message from unknown contact: %s", envelope)
+        def after_contacts_loaded():
+            contact_id = get_envelope_contact_id(envelope)
+            contact = self._contacts.map.get(contact_id)
+            if contact is not None:
+                return callback(contact)
+            logging.error("Message from unknown contact: %s", envelope)
+            sender_info = (
+                    envelope.get("sourceName")
+                    or
+                    f"UUID: {contact_id}"
+                    )
+            msg_text = get_envelope_msg(envelope)
+            self._actions.set_status_line([
+                'Message from unknown chat: ',
+                sender_info,
+                '\n',
+                repr(msg_text),
+                '\n',
+                'Accept this contact on the master device first.',
+                ])
+            self._actions.send_desktop_notification(sender_info, msg_text)
+            return callback(contact)
+        self._actions.reload(callback=after_contacts_loaded)
 
     def _on_receive_sync_message(self, envelope):
         self._on_sending_message(envelope)
