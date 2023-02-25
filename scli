@@ -4458,7 +4458,8 @@ class Actions:
 
     def update_contacts_async(self, callback=None, **callback_kwargs):
         def on_contacts_updated():
-            if self._chats_data.current_contact not in self._contacts.map:
+            current_contact = self._chats_data.current_contact
+            if current_contact is not None and current_contact.id not in self._contacts.map:
                 self._chats_data.current_contact = None
             self._update_contacts_ui()
             self._chats_data.contacts_cache = self._contacts.serialize()
