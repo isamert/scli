@@ -3953,6 +3953,7 @@ class MainWindow(urwid.WidgetWrap):
     def __init__(self, contacts, chats_data):
         self._chats_data = chats_data
         self.contacts_w = ContactsWindow(contacts, self._chats_data)
+        self._paste_mode = False
 
         self.chat_w = ChatWindow()
         contacts_box = LineBoxHighlight(self.contacts_w)
@@ -4053,10 +4054,17 @@ class MainWindow(urwid.WidgetWrap):
         self.focus_widget_name = 'chat'
 
     def keypress(self, size, key):
+        if self._paste_mode:
+            if key == 'end paste':
+                self._paste_mode = False
+                return None
+            return key
         if key == 'esc':
             action_request.set_status_line('')
         key = super().keypress(size, key)
-        if key == 'tab':
+        if key == 'begin paste':
+            self._paste_mode = True
+        elif key == 'tab':
             self._focus_next()
         elif key == 'shift tab':
             self._focus_next(reverse=True)
