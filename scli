@@ -2728,6 +2728,9 @@ class ContactsListWidget(ListBoxPlus):
         if status != 'send_failed':
             return
         current_contact = self._chats_data.current_contact
+        if current_contact is None:
+            # If contacts' update happens while sending, and current_contact no longer in contacts.
+            return
         envelope_contact_id = get_envelope_contact_id(envelope)
         if current_contact.id == envelope_contact_id:
             return
