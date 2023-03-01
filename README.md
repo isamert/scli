@@ -135,6 +135,7 @@ A simple two-paned interface is provided. Left pane contains the contact list an
 - `U` in contacts list increments contact's unread count (can be used to mark conversation as unread).
 - `Alt+Enter` inserts a newline in message composing input field.
 - `Alt+J` / `Alt+K` (and `Alt+↓` / `Alt+↑`) open next / previous conversation.
+- `Esc` clears notifications from the status line.
 - If [`urwid_readline`](https://github.com/rr-/urwid_readline/) is installed, all of its keybindings can be used in the message compose input field.
 
 ### Commands
@@ -149,7 +150,7 @@ Commands can be entered by typing `:` followed by one of the commands below.
 - `:toggleContactsSort` or `:s` toggles between sorting contacts alphabetically and by the most recent message.
 - `:toggleAutohide` or `:h` hides the contacts pane when it's not in focus.
 - `:addContact NUMBER [NAME]` adds a new contact to the contact list. Added contacts' names are local (not synced with signal servers).  
-	_Note_: This command works only with signal-cli accounts registered as "master" (_not_ those linked with the phone app).
+	_Note_: This command works only with accounts _registered_ with signal-cli as primary (not those _linked_ with the phone app).
 - `:renameContact [ID] NEW_NAME` renames contact `ID` to `NEW_NAME`. `ID` can be either contact's phone number or contact's name. If `ID` is skipped, the contact from the currently opened conversation is used. If `ID` is a name that contains spaces, they need to be escaped or the whole name put in quotes. `NEW_NAME` can contain spaces without quotes or escaping. 'Contact' can be a group as well as an individual. Individual contacts' renames are local (not synced with the signal servers).  
 	See _Note_ for `:addContact` command above.
 - `:reload` re-reads the `signal-cli`s data file. (Updates contacts list etc.)
@@ -190,7 +191,7 @@ Conversations history can be enabled with `--save-history` or `-s` flag. The fil
 Messages' text can be colorized using the `--color` option:
 
 - `--color` (no additional value)
-   Use contacts' colors from the master signal device.
+   Use contacts' colors from the primary signal device.
 
 - `--color=high`
 	 Same as above, but use 256 colors instead of the terminal's standard 8. Colors look closer to those on official clients, but not necessarily legible on all terminals' color schemes.
@@ -207,7 +208,7 @@ To see the available colors rendered in your terminal, run [palette_test.py](htt
 The single quotes in `--color='...'` above are just shell-escaping, and not needed in `sclirc`.
 
 ## Security
-This is an independent project not audited or endorsed by the [Signal foundation](https://signal.org/). That is also true of [signal-cli](https://github.com/AsamK/signal-cli) that scli uses as a backend.
+This is an independent project not audited or endorsed by the [Signal foundation](https://signal.org/). That is also true of [signal-cli](https://github.com/AsamK/signal-cli), which scli uses as a backend.
 
 ### Data storage
 Scli saves its history (when enabled, with `--save-history`) in plain text. Likewise, signal-cli stores its data (received attachments, contacts info, encryption keys) unencrypted. To secure this data at rest, it is recommended to use full-disk encryption or dedicated tools like [fscrypt](https://github.com/google/fscrypt).
@@ -217,7 +218,8 @@ To protect the data from potentially malicious programs running in user-space, o
 For more detailed discussions, see: [[1]](https://github.com/AsamK/signal-cli/discussions/884), [[2]](https://github.com/isamert/scli/pull/169).
 
 ## Similar projects
-See [TUI clients](https://github.com/AsamK/signal-cli/wiki#user-content-terminal--tui-clients) on signal-cli wiki.
+- A list of [TUI clients](https://github.com/AsamK/signal-cli/wiki#user-content-terminal--tui-clients) on signal-cli wiki.
+- [Another list](https://github.com/exquo/signal-soft/wiki/Software-list#user-content-tui--terminal-clients) of TUI clients.
 
 ## Screenshots
 ![scli](screenshots/1.png?raw=true)
