@@ -294,6 +294,7 @@ def get_envelope_contact_id(envelope):
         or get_envelope_data_val(envelope, 'groupInfo', 'groupId')
         or get_nested(envelope, 'syncMessage', 'sentMessage', 'destination')
         or get_nested(envelope, 'typingMessage', 'groupId')
+        or envelope.get('sourceNumber')
         or envelope['source']
     )
 
@@ -4901,20 +4902,26 @@ class Coordinate:
         msg_w.reload_markup()
 
     def _on_untrusted_identity_err(self, envelope):
-        notification = [
-            "Contact's safety number has changed: ",
-            envelope.get('target') or envelope['source'],
-            " (they might have reinstalled signal). ",
-            "Run `signal-cli trust …` to resolve.",
-            ]
-        sender = envelope['source']
-        if sender != self._contacts.sigdata.own_num:
-            # NOTE: Not using desktop notifications: they would be shown on every contact_typing event.
+        contact_id = envelope.get('target')
+        if contact_id is not None:
+            # Message sent to an untrusted identity
             notification = [
-                    "Could not decrypt a new message from ",
-                    repr(sender),
-                    "\n",
-                    ] + notification
+                "Contact's safety number has changed: ",
+                contact_id,
+                " (they might have reinstalled signal). ",
+                "Run `signal-cli trust …` to resolve.",
+                ]
+            self._actions.set_status_line(notification)
+            return
+        # Message received from an untrusted identity
+        contact_id = envelope['source']
+        message = f"Message not decrypted: safety number with {contact_id} has changed"
+        envelope["dataMessage"] = {
+                "message": '[' + message + ']'
+                }
+        msg = self._chats_data.chats.add_envelope(envelope)
+        self._on_new_message(msg)
+        notification = message + " (they might have reinstalled signal).\nRun `signal-cli trust …` to resolve."
         self._actions.set_status_line(notification)
 
     def _on_user_unregistered_err(self, envelope):
