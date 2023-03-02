@@ -2837,7 +2837,7 @@ class ContactsListWidget(ListBoxPlus):
 class ContactsWindow(urwid.Frame):
     def __init__(self, contacts, chats_data):
         self.contacts_list_w = ContactsListWidget(contacts, chats_data)
-        self._wsearch = Edit(('bold', '/ '))
+        self._wsearch = BracketedPasteEdit(('bold', '/ '))
 
         urwid.connect_signal(self._wsearch, 'postchange', self._on_search_text_changed)
 
