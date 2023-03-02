@@ -734,6 +734,7 @@ class Daemon(AsyncContext):
                     'remote_delete',
                     'sending_remote_delete_done',
                     'untrusted_identity_err',
+                    'user_unregistered_err',
                 ]
             }
 
@@ -910,11 +911,12 @@ class Daemon(AsyncContext):
             if any(s in proc.output for s in (
                     "UntrustedIdentity",
                     "Untrusted Identity",
-                    "Unregistered user",
                     )):
+                self.callbacks['untrusted_identity_err'](envelope)
+            elif "Unregistered user" in proc.output:
                 # Related signal-cli issues: #348, #828.
                 if not is_envelope_group_message(envelope):
-                    self.callbacks['untrusted_identity_err'](envelope)
+                    self.callbacks['user_unregistered_err'](envelope)
                 else:
                     # Ad-hoc parsing of signal-cli's stderr output.
                     timestamp_adj = int(proc.output.splitlines()[0].rsplit(': ', 1)[-1])
@@ -4898,6 +4900,11 @@ class Coordinate:
                     "\n",
                     ] + notification
         self._actions.set_status_line(notification)
+
+    def _on_user_unregistered_err(self, envelope):
+        self._actions.set_status_line(
+                f"Contact {envelope.get('target')} has unregistered. Can not send messages until they re-register."
+                )
 
     def _on_receive_sticker(self, envelope):
         msg = self._chats_data.chats.add_envelope(envelope)
