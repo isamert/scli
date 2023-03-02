@@ -4747,6 +4747,7 @@ class Coordinate:
             contact = self._contacts.map.get(contact_id)
             if contact is not None:
                 return callback(contact)
+
             logging.error("Message from unknown contact: %s", envelope)
             sender_info = (
                     envelope.get("sourceName")
@@ -4755,14 +4756,29 @@ class Coordinate:
                     )
             msg_text = get_envelope_msg(envelope)
             self._actions.set_status_line([
-                'Message from unknown chat: ',
-                sender_info,
+                'Message from an unknown chat: ',
+                repr(sender_info),
                 '\n',
                 repr(msg_text),
                 '\n',
-                'Accept this contact on the master device first.',
+                'Accept this contact on the primary device first.',
                 ])
             self._actions.send_desktop_notification(sender_info, msg_text)
+
+            contact_temp = Contact({
+                "number": contact_id,
+                "name": envelope.get("sourceName") or envelope.get("sourceNumber") + " [UNKNOWN CONTACT]"
+                })
+            self._contacts.map[contact_id] = contact_temp
+            self._contacts.indivs.add(contact_temp)
+            try:
+                envelope["dataMessage"]["message"] += "\n~~~\n[Message from an unknown contact. Accept on the primary device first]\n~~~"
+            except (KeyError, TypeError):
+                pass
+            self._chats_data.chats.add_envelope(envelope)
+            self._chats_data.unread_counts[contact_id] += 1
+            self._ui.contacts.update()
+
             return callback(contact)
         self._actions.reload(callback=after_contacts_loaded)
 
