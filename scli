@@ -520,19 +520,19 @@ class AsyncProc:
 
 class AsyncQueued(AsyncProc):
 
-    _MAX_BACKGROUND_PROCS = 64
+    _MAX_BACKGROUND_PROCS_DEFAULT = 64
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._curr_running = set()
         self._run_queue = collections.deque()
         try:
-            self._MAX_BACKGROUND_PROCS = self._max_background_procs(self._MAX_BACKGROUND_PROCS)
+            self._max_background_procs = self._background_procs_resource(self._MAX_BACKGROUND_PROCS_DEFAULT)
         except OSError:
-            pass
+            self._max_background_procs = self._MAX_BACKGROUND_PROCS_DEFAULT
 
     @staticmethod
-    def _max_background_procs(default):
+    def _background_procs_resource(default):
         nprocs = min(
                 default,
                 resource.getrlimit(resource.RLIMIT_NPROC)[0],
@@ -551,7 +551,7 @@ class AsyncQueued(AsyncProc):
 
     @property
     def _max_procs_reached(self):
-        return len(self._curr_running) == self._MAX_BACKGROUND_PROCS
+        return len(self._curr_running) == self._max_background_procs
 
     def _add_run_to_queue(self, run_args):
         self._run_queue.append(run_args)
@@ -1232,11 +1232,11 @@ class SignalData:
 
     @property
     def own_num(self):
-        return self._data['username']
+        return self._username
 
     @property
     def is_linked_device(self):
-        # Assuming master device must always get `deviceId == 1`
+        # The primary device should have a `deviceId == 1`
         return self._data['deviceId'] != 1
 
 
@@ -1819,7 +1819,7 @@ class DeliveryStatus:
                 'read':             '✓✓',
                 'ignore_receipts':  '✓',
                 }
-        max_len = max([len(text) for text in status_text.values()])
+        max_len = max((len(text) for text in status_text.values()))
         markup_map = {}
         for status, text in status_text.items():
             markup_map[status] = (
@@ -1963,9 +1963,6 @@ class TypingIndicators:
         self._chats = chats
         self._map = {}
         self.set_alarm_in = self.remove_alarm = noop
-            # In some cases the STOPPED typing message is never sent, e.g. when the last key is `backspace`.
-            #   https://github.com/AsamK/signal-cli/issues/458
-            # So we need to manually set a timeout / alarm to remove the typing indicator in this case.
 
     def on_typing_message(self, envelope):
         sender_num = get_envelope_sender_id(envelope)
@@ -2338,7 +2335,7 @@ class FocusableText(urwid.WidgetWrap):
         # Setting class variable `_selectable = True` does not work. Probably gets overwritten by the base class constructor.
         return True
 
-    def keypress(self, _size, key):  # pylint: disable=no-self-use
+    def keypress(self, _size, key):
         # When reimplementing selectable(), have to redefine keypress() too.
         # https://urwid.readthedocs.io/en/latest/reference/widget.html#urwid.Widget.selectable
         return key
@@ -2413,7 +2410,7 @@ class LazyEvalListWalker(urwid.ListWalker):
             raise IndexError
         return position + 1
 
-    def prev_position(self, position):  # pylint: disable=no-self-use
+    def prev_position(self, position):
         if position <= 0:
             raise IndexError
         return position - 1
@@ -2570,16 +2567,12 @@ class ContactWidget(FocusableText):
 
     def _get_name_markup(self):
         markup = []
-        name = self.contact.name
-        if name:
-            markup.append(name)
-        else:
-            name = self.contact.id
-            markup.append(name)
-            if name == cfg.username:
-                markup.append(self.NOTE_TO_SELF_MARKUP)
+        name = self.contact.name_or_id
+        markup.append(name)
         if self.contact.is_group and not cfg.partition_contacts:
             markup.append(self.GROUP_MARKUP)
+        elif self.contact.id == cfg.username:
+            markup.append(self.NOTE_TO_SELF_MARKUP)
         return markup
 
     def _update_markup(self):
@@ -3041,10 +3034,10 @@ class InputLine(BracketedPasteEdit):
             self.auto_complete_commands(txt)
         elif key_orig in ('up', 'ctrl p'):
             # Since BracketedPasteEdit is based on Edit(multiline=True), the up / down / ctrl+p/n are consumed by the superclass, so need to check `key_orig`, before `super` method call.
-            prev_cmd = self._cmd_history.prev(txt)   # pylint: disable=not-callable; https://github.com/PyCQA/pylint/issues/3970
+            prev_cmd = self._cmd_history.prev(txt)
             self._set_edit_text_move_cursor(prev_cmd)
         elif key_orig in ('down', 'ctrl n'):
-            next_cmd = self._cmd_history.next(txt)   # pylint: disable=not-callable; https://github.com/PyCQA/pylint/issues/3970
+            next_cmd = self._cmd_history.next(txt)
             self._set_edit_text_move_cursor(next_cmd)
         else:
             return key
@@ -3483,9 +3476,9 @@ class ChatView(ListBoxPlus):
             if self.is_filter_on:
                 self._reset_search(keep_curr_focused=True)
             elif get_envelope_msg(envelope) is not None:
-                action_request.open_attach(envelope) or action_request.open_urls(envelope)    # pylint: disable=expression-not-assigned
+                _ = action_request.open_attach(envelope) or action_request.open_urls(envelope)
         elif key == 'o':
-            action_request.open_urls(envelope) or action_request.open_attach(envelope)      # pylint: disable=expression-not-assigned
+            _ = action_request.open_urls(envelope) or action_request.open_attach(envelope)
         elif key == 'y':
             txt = get_envelope_msg(envelope)
             if not txt:
@@ -3891,12 +3884,12 @@ class PopUpPlaceholder(urwid.WidgetPlaceholder):
                 self._remove_pop_up,
                 user_args=[remove_callback]
                 )
-        overlay_args = dict(
-                align='center',
-                valign='middle',
-                width=('relative', 85),
-                height=('relative', 65),
-                )
+        overlay_args = {
+                'align': 'center',
+                'valign': 'middle',
+                'width': ('relative', 85),
+                'height': ('relative', 65),
+                }
         overlay_args.update(overlay_params)
 
         pop_up_overlay = urwid.Overlay(
@@ -5008,7 +5001,7 @@ def make_arg_parser():
         '-n',
         '--name',
         default='scli',
-        help='Device name that will be shown in "Linked devices" list on master device.',
+        help='Device name that will be shown in "Linked devices" list on primary device.',
     )
 
     parser.add_argument(
@@ -5165,7 +5158,7 @@ def make_arg_parser():
     parser.add_argument(
         '--no-daemon',
         action='store_true',
-        help='Do not start signal-cli daemon. Only useful for debugging scli.',
+        help='Do not start signal-cli daemon. Only useful for debugging %(prog)s.',
     )
 
     parser.add_argument(
