@@ -14,7 +14,7 @@ jobs:
     steps:
 
       - name: Checkout this repo sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           ref: ${{ github.ref_name }}
 
@@ -28,7 +28,7 @@ jobs:
         run: |
           filename=${PROJ_NAME}-${REF_NAME}.${EXT}
           git archive -o "$filename" "$REF_NAME"
-          echo "::set-output name=filename::${filename}"
+          echo "filename=$filename" >> $GITHUB_OUTPUT
 
       - name: Get annotated tag's message
         id: tag_msg
@@ -39,26 +39,21 @@ jobs:
           msg=$(git tag -l "$REF_NAME" --format='%(contents:body)')
             # Returns an empty string for non-annotated (ligthweight) tags.
           msg="${msg//$'\n'/'%0A'}" # https://github.community/t/set-output-truncates-multiline-strings/16852
-          echo "::set-output name=msg::${msg}"
+          echo "msg=$msg" >> $GITHUB_OUTPUT
+
 
       - name: Create new release draft
         id: create_release
-        uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: "${{ github.ref_name }}"
-          release_name: "${{ github.ref_name }}"
-          body: "${{ steps.tag_msg.outputs.msg }}"
-          draft: true
-
-      - name: Upload archive file
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ${{ steps.git_archive.outputs.filename }}
-          asset_name: ${{ steps.git_archive.outputs.filename }}
-          asset_content_type: application/x-compressed-tar  # .tar.gz
-
+          REF_NAME: ${{ github.ref_name }}
+          TAG_MSG: ${{ steps.tag_msg.outputs.msg }}
+          GIT_ARCHIVE_FILE: ${{ steps.git_archive.outputs.filename }}
+        run: |
+          gh release create \
+            --draft \
+            --verify-tag \
+            --notes "$TAG_MSG" \
+            --title "$REF_NAME" \
+            "$REF_NAME" \
+            "$GIT_ARCHIVE_FILE"
