@@ -1710,7 +1710,11 @@ class Chats:
         for chat in self._dict.values():
             for msg in chat:
                 envelope = msg.envelope
-                if 'typingMessage' in envelope:
+                if (
+                        "typingMessage" in envelope
+                        or
+                        envelope.get("_artificialEnvelope") == "untrustedIdentity"
+                        ):
                     continue
                 envelopes.append(envelope)
                 try:
@@ -4923,6 +4927,8 @@ class Coordinate:
         envelope["dataMessage"] = {
                 "message": '[' + message + ']'
                 }
+        envelope["_received_timestamp"] = get_current_timestamp_ms()
+        envelope["_artificialEnvelope"] = "untrustedIdentity"
         msg = self._chats_data.chats.add_envelope(envelope)
         self._on_new_message(msg)
         notification = message + " (they might have reinstalled signal).\nRun `signal-cli trust …` to resolve."
