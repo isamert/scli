@@ -3170,6 +3170,8 @@ class MessageWidget(urwid.WidgetWrap):
         super().__init__(display_w)
         self._reactions_w = None
         self.update_reactions_w()
+        if cfg.show_message_padding:
+            self._add_pile_row(urwid.Divider(cfg.show_message_padding))
 
     def _get_message_markup(self):
         if 'typingMessage' in self.msg.envelope:
@@ -5145,6 +5147,15 @@ def make_arg_parser():
         '--show-names',
         action='store_true',
         help="Show contacts' names next to messages, even in one-to-one conversations.",
+    )
+
+    parser.add_argument(
+        '--show-message-padding',
+        nargs='?',
+        const=' ',
+        default=None,
+        metavar='PAD',
+        help="Insert a line of %(metavar)r characters between consecutive messages (default %(metavar)s: %(const)r)",
     )
 
     parser.add_argument(
