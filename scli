@@ -3174,24 +3174,31 @@ class MessageWidget(urwid.WidgetWrap):
             self._add_pile_row(urwid.Divider(cfg.show_message_padding))
 
     def _get_message_markup(self):
+        markups = [
+                self._get_sender_markup(),
+                ]
         if 'typingMessage' in self.msg.envelope:
-            markups = (
-                self._get_sender_markup(),
-                [self.TYPING_INDICATOR_MARKUP],
-                )
+            markups.append(
+                    [self.TYPING_INDICATOR_MARKUP],
+                    )
         elif self.msg.envelope.get('callMessage') is not None:
-            markups = (self._get_call_message_markup(), )
+            markups.append(
+                    self._get_call_message_markup(),
+                    )
         elif getattr(self.msg, 'remote_delete', None):
-            markups = ([self.REMOTE_DELETE_MARKUP], )
+            markups.append(
+                    [self.REMOTE_DELETE_MARKUP],
+                    )
         elif get_envelope_sticker(self.msg.envelope) is not None:
-            markups = ([self.STICKER_MARKUP], )
+            markups.append(
+                    [self.STICKER_MARKUP],
+                    )
         else:
-            markups = (
-                self._get_sender_markup(),
-                self._get_quote_markup(),
-                self._get_text_markup(),
-                self._get_attachments_markup(),
-                )
+            markups.extend([
+                    self._get_quote_markup(),
+                    self._get_text_markup(),
+                    self._get_attachments_markup(),
+                    ])
 
         ret = []
         for markup in markups:
