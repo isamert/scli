@@ -3269,7 +3269,7 @@ class MessageWidget(urwid.WidgetWrap):
             return None
         try:
             quote_author_num = quote['author']
-            quote_text = quote['text']
+            quote_text = textwrap.shorten(quote['text'], 70)
             quote_attachments = quote['attachments']
         except KeyError:
             logging.error("Failed to extract a quote from %s", self.msg.envelope)
