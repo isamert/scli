@@ -3085,6 +3085,30 @@ class InputLine(BracketedPasteEdit):
 # #############################################################################
 
 
+class MessageReactionsWidget(urwid.WidgetWrap):
+
+    def __init__(self, emojis_markup, align):
+        self.text_w, display_w = self._init_w(emojis_markup, align)
+        super().__init__(display_w)
+
+    def _init_w(self, emojis_markup, align):
+        text_w = urwid.Text(emojis_markup, align=align)
+        react_pad_w = urwid.Padding(text_w, align, width=cfg.wrap_at)
+        react_sym_markup = '╰╴' if align == 'left' else '╶╯'
+        react_sym_w = urwid.Text(
+                react_sym_markup,
+                align='right' if align == 'left' else 'left',
+                )
+        cols = [
+                (DeliveryStatus.MARKUP_WIDTH + len(react_sym_markup), react_sym_w),
+                react_pad_w,
+                ]
+        if align == 'right':
+            cols.reverse()
+        react_cols_w = urwid.Columns(cols)
+        return text_w, react_cols_w
+
+
 class MessageWidget(urwid.WidgetWrap):
 
     MAX_ATTACHS_SHOW = 4
@@ -3310,6 +3334,24 @@ class MessageWidget(urwid.WidgetWrap):
     def unhighlight(self):
         self._w.set_attr_map({None: self._color})
 
+    def _add_pile_row(self, row_w):
+        o_w = self._w.original_widget
+        if isinstance(o_w, urwid.Pile):
+            o_w.contents.append((row_w, o_w.options()))
+        else:
+            self._w.original_widget = urwid.Pile([o_w, row_w])
+
+    def _remove_pile_row(self, row_w):
+        o_w = self._w.original_widget
+        if not isinstance(o_w, urwid.Pile):
+            return
+        try:
+            o_w.contents.remove((row_w, o_w.options()))
+        except ValueError:
+            return
+        if len(o_w.contents) == 1:
+            self._w.original_widget = o_w.contents[0][0]
+
     def update_reactions_w(self):
         try:
             reactions = self.msg.reactions
@@ -3329,26 +3371,13 @@ class MessageWidget(urwid.WidgetWrap):
             self._add_reactions_w(emojis_markup)
 
     def _add_reactions_w(self, emojis_markup):
-        self._reactions_w = urwid.Text(emojis_markup, align=self.align)
-        react_pad_w = urwid.Padding(self._reactions_w, self.align, width=cfg.wrap_at)
-        react_sym_markup = '╰╴' if self.align == 'left' else '╶╯'
-        react_sym_w = urwid.Text(
-                react_sym_markup,
-                align='right' if self.align == 'left' else 'left',
-                )
-        cols = [
-                (DeliveryStatus.MARKUP_WIDTH + len(react_sym_markup), react_sym_w),
-                react_pad_w,
-                ]
-        if self.align == 'right':
-            cols.reverse()
-        react_cols_w = urwid.Columns(cols)
-        self._w.original_widget = urwid.Pile([self._w.original_widget, react_cols_w])
+        self._reactions_w = MessageReactionsWidget(emojis_markup, self.align)
+        self._add_pile_row(self._reactions_w)
 
     def _remove_reactions_w(self):
         if self._reactions_w is None:
             return
-        self._w.original_widget = self._w.original_widget.contents[0][0]
+        self._remove_pile_row(self._reactions_w)
         self._reactions_w = None
 
 
