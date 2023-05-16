@@ -127,7 +127,7 @@ A simple two-paned interface is provided. Left pane contains the contact list an
 - `l` on a contact opens its conversation without focusing input line.
 - `enter` on a message opens attachment or URL if there is one.
 - `o` on a message opens URL or attachment if there is one.
-- `y` on a message puts it into system clipboard. (needs `xclip`).
+- `y` on a message puts it into system clipboard. (needs `xclip` or `wl-clipboard`).
 - `e` or `R` on a message opens an emoji picker and sends it as a reaction. Sending an 'empty' reaction removes the previously set reaction.
 - `d` deletes the message locally (from the current device's history).
 - `D` remote-deletes the message (for everyone in the conversation).
@@ -142,7 +142,7 @@ Commands can be entered by typing `:` followed by one of the commands below.
 
 - `:edit` or `:e` lets you edit your message in your `$EDITOR`.
 - `:attach FILE_PATH` or `:a FILE_PATH` attaches given file to message.
-- `:attachClip` or `:c` attaches clipboard content to message. This command tries to detect clipboard content. If clipboard contains something with the mime-type `image/png` or `image/jpg`, it simply attaches the image to message. If clipboard contains `text/uri-list` it attaches all the files in that URI list to the message. This command needs `xclip` installed.
+- `:attachClip` or `:c` attaches clipboard content to message. This command tries to detect clipboard content. If clipboard contains something with the mime-type `image/png` or `image/jpg`, it simply attaches the image to message. If clipboard contains `text/uri-list` it attaches all the files in that URI list to the message. This command needs `xclip` or `wl-clipboard` installed.
 - `:openUrl` or `:u` opens the last URL in conversation, if there is one.
 - `:openAttach` or `:o` opens the last attachment in conversation, if there is one.
 - `:toggleNotifications` or `:n` toggles desktop notifications.

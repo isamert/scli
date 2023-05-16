@@ -21,6 +21,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 
 import urwid
@@ -367,16 +368,34 @@ def hex_str_to_b64(hex_str):
 # clipboard
 # #############################################################################
 
+TEMPFILE_PREFIX = '_scli-tmp.'
 
-class clip:
+class ClipBase(ABC):
     mime_order = ['image/png', 'image/jpeg', 'image/jpg', 'text/uri-list']
-    tempfile_prefix = '_scli-tmp.'
 
     @staticmethod
-    def xrun(mime):
+    def get_installed_clipb_manager():
+        for executable in ('wl-paste', 'xclip'):
+            if shutil.which(executable) is not None:
+                return executable
+        return None
+
+    _get_types_arg = None
+    _get_files_arg = None
+    _put_cmd = None
+
+    @abstractmethod
+    def _run_cmd(self, args):
+        pass
+
+    @abstractmethod
+    def _get_args(self, mime):
+        pass
+
+    def _run(self, args):
         try:
             proc = subprocess.run(
-                    ['xclip', '-selection', 'clipboard', '-t', mime, '-o'],
+                    self._run_cmd(args),
                     capture_output=True,
                     check=True,
                     )
@@ -384,24 +403,30 @@ class clip:
             return None
         return proc.stdout
 
-    @staticmethod
-    def xrun_lines(mime):
-        out = clip.xrun(mime)
+    def _get(self, mime):
+        return self._run(self._get_args(mime))
+
+    def _run_lines(self, args):
+        out = self._run(args)
         if out:
-            return out.decode('utf-8').split('\n')
+            return out.decode('utf-8').splitlines()
         return None
 
-    @staticmethod
-    def xfiles():
-        out = clip.xrun_lines('TARGETS')
+    def _get_types(self):
+        return self._run_lines(self._get_types_arg)
+
+    def _get_files(self):
+        return [f for f in self._run_lines(self._get_files_arg) if f]
+
+    def _clip_files(self):
+        out = self._get_types()
         if out is None:
             return out
-
         for otype in out:
-            for mtype in clip.mime_order:
+            for mtype in self.mime_order:
                 if mtype == otype:
                     if mtype.startswith('image/'):
-                        content = clip.xrun(mtype)
+                        content = self._get(mtype)
                         suffix = '.' + mtype.split('/')[1]
                         if cfg.save_history:
                             clip_file_path = os.path.join(
@@ -412,7 +437,7 @@ class clip:
                         else:
                             clip_file = tempfile.NamedTemporaryFile(
                                 mode='w+b',
-                                prefix=clip.tempfile_prefix,
+                                prefix=TEMPFILE_PREFIX,
                                 suffix=suffix,
                                 delete=False,
                             )
@@ -420,18 +445,22 @@ class clip:
                             clip_file.write(content)
                         return [clip_file.name]
                     elif mtype == 'text/uri-list':
-                        content = clip.xrun_lines(mtype)
-                        return [x.replace('file://', '') for x in content[1:]]
-
+                        content = self._get_files()
+                        return [x.replace('file://', '') for x in content]
         return None
 
-    @staticmethod
-    def xput(txt):
+    def files(self):
+        cmd = cfg.clipboard_get_command
+        if cmd is None:
+            return self._clip_files()
+        return callf(cmd, capture_output=True).stdout.splitlines()
+
+    def _put(self, txt):
         if not txt:
             return
         try:
             proc = subprocess.Popen(
-                    ['xclip', '-selection', 'clipboard'],
+                    self._put_cmd,
                     stdin=subprocess.PIPE,
                     text=True,
                     )
@@ -441,19 +470,33 @@ class clip:
             with proc:
                 proc.stdin.write(txt)
 
-    @staticmethod
-    def put(txt):
+    def put(self, txt):
         cmd = cfg.clipboard_put_command
         if cmd is None:
-            return clip.xput(txt)
+            return self._put(txt)
         return callf(cmd, {'%s': txt})
 
-    @staticmethod
-    def files():
-        cmd = cfg.clipboard_get_command
-        if cmd is None:
-            return clip.xfiles()
-        return callf(cmd, capture_output=True).stdout.split('\n')
+class Xclip(ClipBase):
+    _get_types_arg = 'TARGETS'
+    _get_files_arg = 'text/uri-list'
+    _put_cmd = ['xclip', '-selection', 'clipboard']
+
+    def _run_cmd(self, mime):
+        return ['xclip', '-selection', 'clipboard', '-t', mime, '-o']
+
+    def _get_args(self, mime):
+        return mime
+
+class WLclip(ClipBase):
+    _get_types_arg = ['-l']
+    _get_files_arg = ['-t', 'text/uri-list']
+    _put_cmd = ['wl-copy']
+
+    def _run_cmd(self, args):
+        return ['wl-paste', *args]
+
+    def _get_args(self, mime):
+        return ['-t', mime]
 
 
 # #############################################################################
@@ -963,7 +1006,7 @@ class Daemon(AsyncContext):
             # Remove temproary attachments
             for attachment in envelope['dataMessage']['attachments']:
                 if attachment.startswith(
-                        os.path.join(tempfile.gettempdir(), clip.tempfile_prefix)
+                        os.path.join(tempfile.gettempdir(), TEMPFILE_PREFIX)
                         ):
                     os.remove(attachment)
 
@@ -3523,7 +3566,7 @@ class ChatView(ListBoxPlus):
                 attachments = get_envelope_attachments(envelope)
                 if attachments is not None:
                     txt = ' '.join(get_attachment_path(attach) for attach in attachments)
-            clip.put(txt)
+            action_request.copy_to_clipb(txt)
         elif key == 'd':
             self._delete_message(message_widget)
         elif key == 'r':
@@ -3793,14 +3836,14 @@ class MessageInfo(ListBoxPlus):
         item = self.body[self.focus_position]
         if key == 'y':
             try:
-                clip.put(item.get_path())
+                action_request.copy_to_clipb(item.get_path())
             except AttributeError:
                 markup = get_text_markup(item)
                 if len(markup) == 2 and isinstance(markup[0], tuple):
                     # The line is `Property : Value` type
-                    clip.put(markup[1])
+                    action_request.copy_to_clipb(markup[1])
                 else:
-                    clip.put(item.text)
+                    action_request.copy_to_clipb(item.text)
         elif key in ('enter', 'o'):
             try:
                 item.open_path()
@@ -4201,6 +4244,7 @@ class Actions:
         self._contacts = contacts
         self._chats_data = chats_data
         self._urwid_ui = urwid_ui
+        self._clip = WLclip() if ClipBase.get_installed_clipb_manager() == 'wl-paste' else Xclip()
 
     def reload(self, callback=None, **callback_kwargs):
         if self._daemon.is_dbus_service_running:
@@ -4320,11 +4364,14 @@ class Actions:
         self.send_message_curr_contact(*message, attachments=[attachment])
 
     def attach_clip(self, *message):
-        files = clip.files()
+        files = self._clip.files()
         if files:
             self.send_message_curr_contact(*message, attachments=files)
         else:
             self.set_status_line('Clipboard is empty.')
+
+    def copy_to_clipb(self, text):
+        self._clip.put(text)
 
     def send_reaction(self, msg, emoji):
         is_remove = not emoji
@@ -5078,13 +5125,13 @@ def make_arg_parser():
     parser.add_argument(
         '-G',
         '--clipboard-get-command',
-        help='Command used by `:attachClip` to get a list of files to send as attachments. Should return one absolute file path per line. If not set, `xclip` is used.',
+        help='Command used by `:attachClip` to get a list of files to send as attachments. Should return one absolute file path per line. If not set, `xclip` or `wl-clipboard` is used.',
     )
 
     parser.add_argument(
         '-P',
         '--clipboard-put-command',
-        help='Command to put text on clipboard. %%s will be replaced with the text. If not set, `xclip` is used.',
+        help='Command to put text on clipboard. %%s will be replaced with the text. If not set, `xclip` or `wl-clipboard` is used.',
     )
 
     parser.add_argument(
