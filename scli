@@ -3131,7 +3131,7 @@ class InputLine(BracketedPasteEdit):
 class MessageReactionsWidget(urwid.WidgetWrap):
 
     def __init__(self, emojis_markup, align):
-        self.text_w, display_w = self._init_w(emojis_markup, align)
+        self._text_w, display_w = self._init_w(emojis_markup, align)
         super().__init__(display_w)
 
     def _init_w(self, emojis_markup, align):
@@ -3150,6 +3150,10 @@ class MessageReactionsWidget(urwid.WidgetWrap):
             cols.reverse()
         react_cols_w = urwid.Columns(cols)
         return text_w, react_cols_w
+
+    def update(self, emojis):
+        self._text_w.set_text(emojis)
+
 
 
 class MessageWidget(urwid.WidgetWrap):
@@ -3418,7 +3422,7 @@ class MessageWidget(urwid.WidgetWrap):
             self._remove_reactions_w()
             return
         try:
-            self._reactions_w.set_text(emojis_markup)
+            self._reactions_w.update(emojis_markup)
         except AttributeError:
             self._add_reactions_w(emojis_markup)
 
