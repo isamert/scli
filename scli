@@ -3222,6 +3222,7 @@ class MessageWidget(urwid.WidgetWrap):
 
     def _get_message_markup(self):
         markups = [
+                self._get_time_markup(),
                 self._get_sender_markup(),
                 ]
         if 'typingMessage' in self.msg.envelope:
@@ -3299,6 +3300,12 @@ class MessageWidget(urwid.WidgetWrap):
 
     def _get_attachments_markup(self):
         return self._get_attachments_markup_generic(self.msg.attachments)
+
+    def _get_time_markup(self):
+        if not cfg.show_message_time:
+            return None
+        time_markup = strftimestamp(self.msg.timestamp, cfg.show_message_time)
+        return [('italic', time_markup)]
 
     def _get_sender_markup(self):
         envelope = self.msg.envelope
@@ -5205,6 +5212,15 @@ def make_arg_parser():
         '--show-names',
         action='store_true',
         help="Show contacts' names next to messages, even in one-to-one conversations.",
+    )
+
+    parser.add_argument(
+        '--show-message-time',
+        nargs='?',
+        const='%H:%M',
+        default='',
+        metavar='FORMAT',
+        help="Show messages' timestamps in the specified strftime %(metavar)s. (default: %(const)r)",
     )
 
     parser.add_argument(
