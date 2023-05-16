@@ -3628,6 +3628,19 @@ class ChatView(ListBoxPlus):
                 # The `_contents_pre_filter` for this class always points to the `current_chat` list. So after `resend()` action, its last element is the new message.
             self.try_set_focus(-1)
 
+    def _focus_quoted_msg_w(self, envelope):
+        quote = get_envelope_quote(envelope)
+        if quote is None:
+            return
+        try:
+            quoted_msg_index = self.contents.index_ts(
+                    quote['id'],    # timestamp of orig message
+                    quote['author'],
+                    )
+        except (KeyError, ValueError):
+            return
+        self.try_set_focus(quoted_msg_index)
+
     def keypress(self, size, key):
         key = super().keypress(size, key)
         message_widget = self.focus
@@ -3639,7 +3652,9 @@ class ChatView(ListBoxPlus):
             if self.is_filter_on:
                 self._reset_search(keep_curr_focused=True)
             elif get_envelope_msg(envelope) is not None:
-                _ = action_request.open_attach(envelope) or action_request.open_urls(envelope)
+                ret = action_request.open_attach(envelope) or action_request.open_urls(envelope)
+                if not ret and get_envelope_quote(envelope):
+                    self._focus_quoted_msg_w(envelope)
         elif key == 'o':
             _ = action_request.open_urls(envelope) or action_request.open_attach(envelope)
         elif key == 'y':

@@ -125,7 +125,7 @@ A simple two-paned interface is provided. Left pane contains the contact list an
 - `G` focuses last contact/message.
 - `enter` on a contact opens its conversation and focuses the input line.
 - `l` on a contact opens its conversation without focusing input line.
-- `enter` on a message opens attachment or URL if there is one.
+- `enter` on a message opens attachment or URL if there is one; moves the focus on the original quoted message, if available.
 - `o` on a message opens URL or attachment if there is one.
 - `y` on a message puts it into system clipboard. (needs `xclip` or `wl-clipboard`).
 - `e` or `R` on a message opens an emoji picker and sends it as a reaction. Sending an 'empty' reaction removes the previously set reaction.
