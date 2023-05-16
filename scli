@@ -3169,6 +3169,10 @@ class MessageWidget(urwid.WidgetWrap):
     FORMAT_MENTION = {MENTION_BRACKET_CHAR: 'italic'}
     FORMATTING_RE = None
 
+    MARKUP_ELS_SEPARATOR = '\n'
+    SENDER_NAME_COL_WIDTH = 12
+    MSG_MARKUP_PRE = ()
+
     @classmethod
     def set_formatting_consants(cls, use_formatting):
         if use_formatting:
@@ -3189,6 +3193,17 @@ class MessageWidget(urwid.WidgetWrap):
                 \1
             """,
             re.VERBOSE)
+        if cfg.show_inline == 'columns':
+            if not cfg.one_sided:
+                cls.SENDER_NAME_COL_WIDTH = 'pack'
+        else:
+            cls._get_inline_columns = lambda self: []
+            cls.MSG_MARKUP_PRE = (
+                cls._get_time_markup,
+                cls._get_sender_markup,
+                )
+            if cfg.show_inline == 'wrap':
+                cls.MARKUP_ELS_SEPARATOR = ' '
 
     def __init__(self, msg):
         self.msg = msg
@@ -3206,11 +3221,11 @@ class MessageWidget(urwid.WidgetWrap):
         self._status_w = urwid.Text(status_markup, self.align)
         status_w_valign = 'top' if self.align == 'left' else 'bottom'
         status_filler_w = urwid.Filler(self._status_w, status_w_valign)
-        cols = [(DeliveryStatus.MARKUP_WIDTH, status_filler_w), msg_pad_w]
+        cols = [(DeliveryStatus.MARKUP_WIDTH, status_filler_w), *self._get_inline_columns(), msg_pad_w]
         box_columns = [0]
         if self.align == 'right':
             cols.reverse()
-            box_columns = [1]
+            box_columns = [len(cols)-1]
         columns_w = urwid.Columns(cols, dividechars=1, box_columns=box_columns)
         self._color = None if not cfg.color else cfg.color.for_message(msg)
         display_w = urwid.AttrMap(columns_w, self._color, focus_map=REVERSED_FOCUS_MAP)
@@ -3220,11 +3235,32 @@ class MessageWidget(urwid.WidgetWrap):
         if cfg.show_message_padding:
             self._add_pile_row(urwid.Divider(cfg.show_message_padding))
 
-    def _get_message_markup(self):
-        markups = [
-                self._get_time_markup(),
-                self._get_sender_markup(),
+    def _get_inline_columns(self):
+        return [
+                (width,
+                    urwid.Text(markup)
+                    if width == 'pack' else
+                    urwid.Padding(
+                        urwid.Text(markup, wrap='clip'),
+                        align='right',
+                        width='pack',
+                        )
+                    )
+                for width, markup in (
+                    ('pack', self._get_time_markup()),
+                    (self.SENDER_NAME_COL_WIDTH, self._get_sender_markup()),
+                ) if markup is not None
                 ]
+
+    def _get_message_markup(self):
+        markups = []
+        if self.MSG_MARKUP_PRE:
+            # Show sender's name and message timesamp on the same line if both --show-names --show-message-time are true.
+            markups_list = [f(self) for f in self.MSG_MARKUP_PRE]
+            for elm in markups_list if self.align == 'left' else reversed(markups_list):
+                if elm:
+                    markups.extend((*elm, ' '))
+            markups = [markups]
         if 'typingMessage' in self.msg.envelope:
             markups.append(
                     [self.TYPING_INDICATOR_MARKUP],
@@ -3252,7 +3288,7 @@ class MessageWidget(urwid.WidgetWrap):
         for markup in markups:
             if markup:
                 if ret:
-                    ret.append('\n')
+                    ret.append(self.MARKUP_ELS_SEPARATOR)
                 ret.extend(markup)
         return ret
 
@@ -3313,8 +3349,11 @@ class MessageWidget(urwid.WidgetWrap):
         if not (is_group or cfg.show_names):
             return None
         if is_envelope_outgoing(envelope):
-            return [('bolditalic', 'You')] if cfg.show_names else None
-        sender_name = action_request.get_contact_name(self.msg.sender_num)
+            if not (cfg.show_names or cfg.show_inline=='columns' and cfg.one_sided):
+                return None
+            sender_name = 'Me'
+        else:
+            sender_name = action_request.get_contact_name(self.msg.sender_num)
         return [('bolditalic', sender_name)]
 
     def _get_quote_markup(self):
@@ -3329,14 +3368,15 @@ class MessageWidget(urwid.WidgetWrap):
             logging.error("Failed to extract a quote from %s", self.msg.envelope)
             return None
 
-        if self.align == 'left':
+        if cfg.show_inline:
+            ret = ['|> ']
+            sep = ' '
+        elif self.align == 'left':
             ret = ['| ']
-            newline_sep = '\n| '
-            quote_sep_line = newline_sep + '---'
+            sep = self.MARKUP_ELS_SEPARATOR + '| '
         else:
             ret = []
-            newline_sep = ' |\n'
-            quote_sep_line = '\n --- |'
+            sep = ' |' + self.MARKUP_ELS_SEPARATOR
 
         text_markup = self._get_text_markup_generic(
                 text=quote_text,
@@ -3344,7 +3384,7 @@ class MessageWidget(urwid.WidgetWrap):
                 ) or []
         for index, markup_element in enumerate(text_markup):
             try:
-                text_markup[index] = markup_element.replace('\n', newline_sep)
+                text_markup[index] = markup_element.replace('\n', sep)
             except AttributeError:
                 continue
 
@@ -3357,15 +3397,12 @@ class MessageWidget(urwid.WidgetWrap):
                 self._get_attachments_markup_generic(quote_attachments),
                 ):
             if m:
-                ret.append(newline_sep)
-                ret.extend(m)
-        if self.align == 'right':
+                ret.append(sep)
+                ret.extend((
+                    ('italic', el) for el in m
+                    ))
+        if self.align == 'right' and not cfg.show_inline == 'columns' or cfg.show_inline == 'wrap':
             ret.append(' |')
-
-        if len(markup_to_text(text_markup)) > 50:
-            # Additional separator after "long" quoted lines that might get soft-wrapped.
-            # 50 ~= 80 * 3/4 * 0.85  (assuming 80 columns, 3/4 for ChatWindow, 85% default wrap_at)
-            ret.append(quote_sep_line)
 
         return ret
 
@@ -5221,6 +5258,15 @@ def make_arg_parser():
         default='',
         metavar='FORMAT',
         help="Show messages' timestamps in the specified strftime %(metavar)s. (default: %(const)r)",
+    )
+
+    parser.add_argument(
+        '--show-inline',
+        nargs='?',
+        default=False,
+        choices=('columns', 'wrap'),
+        const='columns',
+        help="Print message's elements (sender's name, message text, attachment list, etc) on a single line.",
     )
 
     parser.add_argument(
