@@ -1090,7 +1090,7 @@ class Daemon(AsyncContext):
                 )
         self.callbacks['remote_delete'](envelope)
 
-    def rename_contact(self, contact_id, new_name, is_group=False, *proc_args, **proc_kwargs):
+    def rename_contact(self, contact_id, new_name, is_group=False, members='', *proc_args, **proc_kwargs):
         """Rename a contact or group.
 
         If a contact does not exist, it will be created. Changes to groups are sent to the server, changes to individual contacts are local.
@@ -1107,7 +1107,7 @@ class Daemon(AsyncContext):
                     "org.asamk.Signal.updateGroup",
                     "array:byte:" + b64_to_bytearray(contact_id),
                     "string:" + new_name,
-                    "array:string:" + '',   # members
+                    "array:string:" + ','.join(members),   # members
                     "string:" + ''         # avatar
                     ]
         self._dbus_send_signal_cli(args, *proc_args, **proc_kwargs)
@@ -4212,6 +4212,7 @@ class Commands:
             (['toggleContactsSort', 's'], self._actions.toggle_sort_contacts),
             (['renameContact'], self._actions.rename_contact),
             (['addContact'], self._actions.add_contact),
+            (['addGroup'], self._actions.add_group),
             (['reload'], self._actions.reload),
             (['help'], self._actions.show_help),
             (['quit', 'q'], self._actions.quit),
@@ -4484,7 +4485,23 @@ class Actions:
         if not is_number(number):
             self.set_status_line(f':addContact "{number}": not a valid number')
             return
-        self._daemon.rename_contact(number, name, is_group=False, callback=lambda *i: self.reload())
+        self._daemon.rename_contact(number, name, is_group=False, members='', callback=lambda *i: self.reload())
+
+    def add_group(self, args):
+        """Add a new group.
+        :addGroup [GROUPNAME] +NUMBER1 +NUMBER2
+        """
+        group_name, members = split_path(args)
+        members = members.split()
+        for number in members:
+            if not is_number(number):
+                self.set_status_line(f':addGroup "{number}": not a valid number')
+                return
+            elif self._contacts.get_by_id(number) is None:
+                self.set_status_line(f":addGroup Error: no contact with number {number} found")
+                return
+
+        self._daemon.rename_contact('', group_name, is_group=True, members=members, callback=lambda *i: self.reload())
 
     def rename_contact(self, args):
         """Rename contact.
@@ -4515,7 +4532,7 @@ class Actions:
             contact_id = self._chats_data.current_contact.id
             is_group = self._chats_data.current_contact.is_group
             new_name = args
-        self._daemon.rename_contact(contact_id, new_name, is_group, lambda *i: self.reload())
+        self._daemon.rename_contact(contact_id, new_name, is_group, members='', callback=lambda *i: self.reload())
 
     def _delete_message(self, msg, index=None):
         self._chats_data.chats.delete_message(msg, index)
