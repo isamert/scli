@@ -3131,29 +3131,44 @@ class InputLine(BracketedPasteEdit):
 class MessageReactionsWidget(urwid.WidgetWrap):
 
     def __init__(self, emojis_markup, align):
-        self._text_w, display_w = self._init_w(emojis_markup, align)
+        self._align = align
+        method = self._init_row_w if not cfg.show_inline else self._init_col_w
+        self._text_w, display_w = method(emojis_markup)
         super().__init__(display_w)
 
-    def _init_w(self, emojis_markup, align):
-        text_w = urwid.Text(emojis_markup, align=align)
-        react_pad_w = urwid.Padding(text_w, align, width=cfg.wrap_at)
-        react_sym_markup = '╰╴' if align == 'left' else '╶╯'
+    def _init_row_w(self, emojis_markup):
+        text_w = urwid.Text(emojis_markup, align=self._align)
+        react_pad_w = urwid.Padding(text_w, self._align, width=cfg.wrap_at)
+        react_sym_markup = '╰╴' if self._align == 'left' else '╶╯'
         react_sym_w = urwid.Text(
                 react_sym_markup,
-                align='right' if align == 'left' else 'left',
+                align='right' if self._align == 'left' else 'left',
                 )
         cols = [
                 (DeliveryStatus.MARKUP_WIDTH + len(react_sym_markup), react_sym_w),
                 react_pad_w,
                 ]
-        if align == 'right':
+        if self._align == 'right':
             cols.reverse()
         react_cols_w = urwid.Columns(cols)
         return text_w, react_cols_w
 
-    def update(self, emojis):
-        self._text_w.set_text(emojis)
+    def _init_col_w(self, emojis_markup):
+        text_w = urwid.Text(self._col_w_markup(emojis_markup))
+        return text_w, text_w
 
+    def _col_w_markup(self, emojis_markup):
+        return (
+                [*emojis_markup, '┊']
+                if self._align == 'right' else
+                ['┊', *emojis_markup]
+                )
+
+    def update(self, emojis_markup):
+        if not cfg.show_inline:
+            self._text_w.set_text(emojis_markup)
+        else:
+            self._text_w.set_text(self._col_w_markup(emojis_markup))
 
 
 class MessageWidget(urwid.WidgetWrap):
@@ -3226,9 +3241,9 @@ class MessageWidget(urwid.WidgetWrap):
         if self.align == 'right':
             cols.reverse()
             box_columns = [len(cols)-1]
-        columns_w = urwid.Columns(cols, dividechars=1, box_columns=box_columns)
+        self._columns_w = urwid.Columns(cols, dividechars=1, box_columns=box_columns)
         self._color = None if not cfg.color else cfg.color.for_message(msg)
-        display_w = urwid.AttrMap(columns_w, self._color, focus_map=REVERSED_FOCUS_MAP)
+        display_w = urwid.AttrMap(self._columns_w, self._color, focus_map=REVERSED_FOCUS_MAP)
         super().__init__(display_w)
         self._reactions_w = None
         self.update_reactions_w()
@@ -3283,7 +3298,6 @@ class MessageWidget(urwid.WidgetWrap):
                     self._get_text_markup(),
                     self._get_attachments_markup(),
                     ])
-
         ret = []
         for markup in markups:
             if markup:
@@ -3452,6 +3466,21 @@ class MessageWidget(urwid.WidgetWrap):
         if len(o_w.contents) == 1:
             self._w.original_widget = o_w.contents[0][0]
 
+    def _insert_column(self, pos, w, col_opts=('pack',)):
+        if pos == 'last':
+            pos = len(self._columns_w.contents)
+        self._columns_w.contents.insert(pos, (w, self._columns_w.options(*col_opts)))
+
+    def _remove_column(self, w=None, pos=None):
+        cols = self._columns_w.contents
+        if w is not None:
+            for pos, (widget, _opts) in enumerate(cols):  # pylint: disable=redefined-argument-from-local
+                if widget is w:
+                    break
+            else:
+                raise ValueError(f"Column with widget {w} not found")
+        del cols[pos]
+
     def update_reactions_w(self):
         try:
             reactions = self.msg.reactions
@@ -3472,12 +3501,17 @@ class MessageWidget(urwid.WidgetWrap):
 
     def _add_reactions_w(self, emojis_markup):
         self._reactions_w = MessageReactionsWidget(emojis_markup, self.align)
-        self._add_pile_row(self._reactions_w)
+        if not cfg.show_inline:
+            self._add_pile_row(self._reactions_w)
+        else:
+            pos = 'last' if self.align == 'left' else 0
+            self._insert_column(pos, self._reactions_w, ('weight', 0.5))
 
     def _remove_reactions_w(self):
         if self._reactions_w is None:
             return
-        self._remove_pile_row(self._reactions_w)
+        call_method = self._remove_column if cfg.show_inline else self._remove_pile_row
+        call_method(self._reactions_w)
         self._reactions_w = None
 
 
