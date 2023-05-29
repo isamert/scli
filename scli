@@ -5488,6 +5488,8 @@ def parse_args():
         args.username = detect_username()
     if args.color:
         args.color = Color(args.color)
+    if args.save_history:
+        args.save_history = os.path.expanduser(args.save_history)
     args.partition_contacts = args.partition_contacts or args.group_contacts
     del args.__dict__['group_contacts']
     args.wrap_at = parse_wrap_at_arg(args.wrap_at)
