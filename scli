@@ -5158,7 +5158,7 @@ def make_arg_parser():
         '-n',
         '--enable-notifications',
         action='store_true',
-        help='Enable desktop notifications. (Also see --notification-command)',
+        help='Enable desktop notifications. (See also --notification-command)',
     )
 
     parser.add_argument(
