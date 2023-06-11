@@ -481,8 +481,8 @@ class Xclip(ClipBase):
     _get_files_arg = 'text/uri-list'
     _put_cmd = ['xclip', '-selection', 'clipboard']
 
-    def _run_cmd(self, mime):
-        return ['xclip', '-selection', 'clipboard', '-t', mime, '-o']
+    def _run_cmd(self, args):
+        return ['xclip', '-selection', 'clipboard', '-t', args, '-o']
 
     def _get_args(self, mime):
         return mime
