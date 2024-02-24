@@ -839,7 +839,8 @@ class Daemon(AsyncContext):
         self.callbacks['daemon_log'](line)
         if any(s in line for s in (
                 "Exported dbus object: /org/asamk/Signal",  # signal-cli v0.9.2 or earlier
-                "DBus daemon running",
+                "DBus daemon running",  # signal-cli v0.12.8 or earlier
+                "Started DBus server",
                 )):
             self._run_when_dbus_service_started(
                     self.callbacks['daemon_started']
