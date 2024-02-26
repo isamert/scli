@@ -5361,7 +5361,9 @@ def make_arg_parser():
                 '-u %u '
                 '--output=json '
                 #'--trust-new-identities=always '  # requires s-cli v0.9.0+; does not notify of safety number change (see signal-cli#826)
-                'daemon'),
+                'daemon '
+                '--dbus '  # explicit daemon mode required since v0.13.0
+                ),
         help='Command for starting signal-cli daemon. The `%%u` in command will be replaced with username (phone number).',
     )
 
