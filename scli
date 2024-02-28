@@ -806,7 +806,7 @@ class Daemon(AsyncContext):
             # The `output` (supplied by urwid) is a `bytes` object, even when the `subprocess` is launched with `text=True`.
         if self._msg_processing_paused:
             self._buffer = output
-            return
+            return True
         lines = output.split('\n')  # Different from splitlines(): adds a final '' element after '\n'
         self._buffer = lines.pop()
 
@@ -819,7 +819,7 @@ class Daemon(AsyncContext):
             except (json.JSONDecodeError, KeyError) as err:
                 logging.error('Could not parse daemon output: %s', line)
                 logging.exception(err)
-                return
+                return True
             logging.debug("Daemon: json_data = \n%s", pprint.pformat(json_data))
             error_data = None
             for error_key in ('error', 'exception'):
@@ -830,11 +830,12 @@ class Daemon(AsyncContext):
                 self._error_data_handler(error_data, envelope)
             if error_data is None:
                 self._envelope_handler(envelope)
+        return True
 
     def _daemon_stderr_handler(self, output):
         line = output.decode().strip()
         if not line:
-            return
+            return True
         logging.info('daemon_log: %s', line)
         self.callbacks['daemon_log'](line)
         if any(s in line for s in (
@@ -845,6 +846,7 @@ class Daemon(AsyncContext):
             self._run_when_dbus_service_started(
                     self.callbacks['daemon_started']
                     )
+        return True
 
     def _envelope_handler(self, envelope):
         envelope['_received_timestamp'] = get_current_timestamp_ms()
