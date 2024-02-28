@@ -5627,6 +5627,8 @@ def main():
     else:
         logging.disable()
     logging.info("scli %s", __version__)
+    logging.debug("urwid %s", urwid.__version__)
+    logging.debug("python %s", sys.version)
 
     cfg.set(args)
 
