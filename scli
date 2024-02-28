@@ -819,7 +819,7 @@ class Daemon(AsyncContext):
             except (json.JSONDecodeError, KeyError) as err:
                 logging.error('Could not parse daemon output: %s', line)
                 logging.exception(err)
-                return
+                return True
             logging.debug("Daemon: json_data = \n%s", pprint.pformat(json_data))
             error_data = None
             for error_key in ('error', 'exception'):
