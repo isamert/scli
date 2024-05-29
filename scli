@@ -5557,6 +5557,34 @@ def parse_args():
 
 
 # #############################################################################
+# logging
+# #############################################################################
+
+
+class DeferredEval:
+
+    __slots__ = ("func", "args", "kwargs")
+
+    def __init__(self, func, *args, **kwargs):
+        self.func = func
+        self.args = args
+        self.kwargs = kwargs
+
+    def __str__(self):
+        return self.func(*self.args, **self.kwargs)
+
+
+def logging_setup(filename, level=logging.WARNING):
+    logging.basicConfig(
+            filename=filename,
+            level=level,
+            )
+    logging.info(DeferredEval(prog_version_str))
+    logging.debug("urwid %s", urwid.__version__)
+    logging.debug("python %s", sys.version)
+
+
+# #############################################################################
 # main
 # #############################################################################
 
@@ -5661,15 +5689,11 @@ def main():
     args = parse_args()
 
     if args.debug:
-        logging.basicConfig(filename=args.log_file, level=logging.DEBUG)
+        logging_setup(filename=args.log_file, level=logging.DEBUG)
     elif args.save_history or args.log_file != SCLI_LOG_FILE:
-        logging.basicConfig(filename=args.log_file, level=logging.WARNING)
+        logging_setup(filename=args.log_file, level=logging.WARNING)
     else:
         logging.disable()
-    if logging.getLogger().isEnabledFor(logging.INFO):
-        logging.info(prog_version_str())
-    logging.debug("urwid %s", urwid.__version__)
-    logging.debug("python %s", sys.version)
 
     cfg.set(args)
 
