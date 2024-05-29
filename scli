@@ -129,7 +129,6 @@ def get_version():
     Does not output the leading `v` if it's present in git tag's name.
     """
 
-    # Do not use `logging` in this function, as it's called before logging.basicConfig().
     prog_dir = get_prog_dir()
     git_dir = os.path.join(prog_dir, '.git')
     git_cmd = ['git', '--git-dir', git_dir, 'describe']
@@ -169,6 +168,10 @@ def git_hash_file(path, block_size=2**16):
         for block in iter(lambda: fo.read(block_size), b''):
             hash_obj.update(block)
     return hash_obj.hexdigest()
+
+
+def prog_version_str():
+    return f"scli {get_version()}"
 
 
 def get_default_editor():
@@ -5188,8 +5191,25 @@ class CustomDefaultsHelpFormatter(argparse.ArgumentDefaultsHelpFormatter):
         return super()._get_help_string(action)
 
 
+class _VersionFuncAction(argparse._VersionAction):  # pylint: disable=protected-access
+    """Allow a callable as an argument to the 'version' action."""
+
+    def __call__(self, *args, **kwargs):
+        try:
+            self.version = self.version()
+        except TypeError:
+            pass
+        super().__call__(*args, **kwargs)
+
+
+class ArgumentParserVersionFunc(argparse.ArgumentParser):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.register('action', 'version', _VersionFuncAction)
+
+
 def make_arg_parser():
-    parser = argparse.ArgumentParser(
+    parser = ArgumentParserVersionFunc(
         formatter_class=CustomDefaultsHelpFormatter,
     )
 
@@ -5404,7 +5424,7 @@ def make_arg_parser():
     parser.add_argument(
         '--version',
         action='version',
-        version='%(prog)s ' + __version__,
+        version=prog_version_str,
     )
 
     return parser
@@ -5646,7 +5666,8 @@ def main():
         logging.basicConfig(filename=args.log_file, level=logging.WARNING)
     else:
         logging.disable()
-    logging.info("scli %s", __version__)
+    if logging.getLogger().isEnabledFor(logging.INFO):
+        logging.info(prog_version_str())
     logging.debug("urwid %s", urwid.__version__)
     logging.debug("python %s", sys.version)
 
@@ -5666,8 +5687,6 @@ def main():
     with BracketedPasteMode():
         loop.run()
 
-
-__version__ = get_version()
 
 if __name__ == "__main__":
     main()
