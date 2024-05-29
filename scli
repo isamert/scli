@@ -7,6 +7,7 @@ import bisect
 import collections
 import contextlib
 import errno
+import hashlib
 import importlib
 import json
 import logging
@@ -143,12 +144,31 @@ def get_version():
         with open(version_file_path, encoding='utf-8') as f:
             version_str = f.readline()
     except OSError:
-        return '?'
+        return git_hash_file(__file__)[:8]  # Short SHA
     if not version_str.startswith('v'):
         # '$Format:...' - not a `git archive` (e.g. a manually dl'ed blob)
         # '%(..)' - `git archive` if git < 2.32
-        return '?'
+        return git_hash_file(__file__)[:8]  # Short SHA
     return version_str[1:]  # `git-describe`-like string
+
+
+def git_hash_file(path, block_size=2**16):
+    """git-hash-object for a file.
+
+    Method description in <https://git-scm.com/book/en/v2/Git-Internals-Git-Objects#_object_storage>.
+
+    To find commits referencing an object's hash, use `git log --find-object=<hash>` (<https://stackoverflow.com/a/48590251>).
+    """
+    size = os.stat(path).st_size
+    header = f"blob {size}\0".encode()
+    hash_obj = hashlib.sha1()
+    hash_obj.update(header)
+    with open(path, 'rb') as fo:
+        # In Python 3.11, can use hashlib.file_digest()
+        # In Python 3.8, can use `while block := fo.read(…)`
+        for block in iter(lambda: fo.read(block_size), b''):
+            hash_obj.update(block)
+    return hash_obj.hexdigest()
 
 
 def get_default_editor():
