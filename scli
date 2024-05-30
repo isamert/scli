@@ -5156,7 +5156,7 @@ class CustomDefaultsHelpFormatter(argparse.ArgumentDefaultsHelpFormatter):
     """
 
     def _get_help_string(self, action):
-        if action.default in (None, False):
+        if action.default in (None, False) or " (default: " in action.help:
             return action.help
         return super()._get_help_string(action)
 
