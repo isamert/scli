@@ -5,7 +5,6 @@ import atexit
 import base64
 import bisect
 import collections
-import contextlib
 import errno
 import hashlib
 import importlib
@@ -23,6 +22,7 @@ import sys
 import tempfile
 import textwrap
 from abc import ABC, abstractmethod
+from contextlib import contextmanager, suppress
 from datetime import datetime, timezone
 
 import urwid
@@ -132,11 +132,9 @@ def get_version():
     prog_dir = get_prog_dir()
     git_dir = os.path.join(prog_dir, '.git')
     git_cmd = ['git', '--git-dir', git_dir, 'describe']
-    try:
+    with suppress(FileNotFoundError, subprocess.CalledProcessError):
         proc = subprocess.run(git_cmd, capture_output=True, check=True, text=True)
         return proc.stdout.strip('v\n')
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        pass
 
     version_file_path = os.path.join(prog_dir, 'VERSION')
     try:
@@ -609,10 +607,8 @@ class AsyncQueued(AsyncProc):
             n_curr_fds = 32
         fd_limits = [nprocs*3+n_curr_fds]  # each proc opens 3 FDs
         for res in (resource.RLIMIT_NOFILE, resource.RLIMIT_OFILE):
-            try:
+            with suppress(OSError, ValueError):
                 fd_limits.append(resource.getrlimit(res)[0])
-            except (OSError, ValueError):
-                pass
         return (min(fd_limits) - n_curr_fds) // 3
 
     @property
@@ -710,7 +706,7 @@ class AsyncContext(AsyncQueued):
         if item.callback is not None:
             item.callback(**item.callback_kwargs)
 
-    @contextlib.contextmanager
+    @contextmanager
     def callback_finally(
             self,
             callback=None,
@@ -1584,12 +1580,10 @@ class ReorderedTimestamps(list):
             edge = False
         modified = False
         for ioffset in range(1) if edge else range(-1, 1):
-            try:
+            with suppress(IndexError, KeyError):
                 neighb = self[index+ioffset]
                 del self._reordered_timestamps[(neighb.sender_num, neighb.timestamp)]
                 modified = True
-            except (IndexError, KeyError):
-                pass
         if modified:
             self._add_reordered_neighbors(index)
 
@@ -1786,15 +1780,11 @@ class Chats:
                         ):
                     continue
                 envelopes.append(envelope)
-                try:
+                with suppress(AttributeError):
                     envelopes.extend(msg.reactions.values())
-                except AttributeError:
-                    pass
-                try:
+                with suppress(AttributeError):
                     # Currently, the "deleted" messages are saved in the history file.
                     envelopes.append(msg.remote_delete)
-                except AttributeError:
-                    pass
         return envelopes
 
 
@@ -2009,10 +1999,8 @@ class DeliveryStatus:
         del self._buffered[timestamp]
 
     def delete(self, timestamp):
-        try:
+        with suppress(KeyError):
             del self._status_map[timestamp]
-        except KeyError:
-            pass
 
     def dump(self):
         ret = {}
@@ -2257,10 +2245,8 @@ class Color:
             return self._exit()   # `return` just to make pylint happy
 
     def for_message(self, msg):
-        try:
+        with suppress(TypeError, KeyError):
             return self._colors[msg.sender_num]
-        except (TypeError, KeyError):
-            pass
         if isinstance(self._colors, list):
             if is_envelope_outgoing(msg.envelope):
                 return 'sent_color'
@@ -2341,10 +2327,8 @@ class PopUpBox(urwid.WidgetWrap):
 
     def __init__(self, widget, title='', buttons=True, shadow_len=2):
         self._buttons = buttons
-        try:
+        with suppress(NameError):
             urwid.connect_signal(widget, 'closed', self._emit, user_args=['closed'])
-        except NameError:
-            pass
 
         if buttons:
             def handle_click(_button):
@@ -2458,10 +2442,8 @@ class LazyEvalListWalker(urwid.ListWalker):
                     )
 
     def _remove_contents_modified_callback(self):
-        try:
+        with suppress(AttributeError):
             self.contents.set_modified_callback(noop)
-        except AttributeError:
-            pass
 
     def _modified(self):
         if self.focus >= len(self.contents):
@@ -2769,10 +2751,8 @@ class ContactsListWidget(ListBoxPlus):
             self.contents = widgets
             self._contact_widgets_map = {w.contact.id: w for w in group_contact_widgets + indiv_contact_widgets}
         self._set_all_ws_unread_counts()
-        try:
+        with suppress(AttributeError): # If current_contact is None
             self._get_current_contact_widget().highlight = True
-        except AttributeError:  # current_contact is None
-            pass
         self.try_set_focus(0)
 
     def _set_all_ws_unread_counts(self):
@@ -2837,10 +2817,8 @@ class ContactsListWidget(ListBoxPlus):
 
     def _unhighlight_current_contact_widget(self):
         # Remove highlighting from the "current" (not for long) contact's widget.
-        try:
+        with suppress(AttributeError): # If current_contact is None
             self._get_current_contact_widget().highlight = False
-        except AttributeError:  # current_contact is None
-            pass
 
     def _select_focused_contact(self, focus_widget=None):
         # The `focus_widget` parameter is passed through from caller to emit_signal. It specifies whether the focus should be set on `input`, `chat` or `contacts` widgets after switching to a new contact.
@@ -3583,11 +3561,9 @@ class MessageWidgetsCache:
         # This method is not be needed if self._cache is a weakref dictionary.
         key = self._hash(msg)
         key_adj = hash((msg.sender_num, timestamp_adj))
-        try:
+        with suppress(KeyError):
             # Theoretically, it's possible to get a race condition here if signal-cli returns adjusted timestamp before the msg with un-adjusted timestamp is added to the _cache.
             self._cache[key_adj] = self._cache.pop(key)
-        except KeyError:
-            pass
 
 
 class LazyEvalMessageListWalker(LazyEvalListWalker):
@@ -3968,10 +3944,8 @@ class MessageInfo(ListBoxPlus):
                 else:
                     action_request.copy_to_clipb(item.text)
         elif key in ('enter', 'o'):
-            try:
+            with suppress(AttributeError):
                 item.open_path()
-            except AttributeError:
-                pass
         else:
             return key
         return None
@@ -4452,10 +4426,8 @@ class Actions:
             if msg:
                 self.send_message_curr_contact(msg)
 
-        try:
+        with suppress(NameError):
             os.remove(tmpfile)
-        except NameError:
-            pass
 
     def read(self, path_or_cmd):
         message = ''
@@ -4981,10 +4953,8 @@ class Coordinate:
                 })
             self._contacts.map[contact_id] = contact_temp
             self._contacts.indivs.add(contact_temp)
-            try:
+            with suppress(KeyError, TypeError):
                 envelope["dataMessage"]["message"] += "\n~~~\n[Message from an unknown contact. Accept on the primary device first]\n~~~"
-            except (KeyError, TypeError):
-                pass
             self._chats_data.chats.add_envelope(envelope)
             self._chats_data.unread_counts[contact_id] += 1
             self._ui.contacts.update()
@@ -5195,10 +5165,8 @@ class _VersionFuncAction(argparse._VersionAction):  # pylint: disable=protected-
     """Allow a callable as an argument to the 'version' action."""
 
     def __call__(self, *args, **kwargs):
-        try:
+        with suppress(TypeError):
             self.version = self.version()
-        except TypeError:
-            pass
         super().__call__(*args, **kwargs)
 
 
@@ -5661,13 +5629,11 @@ def detect_username():
 
     if not ulist:
         for folder in [SIGNALCLI_DATA_FOLDER, SIGNALCLI_LEGACY_DATA_FOLDER]:
-            try:
+            with suppress(FileNotFoundError):
                 users = [x for x in os.listdir(folder)
                         if os.path.isfile(os.path.join(folder, x))
                         and x.startswith('+')]
                 ulist.extend(users)
-            except FileNotFoundError:
-                pass
 
     if not ulist:
         sys.exit("ERROR: Could not find any registered accounts. "
