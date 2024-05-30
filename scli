@@ -5400,13 +5400,15 @@ def make_arg_parser():
 
 def get_cfg_file_args(file_obj):
     # Alternatively, can override `ArgumentParser.convert_arg_line_to_args()`.
-    # Could use `configparser` module if the syntax gets more complicated.
     ret = {}
     for line in file_obj:
-        line = line.strip()
-        if not line or line.startswith('#'):
+        line = line.split('#', 1)[0].strip()
+        if not line:
             continue
-        name, _, val = line.partition("=")
+        try:
+            name, val = line.split('=', 1)
+        except ValueError:
+            sys.exit(f"scli: error: Could not parse config line {line!r}")
         ret[name.strip()] = val.strip()
     return ret
 
