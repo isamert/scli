@@ -3850,7 +3850,7 @@ class MessageInfo(ListBoxPlus):
         if reactions is not None:
             items.extend(self._get_reactions_ws(reactions))
 
-        if cfg.debug:
+        if 'debug' in cfg.log_level:
             items.extend(self._get_debug_info())
 
         super().__init__(items)
@@ -5255,8 +5255,16 @@ def make_arg_parser():
     parser.add_argument(
         '--log-file',
         default=SCLI_LOG_FILE,
-        help='Path to the log file. If not explicitly specified, logs are written only if `--debug` or `--save-history` are on.',
+        help='Path to the log file. Logs are written only if `--log-file` or `--log-level` is explicitly set.',
     )
+
+    parser.add_argument(
+            "--log-level",
+            action="append",
+            default=["all:warning"],
+            help=f"Set logging level {{{','.join(logging_levels_list())}}} (default: warning)",
+            )
+
 
     parser.add_argument(
         '-n',
@@ -5385,8 +5393,10 @@ def make_arg_parser():
 
     parser.add_argument(
         '--debug',
-        action='store_true',
-        help='Verbose log output.',
+        action='append_const',
+        const='debug',
+        dest='log_level',
+        help='Alias for --log-level=debug.',
     )
 
     parser.add_argument(
@@ -5568,11 +5578,42 @@ class DeferredEval:
         return self.func(*self.args, **self.kwargs)
 
 
-def logging_setup(filename, level=logging.WARNING):
+def parse_log_level_args(args_append_list, sep=':', def_key=os.path.basename(__file__)):
+    """Parse values of `--log-level` arguments.
+
+    The values are "LOGGER:LOG_LEV", where LOGGER is one of the loggers registered with the logging module: urwid, asyncio, scli (this module), etc. Example: `--log-level urwid:warning`. Values can also be just LOG_LEV (e.g. `--log-level info`), in which case LOGGER is set to "scli". A special LOGGER name "all" sets levels for all of the registered loggers.
+    """
+    arg_map = {}
+    for arg in args_append_list:
+        try:
+            k, v = arg.split(sep, 1)
+        except ValueError:
+            k = def_key
+            v = arg
+        if k == "all":
+            arg_map.clear()
+        arg_map[k] = getattr(logging, v.upper())
+    return arg_map
+
+
+def logging_levels_list():
+    """Get the list of `logging` module's built-in log levels."""
+    # Python 3.11 introduced `logging.getLevelNamesMapping()`.
+    return [logging.getLevelName(n).lower() for n in range(
+            logging.DEBUG,      # == 10
+            logging.CRITICAL + logging.DEBUG,  # +10, for `range`'s non-inclusive upper limit
+            logging.WARNING - logging.INFO,     # == 10
+            )]
+
+
+def logging_setup(filename, levels):
+    log_levels = parse_log_level_args(levels)
     logging.basicConfig(
             filename=filename,
-            level=level,
+            level=log_levels.pop("all"),
             )
+    for logger_name, log_lev in log_levels.items():
+        logging.getLogger(logger_name).setLevel(log_lev)
     logging.info(DeferredEval(prog_version_str))
     logging.debug("urwid %s", urwid.__version__)
     logging.debug("python %s", sys.version)
@@ -5681,10 +5722,11 @@ def main():
     args, modified_args = parse_args()
     cfg.set(args)
 
-    if args.debug:
-        logging_setup(filename=args.log_file, level=logging.DEBUG)
-    elif args.save_history or "log_file" in modified_args:
-        logging_setup(filename=args.log_file, level=logging.WARNING)
+    if any(arg in modified_args for arg in (
+            "log_file",
+            "log_level",
+            )):
+        logging_setup(filename=args.log_file, levels=args.log_level)
     else:
         logging.disable()
     logger.debug("args = %s", DeferredEval(pprint.pformat, modified_args))
