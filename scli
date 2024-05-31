@@ -94,7 +94,7 @@ def callf(cmd, rmap=None, background=False, **subprocess_kwargs):
 
     if not subprocess_kwargs.get('shell'):
         cmd = shlex.split(cmd)
-    logging.debug('callf: `%s`', cmd)
+    logger.debug('callf: `%s`', cmd)
 
     if background:
         for arg in ('stdin', 'stdout', 'stderr'):
@@ -106,14 +106,14 @@ def callf(cmd, rmap=None, background=False, **subprocess_kwargs):
     proc = subprocess.run(cmd, **subprocess_kwargs)
 
     if proc.returncode != 0:
-        logging.error(
+        logger.error(
                 'callf: %s: exit code: %d, stderr: %s',
                 proc.args,
                 proc.returncode,
                 proc.stderr
                 )
     elif proc.stdout:
-        logging.debug('callf: %s', proc.stdout)
+        logger.debug('callf: %s', proc.stdout)
 
     return proc
 
@@ -547,7 +547,7 @@ class AsyncProc:
             proc.stderr.close()
 
             if return_code != 0:
-                logging.error(
+                logger.error(
                         'proc: cmd:`%s`; return_code:%d; output:"%s"',
                         proc.args,
                         return_code,
@@ -836,10 +836,10 @@ class Daemon(AsyncContext):
                 json_data = json.loads(line)
                 envelope = json_data['envelope']
             except (json.JSONDecodeError, KeyError) as err:
-                logging.error('Could not parse daemon output: %s', line)
-                logging.exception(err)
+                logger.error('Could not parse daemon output: %s', line)
+                logger.exception(err)
                 return True
-            logging.debug("Daemon: json_data = \n%s", pprint.pformat(json_data))
+            logger.debug("Daemon: json_data = \n%s", pprint.pformat(json_data))
             error_data = None
             for error_key in ('error', 'exception'):
                 try:
@@ -855,7 +855,7 @@ class Daemon(AsyncContext):
         line = output.decode().strip()
         if not line:
             return True
-        logging.info('daemon_log: %s', line)
+        logger.info('daemon_log: %s', line)
         self.callbacks['daemon_log'](line)
         if any(s in line for s in (
                 "Exported dbus object: /org/asamk/Signal",  # signal-cli v0.9.2 or earlier
@@ -894,10 +894,10 @@ class Daemon(AsyncContext):
         elif get_envelope_sticker(envelope):
             self.callbacks['receive_sticker'](envelope)
         else:
-            logging.info('No action for received envelope: %s', pprint.pformat(envelope))
+            logger.info('No action for received envelope: %s', pprint.pformat(envelope))
 
     def _error_data_handler(self, error_data, envelope):
-        logging.error("Daemon: error = \n%s", pprint.pformat(error_data))
+        logger.error("Daemon: error = \n%s", pprint.pformat(error_data))
         if error_data.get('type') == 'UntrustedIdentityException':
             self.callbacks['untrusted_identity_err'](envelope)
 
@@ -986,7 +986,7 @@ class Daemon(AsyncContext):
                 else:
                     # Ad-hoc parsing of signal-cli's stderr output.
                     timestamp_adj = int(proc.output.splitlines()[0].rsplit(': ', 1)[-1])
-                    logging.warning("some group members have uninstalled signal: %s", proc.output)
+                    logger.warning("some group members have uninstalled signal: %s", proc.output)
                     self.callbacks[callback_name](envelope, 'ignore_receipts', timestamp_adj)
                     return
             self.callbacks[callback_name](envelope, 'send_failed')
@@ -996,8 +996,8 @@ class Daemon(AsyncContext):
         try:
             timestamp_adj = int(proc.output.rsplit(maxsplit=1)[1])
         except (IndexError, AttributeError) as err:
-            logging.error("send_message: Failed to get adjusted envelope timestamp")
-            logging.exception(err)
+            logger.error("send_message: Failed to get adjusted envelope timestamp")
+            logger.exception(err)
             self.callbacks[callback_name](envelope)
         else:
             self.callbacks[callback_name](envelope, 'sent', timestamp_adj)
@@ -1009,7 +1009,7 @@ class Daemon(AsyncContext):
             attachments = []
         attachment_paths = [os.path.expanduser(attachment) for attachment in attachments]
         if not all(os.path.exists(attachment_path) for attachment_path in attachment_paths):
-            logging.warning('send_message: Attached file(s) does not exist.')
+            logger.warning('send_message: Attached file(s) does not exist.')
             return
 
         timestamp = get_current_timestamp_ms()
@@ -1043,7 +1043,7 @@ class Daemon(AsyncContext):
                 callback=after_send_proc_returns,
                 )
 
-        logging.info('send_message: %s', envelope)
+        logger.info('send_message: %s', envelope)
         self.callbacks['sending_message'](envelope)
 
     def send_reaction(self, contact_id, emoji, orig_author, orig_ts, remove=False):
@@ -1082,7 +1082,7 @@ class Daemon(AsyncContext):
                 is_group,
                 callback=after_send_proc_returns
                 )
-        logging.info('send_reaction: %s', envelope)
+        logger.info('send_reaction: %s', envelope)
         self.callbacks['sending_reaction'](envelope)
 
     def send_remote_delete(self, contact_id, orig_ts):
@@ -1685,8 +1685,8 @@ class Chat(ReorderedTimestamps, urwid.MonitoredList):
                 index = self.index(msg)
             del self[index]
         except (ValueError, IndexError) as err:
-            logging.info("Chat.delete(): message not found; envelope = %s", msg.envelope)
-            logging.exception(err)
+            logger.warning("Chat.delete(): message not found; envelope = %s", msg.envelope)
+            logger.exception(err)
             raise ValueError from err
         self._delete_from_reordered(msg, index)
 
@@ -1698,7 +1698,7 @@ class Chat(ReorderedTimestamps, urwid.MonitoredList):
             # This should rarely be necessary, as signal-cli's timestamp adjustments are small enough (~50ms) to not modify the messages' order.
         index = index or self.index(msg)
         if not self._is_neighbd_monotonic(index):
-            logging.debug("Chat: moving msg to maintain sorted history: %s", timestamp_adj)
+            logger.debug("Chat: moving msg to maintain sorted history: %s", timestamp_adj)
             self.delete(msg, index)
             self.add(msg)
 
@@ -1719,8 +1719,8 @@ class Chats:
             index = chat.get_index_for_envelope(envelope)
             return chat, index
         except (KeyError, ValueError, IndexError) as err:
-            logging.error("get_msg_for_envelope(): envelope = %s", envelope)
-            logging.exception(err)
+            logger.error("get_msg_for_envelope(): envelope = %s", envelope)
+            logger.exception(err)
             raise ValueError from err
 
     def get_msg_for_envelope(self, envelope):
@@ -1746,7 +1746,7 @@ class Chats:
                     sender_num=reaction['targetAuthor']
                     )
         except ValueError:
-            logging.error("Message not found for reaction: %s", pprint.pformat(envelope))
+            logger.error("Message not found for reaction: %s", pprint.pformat(envelope))
             return None
         msg.add_reaction(envelope)
         return msg
@@ -1759,7 +1759,7 @@ class Chats:
                     sender_num=get_envelope_sender_id(envelope)
                     )
         except ValueError:
-            logging.error("Message not found for remote delete envelope: %s", envelope)
+            logger.error("Message not found for remote delete envelope: %s", envelope)
             return None
         msg.remote_delete = envelope
         return msg
@@ -1915,7 +1915,7 @@ class DeliveryStatus:
         elif receipt_message['isViewed']:
             return
         else:
-            logging.error('on_receive_receipt: unknown receipt type in envelope %s', envelope)
+            logger.error('on_receive_receipt: unknown receipt type in envelope %s', envelope)
             return
         timestamps = receipt_message['timestamps']
         when = receipt_message['when']
@@ -1935,7 +1935,7 @@ class DeliveryStatus:
     def on_sending_done(self, envelope, status='sent', timestamp_adj=None):
         timestamp = get_envelope_time(envelope)
         if timestamp not in self._status_map:
-            logging.error("DeliveryStatus: on_sending_done(): no corresponding timestamp in _status_map for envelope = %s", envelope)
+            logger.error("DeliveryStatus: on_sending_done(): no corresponding timestamp in _status_map for envelope = %s", envelope)
             return
         self._set(timestamp, status)
         if status == 'send_failed':
@@ -1961,7 +1961,7 @@ class DeliveryStatus:
             if status is None:
                 return
 
-        logging.info("Setting status = `%s` for timestamp = %s", status, timestamp)
+        logger.info("Setting status = `%s` for timestamp = %s", status, timestamp)
         curr_status_detailed.str = status
         if when is not None:
             curr_status_detailed.when = when
@@ -1977,7 +1977,7 @@ class DeliveryStatus:
         status_detailed.grp_memb_remain_un = self.DelivReadConts(set(group_members), set())
 
     def _buffer_receipt(self, timestamp, status, contact):
-        logging.debug("DeliveryStatus: buffering timestamp = %s", timestamp)
+        logger.debug("DeliveryStatus: buffering timestamp = %s", timestamp)
         buffered = self._buffered.setdefault(
                 timestamp,
                 self.DelivReadConts(
@@ -1991,7 +1991,7 @@ class DeliveryStatus:
         buffered = self._buffered.get(timestamp)
         if buffered is None:
             return
-        logging.debug("Processing buffered receipts: timestamp = %s, self._buffered = %s", timestamp, self._buffered)
+        logger.debug("Processing buffered receipts: timestamp = %s, self._buffered = %s", timestamp, self._buffered)
         for status in buffered._fields:
             buffered_contacts = getattr(buffered, status) or []
             for contact in buffered_contacts:
@@ -2028,7 +2028,7 @@ class TypingIndicators:
         if typing_event == 'STARTED':
             self._add(sender_num, envelope)
         elif typing_event != 'STOPPED':
-            logging.error("on_typing_message: unknown `action` type in %s", envelope)
+            logger.warning("on_typing_message: unknown `action` type in %s", envelope)
 
     def _add(self, sender_num, envelope):
         msg = self._chats.add_envelope(envelope)
@@ -2044,7 +2044,7 @@ class TypingIndicators:
         try:
             self._chats.delete_message(msg)
         except ValueError:
-            logging.info("TypingIndicators: remove: index not found for envelope = %s", msg.envelope)
+            logger.warning("TypingIndicators: remove: index not found for envelope = %s", msg.envelope)
 
 
 class ChatsData:
@@ -2100,12 +2100,13 @@ class ChatsData:
                     history = json.load(history_fileobj)
             except (FileNotFoundError, json.JSONDecodeError) as err:
                 if isinstance(err, json.JSONDecodeError):
-                    logging.error("History file corrupted, attempting to read from backup.")
+                    logger.error("History file corrupted, attempting to read from backup.")
                 continue
             else:
                 break
         else:
-            logging.warning("Could not read history from file.")
+            # This happens on e.g. the first run, before the history file exists.
+            logger.warning("Could not read history from file: %s", self._history)
             return
         os.replace(history_filename, history_backup_filename)
             # If both `history` and `history.bak` are missing, the line above (amounting to `mv history.bak history.bak`) does not throw an error.
@@ -2436,7 +2437,7 @@ class LazyEvalListWalker(urwid.ListWalker):
         try:
             self.contents.set_modified_callback(callback)
         except AttributeError:
-            logging.warning(
+            logger.warning(
                     "Changes to object will not be automatically updated: %s",
                     textwrap.shorten(str(self.contents), 150),
                     )
@@ -3383,7 +3384,7 @@ class MessageWidget(urwid.WidgetWrap):
             quote_text = textwrap.shorten(quote['text'], 70)
             quote_attachments = quote['attachments']
         except KeyError:
-            logging.error("Failed to extract a quote from %s", self.msg.envelope)
+            logger.error("Failed to extract a quote from %s", self.msg.envelope)
             return None
 
         if cfg.show_inline:
@@ -4367,7 +4368,7 @@ class Actions:
         try:
             return callf(*args, **kwargs)
         except (OSError, ValueError) as err:
-            logging.exception(err)
+            logger.exception(err)
             self.set_status_line(
                     '\n'.join([
                         str(err),
@@ -4436,7 +4437,7 @@ class Actions:
                 with open(os.path.expanduser(path_or_cmd), 'r', encoding="utf-8") as file:
                     message = file.read()
             except OSError as err:
-                logging.exception(err)
+                logger.exception(err)
                 self.set_status_line(str(err))
         elif path_or_cmd.startswith('!'):
             proc = self.callf(
@@ -4487,7 +4488,7 @@ class Actions:
 
     def open_file(self, path):
         if not os.path.exists(path):
-            logging.warning("File does not exist: %s", path)
+            logger.error("File does not exist: %s", path)
             self.set_status_line('File does not exist: ' + path)
             return None
         return self.callf(cfg.open_command, {'%u': path}, background=True)
@@ -4908,7 +4909,7 @@ class Coordinate:
         self._on_new_message(msg)
 
     def _on_receive_message(self, envelope):
-        logging.info('Message envelope: %s', pprint.pformat(envelope))
+        logger.info('Message envelope: %s', pprint.pformat(envelope))
         contact_id = get_envelope_contact_id(envelope)
         if contact_id in self._contacts.map:
             self._process_msg_envelope(envelope)
@@ -4919,14 +4920,14 @@ class Coordinate:
             self._on_unknown_contact(envelope, callback=after_contacts_reload)
 
     def _on_unknown_contact(self, envelope, callback):
-        logging.info("Message from unknown contact: %s", envelope)
+        logger.info("Message from unknown contact: %s", envelope)
         def after_contacts_loaded():
             contact_id = get_envelope_contact_id(envelope)
             contact = self._contacts.map.get(contact_id)
             if contact is not None:
                 return callback(contact)
 
-            logging.error("Message from unknown contact: %s", envelope)
+            logger.error("Message from unknown contact: %s", envelope)
             sender_info = (
                     envelope.get("sourceName")
                     or
@@ -5017,13 +5018,13 @@ class Coordinate:
                 ])
 
     def _on_daemon_started(self):
-        logging.info("signal-cli dbus service started")
+        logger.info("signal-cli dbus service started")
         self._actions.set_status_line("Initializing signal-cli daemon... Done")
         def clear_status_line(*_args):
             self._actions.set_status_line("")
         self._ui.loop.set_alarm_in(2, clear_status_line)
         self._actions.update_contacts_async()
-        self.daemon.get_signal_cli_version(callback=logging.info)
+        self.daemon.get_signal_cli_version(callback=logger.info)
 
     def _on_contact_selected(self, contact, focus_widget):
         self._chats_data.current_contact = contact
@@ -5055,7 +5056,7 @@ class Coordinate:
                 self._on_new_message(msg)
 
     def _on_contacts_sync(self):
-        logging.info("Received contacts sync message, reloading signal-cli contacts")
+        logger.info("Received contacts sync message, reloading signal-cli contacts")
         self._actions.reload()
 
     def _on_remote_delete(self, envelope):
@@ -5614,9 +5615,12 @@ def logging_setup(filename, levels):
             )
     for logger_name, log_lev in log_levels.items():
         logging.getLogger(logger_name).setLevel(log_lev)
-    logging.info(DeferredEval(prog_version_str))
-    logging.debug("urwid %s", urwid.__version__)
-    logging.debug("python %s", sys.version)
+    logger.info(DeferredEval(prog_version_str))
+    logger.debug("urwid %s", urwid.__version__)
+    logger.debug("python %s", sys.version)
+
+
+logger = logging.getLogger(os.path.basename(__file__))
 
 
 # #############################################################################
