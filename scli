@@ -858,7 +858,7 @@ class Daemon(AsyncContext):
         logger.info('daemon_log: %s', line)
         self.callbacks['daemon_log'](line)
         if any(s in line for s in (
-                "Exported dbus object: /org/asamk/Signal",  # signal-cli v0.9.2 or earlier
+                #"Exported dbus object: /org/asamk/Signal",  # signal-cli v0.9.2 or earlier
                 "DBus daemon running",  # signal-cli v0.12.8 or earlier
                 "Started DBus server",
                 )):
@@ -5593,7 +5593,9 @@ def parse_log_level_args(args_append_list, sep=':', def_key=os.path.basename(__f
             v = arg
         if k == "all":
             arg_map.clear()
-        arg_map[k] = getattr(logging, v.upper())
+        with suppress(AttributeError):
+            v = getattr(logging, v.upper())
+        arg_map[k] = v
     return arg_map
 
 
@@ -5607,12 +5609,27 @@ def logging_levels_list():
             )]
 
 
+def set_daemon_verbose_level(vs):
+    prog_name = "signal-cli"
+    cfg.daemon_command = cfg.daemon_command.replace(  # pylint: disable=attribute-defined-outside-init
+            prog_name,
+            f"{prog_name} -{vs}",
+            1,
+            )
+
+
 def logging_setup(filename, levels):
     log_levels = parse_log_level_args(levels)
     logging.basicConfig(
             filename=filename,
             level=log_levels.pop("all"),
             )
+    try:
+        log_lev_daemon = log_levels.pop("signal-cli")
+    except KeyError:
+        pass
+    else:
+        set_daemon_verbose_level(log_lev_daemon)
     for logger_name, log_lev in log_levels.items():
         logging.getLogger(logger_name).setLevel(log_lev)
     logger.info(DeferredEval(prog_version_str))
