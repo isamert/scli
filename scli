@@ -776,6 +776,8 @@ class Daemon(AsyncContext):
         super().__init__(main_loop)
         self._username = username
         self._buffer = ''
+        self.logger = logging.getLogger(f"{self.__class__.__name__}")
+        self._logger_level_re = re.compile(r"^(2.*? \[.*\] )?(?P<lev_name>[A-Z]+) .*$")
         self._msg_processing_paused = True
             # Paused initially, to prevent a race condition betw registering the dbus service and getting a message on stdout (e.g. while polling in _run_when_dbus_service_started)
         self.callbacks = {
@@ -852,12 +854,11 @@ class Daemon(AsyncContext):
         return True
 
     def _daemon_stderr_handler(self, output):
-        line = output.decode().strip()
-        if not line:
+        lines = output.decode().strip()
+        if not lines:
             return True
-        logger.info('daemon_log: %s', line)
-        self.callbacks['daemon_log'](line)
-        if any(s in line for s in (
+        if self._msg_processing_paused and any(s in lines for s in (
+            # `_msg_processing_paused` as a proxy for `daemon_started` / `is_dbus_service_running`
                 #"Exported dbus object: /org/asamk/Signal",  # signal-cli v0.9.2 or earlier
                 "DBus daemon running",  # signal-cli v0.12.8 or earlier
                 "Started DBus server",
@@ -865,6 +866,14 @@ class Daemon(AsyncContext):
             self._run_when_dbus_service_started(
                     self.callbacks['daemon_started']
                     )
+        for line in lines.splitlines():
+            log_lev = getattr(
+                    logging,
+                    self._daemon_output_log_level(line) or "INFO",
+                    logging.INFO,
+                    )
+            self.logger.log(log_lev, line)
+            self.callbacks['daemon_log'](line)
         return True
 
     def _envelope_handler(self, envelope):
@@ -900,6 +909,10 @@ class Daemon(AsyncContext):
         logger.error("Daemon: error = \n%s", pprint.pformat(error_data))
         if error_data.get('type') == 'UntrustedIdentityException':
             self.callbacks['untrusted_identity_err'](envelope)
+
+    def _daemon_output_log_level(self, line):
+        match = self._logger_level_re.match(line)
+        return match.group("lev_name") if match else None
 
     def pause_message_processing(self):
         self._msg_processing_paused = True
@@ -5596,6 +5609,8 @@ def parse_log_level_args(args_append_list, sep=':', def_key=os.path.basename(__f
         with suppress(AttributeError):
             v = getattr(logging, v.upper())
         arg_map[k] = v
+    with suppress(KeyError):
+        arg_map.setdefault("Daemon", arg_map[def_key])
     return arg_map
 
 
