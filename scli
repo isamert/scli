@@ -149,6 +149,11 @@ def get_version():
     return version_str[1:]  # `git-describe`-like string
 
 
+def get_python_version():
+    # Equivalent of platform.python_version()
+    return '.'.join(str(d) for d in sys.version_info[:3])
+
+
 def git_hash_file(path, block_size=2**16):
     """git-hash-object for a file.
 
@@ -5648,8 +5653,8 @@ def logging_setup(filename, levels):
     for logger_name, log_lev in log_levels.items():
         logging.getLogger(logger_name).setLevel(log_lev)
     logger.info(DeferredEval(prog_version_str))
-    logger.debug("urwid %s", urwid.__version__)
-    logger.debug("python %s", sys.version)
+    logger.info("urwid %s", urwid.__version__)
+    logger.info("python %s", DeferredEval(get_python_version))
 
 
 logger = logging.getLogger(os.path.basename(__file__))
