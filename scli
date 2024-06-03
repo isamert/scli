@@ -189,6 +189,16 @@ def get_default_editor():
     return ret
 
 
+def get_default_pager():
+    with suppress(KeyError):
+        return os.environ['PAGER']
+    for exe in ('pager', 'less', 'more'):
+        ret = shutil.which(exe)
+        if ret is not None:
+            return ret
+    return None
+
+
 PHONE_NUM_REGEX = re.compile('^\\+[1-9][0-9]{6,14}$')
 # https://github.com/signalapp/libsignal-service-java/blob/master/java/src/main/java/org/whispersystems/signalservice/api/util/PhoneNumberFormatter.java
 def is_number(number):
@@ -4275,6 +4285,8 @@ class MainWindow(urwid.WidgetWrap):
             self.contacts_w.contacts_list_w.select_next_contact()
         elif key in KEY_BINDINGS['open_prev_chat']:
             self.contacts_w.contacts_list_w.select_next_contact(reverse=True)
+        elif key in KEY_BINDINGS['show_key_bindings']:
+            action_request.open_in_pager(KEY_BINDINGS.help_format())
         elif key in KEY_BINDINGS['show_help']:
             self.show_help()
         elif key in KEY_BINDINGS['show_message_info']:
@@ -4797,6 +4809,18 @@ class Actions:
                     self.open_last_url,
                     )
                 )
+
+    def open_in_pager(self, contents):
+        """Pause urwid's loop and open `contents` in the system pager"""
+        # It's easy to implement a simple pager in urwid itself, but it's more convenient for the users to keep the configuration and key bindings they are familiar with from their system-wide pager program.
+        env_vars = None
+        if "LESS" in os.environ:
+            # Modify $LESS to prevent `less` from exiting when the bottom of the output is rearched. Clear the screen before showing the output.
+            env_vars = os.environ.copy()
+            env_vars["LESS"] += " -+FX"
+        self._daemon.main_loop.stop()
+        self.callf(cfg.pager_command, input=contents, env=env_vars)
+        self._daemon.main_loop.start()
 
     def show_help(self):
         self._urwid_ui.main_w.show_help()
@@ -5445,6 +5469,11 @@ def make_arg_parser():
         '-P',
         '--clipboard-put-command',
         help='Command to put text on clipboard. %%s will be replaced with the text. If not set, `xclip` or `wl-clipboard` is used.',
+    )
+
+    parser.add_argument(
+        '--pager-command',
+        help='Command used to process the output of help messages, e.g. the list of key bindings. If not set, %(prog)s checks among `$PAGER`, `pager`, `less`, `more`.',
     )
 
     parser.add_argument(
