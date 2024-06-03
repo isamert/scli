@@ -2383,9 +2383,9 @@ class PopUpBox(urwid.WidgetWrap):
 
     def keypress(self, size, key):
         key = super().keypress(size, key)
-        if key in ('esc', 'q'):
+        if key in KEY_BINDINGS['close_popup']:
             self._emit('closed')
-        elif key in ('tab', 'shift tab'):
+        elif key in KEY_BINDINGS['focus_next_area'] | KEY_BINDINGS['focus_prev_area']:
             if self._buttons:
                 if self._frame_w.focus_position == 'footer':
                     self._frame_w.focus_position = 'body'
@@ -2889,11 +2889,11 @@ class ContactsListWidget(ListBoxPlus):
 
     def keypress(self, size, key):
         key = super().keypress(size, key)
-        if key == 'enter':
+        if key in KEY_BINDINGS['enter']:
             self._select_focused_contact(focus_widget='input')
-        elif key == 'right':
+        elif key in KEY_BINDINGS['open_contact_chat']:
             self._select_focused_contact()
-        elif key == 'U':
+        elif key in KEY_BINDINGS['mark_unread']:
             self._increment_focused_unread_count()
         else:
             return key
@@ -2903,7 +2903,7 @@ class ContactsListWidget(ListBoxPlus):
 class ContactsWindow(urwid.Frame):
     def __init__(self, contacts, chats_data):
         self.contacts_list_w = ContactsListWidget(contacts, chats_data)
-        self._wsearch = BracketedPasteEdit(('bold', '/ '))
+        self._wsearch = BracketedPasteEdit(('bold', KEY_BINDINGS.search_sym))
 
         urwid.connect_signal(self._wsearch, 'postchange', self._on_search_text_changed)
 
@@ -2942,12 +2942,12 @@ class ContactsWindow(urwid.Frame):
 
     def keypress(self, size, key):
         key = super().keypress(size, key)
-        if key == '/':
+        if key in KEY_BINDINGS['search_input']:
             self._start_search()
-        elif key == 'enter' and self.focus_position == 'footer':
+        elif key in KEY_BINDINGS['enter'] and self.focus_position == 'footer':
             self.focus_position = 'body'
             self.contacts_list_w.try_set_focus(0)
-        elif key == 'esc':
+        elif key in KEY_BINDINGS['clear']:
             self._remove_search()
         else:
             return key
@@ -3006,9 +3006,9 @@ class BracketedPasteEdit(Edit):
             self._paste_mode_on = True
         elif key == 'end paste':
             self._paste_mode_on = False
-        elif key == 'enter' and not (self._multiline_arg or self._paste_mode_on):
+        elif key in KEY_BINDINGS['enter'] and not (self._multiline_arg or self._paste_mode_on):
             return key
-        elif key == 'meta enter':
+        elif key in KEY_BINDINGS['input_newline']:
             # Allow inserting new lines with Alt+Enter. This is not a part of "bracketed paste mode" functionality.
             return super().keypress(size, 'enter')
         else:
@@ -3087,16 +3087,16 @@ class InputLine(BracketedPasteEdit):
 
     def _keypress_cmd_mode(self, key, key_orig, txt):
         # Called when `txt.startswith(':')`
-        if key == 'enter':
-            if txt.strip() == ":":
-                action_request.set_status_line('Command missing after `:`')
+        if key in KEY_BINDINGS['enter']:
+            if txt.strip() == KEY_BINDINGS.cmd_sym:
+                action_request.set_status_line(f'Command missing after `{KEY_BINDINGS.cmd_sym}`')
                 return None
             cmd, *args = txt[1:].split(maxsplit=1)
             self._cmds.exec(cmd, *args)
             self._cmd_history.add(txt)
             self.set_edit_text('')
             self.set_caption(self._prompt)
-        elif key == 'tab' and not self.get_edit_text().endswith(' '):
+        elif key in KEY_BINDINGS['auto_complete'] and not self.get_edit_text().endswith(' '):
             self.auto_complete_commands(txt)
         elif key_orig in ('up', 'ctrl p'):
             # Since BracketedPasteEdit is based on Edit(multiline=True), the up / down / ctrl+p/n are consumed by the superclass, so need to check `key_orig`, before `super` method call.
@@ -3117,27 +3117,27 @@ class InputLine(BracketedPasteEdit):
         if not txt or txt.isspace():
             self.set_caption(self._prompt)  # restore normal prompt
             return key
-        if txt.startswith(('/', ':')):
+        if txt.startswith((KEY_BINDINGS.search_sym, KEY_BINDINGS.cmd_sym)):
             self.set_caption('')  # set "prompt" to '/' or ':'
-            if key == 'esc':
+            if key in KEY_BINDINGS['clear']:
                 self.set_edit_text('')
                 self.set_caption(self._prompt)
                 return None
         else:
             self.set_caption(self._prompt)
         # Bind readline equivalents
-        if key == 'ctrl left':
+        if key in KEY_BINDINGS['readline_word_left']:
             return super().keypress(size, 'meta b')
-        if key == 'ctrl right':
+        if key in KEY_BINDINGS['readline_word_right']:
             return super().keypress(size, 'meta f')
         #if key == 'ctrl backspace':
             # uwrid registers 'ctrl backspace' as just 'backspace'.. Use 'ctrl w' or 'meta backspace' instead.
             #return super().keypress(size, 'ctrl w')
         # /end: Bind readline equivalents
-        if txt.startswith(':'):
+        if txt.startswith(KEY_BINDINGS.cmd_sym):
             return self._keypress_cmd_mode(key, key_orig, txt)
-        elif key == 'enter':
-            if txt.startswith('/'):
+        elif key in KEY_BINDINGS['enter']:
+            if txt.startswith(KEY_BINDINGS.search_sym):
                 return key
             action_request.send_message_curr_contact(txt)
             self.set_edit_text('')
@@ -3625,7 +3625,7 @@ class ChatView(ListBoxPlus):
 
     def on_input_line_change(self, input_line_w, old_text):
         txt = input_line_w.get_edit_text()
-        if txt.startswith('/'):
+        if txt.startswith(KEY_BINDINGS.search_sym):
             self._update_search_results(txt[1:], old_text[1:])
         elif self.is_filter_on:
             self._reset_search()
@@ -3669,33 +3669,33 @@ class ChatView(ListBoxPlus):
             return key
         envelope = message_widget.msg.envelope
 
-        if key in ('enter', 'right'):
+        if key in KEY_BINDINGS['select_message']:
             if self.is_filter_on:
                 self._reset_search(keep_curr_focused=True)
             elif get_envelope_msg(envelope) is not None:
                 ret = action_request.open_attach(envelope) or action_request.open_urls(envelope)
                 if not ret and get_envelope_quote(envelope):
                     self._focus_quoted_msg_w(envelope)
-        elif key == 'o':
+        elif key in KEY_BINDINGS['open_link_attach']:
             _ = action_request.open_urls(envelope) or action_request.open_attach(envelope)
-        elif key == 'y':
+        elif key in KEY_BINDINGS['copy_contents']:
             txt = get_envelope_msg(envelope)
             if not txt:
                 attachments = get_envelope_attachments(envelope)
                 if attachments is not None:
                     txt = ' '.join(get_attachment_path(attach) for attach in attachments)
             action_request.copy_to_clipb(txt)
-        elif key == 'd':
+        elif key in KEY_BINDINGS['delete_msg_local']:
             self._delete_message(message_widget)
-        elif key == 'r':
-            self._resend_message(message_widget.msg)
-        elif key == 'D':
+        elif key in KEY_BINDINGS['delete_msg_remote']:
             action_request.send_remote_delete_prompt(message_widget)
-        elif key == 'q':
-            # Replying / quoting not supported by signal-cli
-            # https://github.com/AsamK/signal-cli/issues/213
-            pass
-        elif key in ('R', 'e') and not message_widget.msg.not_repliable:
+        elif key in KEY_BINDINGS['resend_message'] and is_envelope_outgoing(envelope):
+            self._resend_message(message_widget.msg)
+        #elif key in KEY_BINDINGS['quote_reply'] and not message_widget.msg.not_repliable:
+            ## Replying / quoting not supported by signal-cli
+            ## https://github.com/AsamK/signal-cli/issues/213
+            #pass
+        elif key in KEY_BINDINGS['reaction_emoji_picker'] and not message_widget.msg.not_repliable:
             urwid.emit_signal(self, 'pick_reaction', size, self.calculate_visible(size, True))
         else:
             return key
@@ -3745,14 +3745,14 @@ class ChatWindow(urwid.Frame):
 
     def keypress(self, size, key):
         key = super().keypress(size, key)
-        if not self.input_line_w.edit_text.startswith('/'):
+        if not self.input_line_w.edit_text.startswith(KEY_BINDINGS.search_sym):
             return key
-        if key == 'esc':
+        if key in KEY_BINDINGS['clear']:
             return self.input_line_w.keypress(size, key)
-        if key == 'enter' and self.focus_widget_name == 'input':
+        if key in KEY_BINDINGS['enter'] and self.focus_widget_name == 'input':
             if not self.chat_view.is_filter_on:
                 # This clause is used for re-doing a search on a new chat contents after swtiching to a new contact.
-                urwid.emit_signal(self.input_line_w, 'postchange', self.input_line_w, '/')
+                urwid.emit_signal(self.input_line_w, 'postchange', self.input_line_w, KEY_BINDINGS.search_sym)
             if self.chat_view.contents:
                 self.focus_widget_name = 'chat'
             return None
@@ -3798,9 +3798,9 @@ class StatusLine(urwid.WidgetWrap):
     def keypress(self, size, key):
         # Keypresses are passed to this widget only when it has focus, which only happens when the prompt is on.
         key = super().keypress(size, key)
-        if key == 'enter':
+        if key in KEY_BINDINGS['enter']:
             self._prompt_response_callback(self._prompt.edit_text)
-        elif key == 'esc':
+        elif key in KEY_BINDINGS['clear']:
             self._prompt_response_callback(None)
         else:
             return key
@@ -3952,7 +3952,7 @@ class MessageInfo(ListBoxPlus):
     def keypress(self, size, key):
         key = super().keypress(size, key)
         item = self.body[self.focus_position]
-        if key == 'y':
+        if key in KEY_BINDINGS['copy_contents']:
             try:
                 action_request.copy_to_clipb(item.get_path())
             except AttributeError:
@@ -3962,7 +3962,7 @@ class MessageInfo(ListBoxPlus):
                     action_request.copy_to_clipb(markup[1])
                 else:
                     action_request.copy_to_clipb(item.text)
-        elif key in ('enter', 'o'):
+        elif key in KEY_BINDINGS['enter'] | KEY_BINDINGS['open_link_attach']:
             with suppress(AttributeError):
                 item.open_path()
         else:
@@ -4003,9 +4003,9 @@ class ReactionPicker(ViBindingsMixin, urwid.WidgetWrap):
         signals = ['return']
 
         def keypress(self, size, key):
-            if key in ('j', 'k', 'q'):
+            if key in {'j', 'k'} | KEY_BINDINGS['close_popup'].keys:
                 return key
-            elif key == 'enter':
+            elif key in KEY_BINDINGS['enter']:
                 urwid.emit_signal(self, 'return', self, self.edit_text)
                 return None
             return super().keypress(size, key)
@@ -4140,10 +4140,10 @@ class PopUpPlaceholder(urwid.WidgetPlaceholder):
 
     def keypress(self, size, key):
         key = super().keypress(size, key)
-        if not self._is_popup_shown:
+        if self._is_popup_shown:
             # When popup is shown, do not pass keys to other widgets until it's closed
-            return key
-        return None
+            return None
+        return key
 
 
 class MainWindow(urwid.WidgetWrap):
@@ -4256,28 +4256,28 @@ class MainWindow(urwid.WidgetWrap):
                 self._paste_mode = False
                 return None
             return key
-        if key == 'esc':
+        if key in KEY_BINDINGS['clear']:
             action_request.set_status_line('')
         key = super().keypress(size, key)
         if key == 'begin paste':
             self._paste_mode = True
-        elif key == 'tab':
+        if key in KEY_BINDINGS['focus_next_area']:
             self._focus_next()
-        elif key == 'shift tab':
+        elif key in KEY_BINDINGS['focus_prev_area']:
             self._focus_next(reverse=True)
-        elif key == ':':
+        elif key in KEY_BINDINGS['cmd_entry']:
             self.focus_widget_name = 'input'
             self.keypress(size, key)
-        elif key == '/' and self.focus_widget_name == 'chat':
+        elif key in KEY_BINDINGS['search_input'] and self.focus_widget_name == 'chat':
             self.focus_widget_name = 'input'
             self.keypress(size, key)
-        elif key in ('meta j', 'meta down'):
+        elif key in KEY_BINDINGS['open_next_chat']:
             self.contacts_w.contacts_list_w.select_next_contact()
-        elif key in ('meta k', 'meta up'):
+        elif key in KEY_BINDINGS['open_prev_chat']:
             self.contacts_w.contacts_list_w.select_next_contact(reverse=True)
-        elif key == '?':
+        elif key in KEY_BINDINGS['show_help']:
             self.show_help()
-        elif key == 'i':
+        elif key in KEY_BINDINGS['show_message_info']:
             if self.focus_widget_name != 'chat':
                 return key
             message_widget = self.chat_w.chat_view.focus
@@ -4824,6 +4824,192 @@ action_request = ActionRequest()
 
 
 # #############################################################################
+# key bindings
+# #############################################################################
+
+
+class KeyBindings:
+
+    class Binding():
+
+        __slots__ = ("keys", "descr")
+
+        def __init__(self, keys, descr):
+            self.keys = keys
+            self.descr = descr
+
+        def __contains__(self, item):
+            return item in self.keys
+
+        def __or__(self, other):
+            return self.keys.__or__(other.keys)
+
+        def __repr__(self):
+            return f"{self.__class__.__name__}(keys={self.keys}, descr={self.descr!r})"
+
+        @property
+        def a_key(self):
+            """Return one (any) element from the set `self.keys`."""
+            for key in self.keys:
+                return key
+
+    _MAP_DEFAULT = {
+        # Format:
+        # 'action_name': Binding(
+            # {'key1', 'key2', …},
+            # "help string"
+            # )
+        'show_key_bindings': Binding(
+            {'?'},
+            "Show current key bindings",
+            ),
+        'show_help': Binding(
+            {'f1'},
+            "Open help pop-up",
+            ),
+        'copy_contents': Binding(
+            {'y'},
+            "Copy message contents or details",
+            ),
+        'show_message_info': Binding(
+            {'i'},
+            "Show message details",
+            ),
+        'open_link_attach': Binding(
+            {'o'},
+            "Open attachment or URL in the message",
+            ),
+        'close_popup': Binding(
+            {'q', 'esc'},
+            "Close pop-up",
+            ),
+        'focus_next_area': Binding(
+            {'tab'},
+            "Switch focus to next element",
+            ),
+        'focus_prev_area': Binding(
+            {'shift tab'},
+            "Switch focus to previous element",
+            ),
+        'open_contact_chat': Binding(
+            {'right', 'l'},
+            "Show contact's conversation",
+            ),
+        'mark_unread': Binding(
+            {'U'},
+            "Mark conversation unread",
+            ),
+        'enter': Binding(
+            {'enter'},
+            "Open / submit",
+            ),
+        'clear': Binding(
+            {'esc'},
+            "Exit or remove notifications",
+            ),
+        'auto_complete': Binding(
+            {'tab'},
+            "Auto-complete input text",
+            ),
+        'search_input': Binding(
+            {'/'},
+            "Filter contents matching input",
+            ),
+        'input_newline': Binding(
+            {'meta enter'},
+            "Insert newline",
+            ),
+        'cmd_entry': Binding(
+            {':'},
+            "Command prompt",
+            ),
+        'open_next_chat': Binding(
+            {'meta j', 'meta down'},
+            "Open next chat",
+            ),
+        'open_prev_chat': Binding(
+            {'meta k', 'meta up'},
+            "Open previous chat",
+            ),
+        'readline_word_left': Binding(
+            {'ctrl left'},
+            "Move to the previous word in input",
+            ),
+        'readline_word_right': Binding(
+            {'ctrl right'},
+            "Move to the next word in input",
+            ),
+        'select_message': Binding(
+            {'enter', 'right', 'l'},
+            "Focus message or open its attachments",
+            ),
+        'delete_msg_local': Binding(
+            {'d'},
+            "Remove message from local history",
+            ),
+        'delete_msg_remote': Binding(
+            {'D'},
+            "Remove a message from a chat for all participants",
+            ),
+        'resend_message': Binding(
+            {'r'},
+            "Resend a failed-to-send message",
+            ),
+        #'quote_reply': Binding(
+            #{'r'},
+            #"Quote original message in a reply",
+            #),
+            ### Not implemented
+        'reaction_emoji_picker': Binding(
+            {'R', 'e'},
+            "Send an emoji reaction for a message",
+            ),
+        }
+
+    def __init__(self):
+        self._map = self._MAP_DEFAULT
+        self.cmd_sym = ':'
+        self.search_sym = '/'
+
+    def __getitem__(self, item):
+        return self._map[item]
+
+    def set(self, binds):
+        if not binds:
+            return
+        sep = ':'
+        keys_sep = ','
+        for kb in binds:
+            action, keys_str = kb.split(sep, 1)
+            if not keys_str:
+                sys.exit(f"Error parsing key bind {kb!r} - missing keys")
+            keys = set(keys_str.split(keys_sep))
+            if '' in keys:
+                # Allow keys_sep itself be used as a key
+                keys.remove('')
+                keys.add(keys_sep)
+            self._map[action].keys = keys
+        self.cmd_sym = self._map['cmd_entry'].a_key
+        self.search_sym = self._map['search_input'].a_key
+
+    @property
+    def help_format(self):
+        key_col_width = 20
+        act_col_width = 25
+        ret = f"{'[KEY]':{key_col_width}} {'[ACTION]':{act_col_width}} [DESCRIPTION]\n"
+        key_sorted = sorted(self._map.items(), key=lambda t: [
+                    k.lower() for k in t[1].keys
+                    ])
+        ret += '\n'.join((
+            f"{','.join(bind.keys):{key_col_width}} {action:{act_col_width}} {bind.descr}" for action, bind in key_sorted
+            ))
+        return ret
+
+
+KEY_BINDINGS = KeyBindings()
+
+
+# #############################################################################
 # Coordinate
 # #############################################################################
 
@@ -5327,6 +5513,14 @@ def make_arg_parser():
     )
 
     parser.add_argument(
+        '-k',
+        '--key-bind',
+        action='append',
+        metavar='ACTION:KEY[,KEY]',
+        help="Modify key bindings: assign KEYs to ACTION. Use `?` in %(prog)s to display the list of available ACTIONs.",
+    )
+
+    parser.add_argument(
         '--one-sided',
         action='store_true',
         help='Left-align both sent and received messages',
@@ -5771,6 +5965,8 @@ def main():
     else:
         logging.disable()
     logger.debug("args = %s", DeferredEval(pprint.pformat, modified_args))
+
+    KEY_BINDINGS.set(args.key_bind)
 
     coord = Coordinate()
     loop = coord.daemon.main_loop

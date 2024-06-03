@@ -119,24 +119,38 @@ if you have put it on your system's `$PATH`, or specify the full `/path/to/execu
 ## Usage
 A simple two-paned interface is provided. Left pane contains the contact list and right pane contains current conversation. You can switch focus between panes with `Tab` (or `Shift + Tab`). Hitting tab for the first time focuses the conversation, hitting it again focuses to input line. So the focus order is `Contacts -> Conversation -> Input`. You can use `Shift + Tab` for cycling backwards.
 
-### Keys
-- `j`/`k` move the cursor down/up in a conversation and the contacts list.
+### Key bindings
+For the full list of key bindings, press `?` in scli.
+
+- `F1` opens the help window.
+- `Tab` / `Shift+Tab` cycle through focusable UI elements.
+- `j`/`k` (or `↓`/`↑`) move the cursor down/up in a conversation and the contacts list.
 - `g` focuses first contact/message.
 - `G` focuses last contact/message.
-- `enter` on a contact opens its conversation and focuses the input line.
-- `l` on a contact opens its conversation without focusing input line.
-- `enter` on a message opens attachment or URL if there is one; moves the focus on the original quoted message, if available.
-- `o` on a message opens URL or attachment if there is one.
-- `y` on a message puts it into system clipboard. (needs `xclip` or `wl-clipboard`).
+- `Alt+J` / `Alt+K` (and `Alt+↓` / `Alt+↑`) open next / previous conversation.
+- `enter` on a message opens attachment or URL if there is one; moves the focus to the quoted message, if it exists.
+- `y` on a message puts it into system clipboard. (needs `xclip` or `wl-clipboard`; see `--clipboard-put-command` [option](#configuration)).
 - `e` or `R` on a message opens an emoji picker and sends it as a reaction. Sending an 'empty' reaction removes the previously set reaction.
 - `d` deletes the message locally (from the current device's history).
 - `D` remote-deletes the message (for everyone in the conversation).
-- `i` shows a message info popup with the message's details.
-- `U` in contacts list increments contact's unread count (can be used to mark conversation as unread).
-- `Alt+Enter` inserts a newline in message composing input field.
-- `Alt+J` / `Alt+K` (and `Alt+↓` / `Alt+↑`) open next / previous conversation.
-- `Esc` clears notifications from the status line.
-- If [`urwid_readline`](https://github.com/rr-/urwid_readline/) is installed, all of its keybindings can be used in the message compose input field.
+- `i` shows a message info pop-up with the message's details.
+- `Alt+Enter` in the input window inserts a newline.
+- `Esc` closes opened dialogs, clears search filters, removes notifications from the status line.
+
+If [`urwid_readline`](https://github.com/rr-/urwid_readline/) module is installed, all of its keybindings are available in the input widgets.
+
+
+#### Modifying key bindings
+Key bindings can be re-assigned with a `--key-bind` option. For example:
+
+	scli --key-bind show_message_info:s --key-bind reaction_emoji_picker:e,R,!,'ctrl r'
+
+The syntax is
+
+	--key-bind ACTION:KEY[,KEY[,…]]
+
+where `ACTION` is one of the action names (press `?` in `scli` to show the full list of action names and their default key bindings), and `KEY` is the name of a key or key combo in urwid's syntax (see the table in [Keyboard input](https://urwid.org/manual/userinput.html#keyboard-input) section of urwid manual). Keys for several actions can be re-assigned by passing multiple `--key-bind` arguments to `scli`. Multiple keys can be assigned to a single action by separating `KEY`s with commas. The `?` key in `scli` opens the list of current key mappings.
+
 
 ### Commands
 Commands can be entered by typing `:` followed by one of the commands below.
