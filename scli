@@ -3029,12 +3029,12 @@ class BracketedPasteEdit(Edit):
 class InputLine(BracketedPasteEdit):
     def __init__(self, **kwargs):
         self._cmd_history = CommandsHistory()
-        self._cmds = None
-        self._prompt = ('bold', '> ')  # In urwid's parlance, this is called 'caption'.
+        self.cmds = None
+        self._prompt = ('bold', '> ')
         super().__init__(self._prompt, **kwargs)
 
     def set_cmds(self, cmds):
-        self._cmds = cmds
+        self.cmds = cmds
 
     def _set_edit_text_move_cursor(self, txt, cursor_pos=-1):
         """Edit.set_edit_text() + Edit.set_edit_pos()
@@ -3083,7 +3083,7 @@ class InputLine(BracketedPasteEdit):
         else:
             all_commands = [
                 cmd
-                for cmd in [tupl[0][0] for tupl in self._cmds.cmd_mapping]
+                for cmd in [tupl[0][0] for tupl in self.cmds.cmd_mapping]
                 if cmd.lower().startswith(txt[1:].lower())
             ]
             commonprefix = os.path.commonprefix(all_commands)
@@ -3102,7 +3102,7 @@ class InputLine(BracketedPasteEdit):
                 action_request.set_status_line(f'Command missing after `{KEY_BINDINGS.cmd_sym}`')
                 return None
             cmd, *args = txt[1:].split(maxsplit=1)
-            self._cmds.exec(cmd, *args)
+            self.cmds.exec(cmd, *args)
             self._cmd_history.add(txt)
             self.set_edit_text('')
             self.set_caption(self._prompt)
@@ -4315,6 +4315,7 @@ class UrwidUI:
         # Shortcuts for deeply nested attributes
         self.contacts = self.main_w.contacts_w.contacts_list_w
         self.chat = self.main_w.chat_w.chat_view
+        self.input = self.main_w.chat_w.input_line_w
         self.msg_ws_cache = self.chat.body.msg_ws_cache
 
 
@@ -4327,22 +4328,78 @@ class Commands:
     def __init__(self, actions):
         self._actions = actions
         self.cmd_mapping = [
-            (['attach', 'a'], self._actions.attach),
-            (['edit', 'e'], self._actions.external_edit),
-            (['read', 'r'], self._actions.read),
-            (['attachClip', 'c'], self._actions.attach_clip),
-            (['openAttach', 'o'], self._actions.open_last_attach),
-            (['openUrl', 'u'], self._actions.open_last_url),
-            (['toggleNotifications', 'n'], self._actions.toggle_notifications),
-            (['toggleAutohide', 'h'], self._actions.toggle_autohide),
-            (['toggleContactsSort', 's'], self._actions.toggle_sort_contacts),
-            (['renameContact'], self._actions.rename_contact),
-            (['addContact'], self._actions.add_contact),
-            (['reload'], self._actions.reload),
-            (['help'], self._actions.show_help),
-            (['quit', 'q'], self._actions.quit),
+            (
+                ['attach', 'a'],
+                self._actions.attach,
+                "Send file attachment `:attach FILE [MESSAGE]`",
+                ),
+            (
+                ['edit', 'e'],
+                self._actions.external_edit,
+                "Edit message in external $EDITOR `:edit [FILENAME] [MESSAGE]`",
+                ),
+            (
+                ['read', 'r'],
+                self._actions.read,
+                "Send message with the contents of FILE or output of COMMAND `:read FILE` | `:read !COMMAND`",
+                ),
+            (
+                ['attachClip', 'c'],
+                self._actions.attach_clip,
+                "Send files in clipboard as message attachments",
+                ),
+            (
+                ['openAttach', 'o'],
+                self._actions.open_last_attach,
+                "Open attachment from the latest message with an attach in the current chat",
+                ),
+            (
+                ['openUrl', 'u'],
+                self._actions.open_last_url,
+                "Open URL from the latest message in the current chat with a URL in message text",
+                ),
+            (
+                ['toggleNotifications', 'n'],
+                self._actions.toggle_notifications,
+                "Toggle desktop notifications on or off",
+                ),
+            (
+                ['toggleAutohide', 'h'],
+                self._actions.toggle_autohide,
+                "Hide contacts pane when not in focus",
+                ),
+            (
+                ['toggleContactsSort', 's'],
+                self._actions.toggle_sort_contacts,
+                "Switch between sorting contacts alphabetically or by the most recent message",
+                ),
+            (
+                ['reload'],
+                self._actions.reload,
+                "Manual refresh of contacts data",
+                ),
+            (
+                ['renameContact'],
+                self._actions.rename_contact,
+                "Rename a contact `:renameContact [ID] NEW_NAME`",
+                ),
+            (
+                ['addContact'],
+                self._actions.add_contact,
+                "Add a new contact `:addContact NUMBER [NAME]`",
+                ),
+            (
+                ['help'],
+                self._actions.show_help,
+                "Show help `:help [keys|commands]`",
+                ),
+            (
+                ['quit', 'q'],
+                self._actions.quit,
+                "Exit the program",
+                ),
         ]
-        self._map = {cmd.lower(): fn for cmds, fn in self.cmd_mapping for cmd in cmds}
+        self._map = {cmd.lower(): fn for cmds, fn, _help in self.cmd_mapping for cmd in cmds}
 
     def exec(self, cmd, *args):
         fn = self._map.get(cmd.lower())
@@ -4366,6 +4423,27 @@ class Commands:
                 return None
             else:
                 raise
+
+    def help_format(self, term_ncols=None):
+        cmd_col_width = 30
+        if term_ncols is None:
+            return '\n'.join((
+                f"{', '.join((f':{cmd}' for cmd in cmd_list)):{cmd_col_width}}"
+                f"{help_str}"
+                for cmd_list, _fn, help_str in self.cmd_mapping
+                ))
+        return '\n'.join((
+            str(urwid.Columns([
+                (
+                    cmd_col_width,
+                    urwid.Text(
+                        ', '.join((f':{cmd}' for cmd in cmd_list))
+                        ),
+                    ),
+                urwid.Text(help_str),
+                ]).render((term_ncols, )))
+            for cmd_list, _fn, help_str in self.cmd_mapping
+            ))
 
 
 class Actions:
@@ -4827,8 +4905,30 @@ class Actions:
         self.callf(cfg.pager_command, input=contents, env=env_vars)
         self._daemon.main_loop.start()
 
-    def show_help(self):
-        self._urwid_ui.main_w.show_help()
+
+    def open_in_pager_commands_help(self):
+        self.open_in_pager(
+                self._urwid_ui.input.cmds.help_format(
+                    self.get_terminal_size()[0]
+                    )
+                )
+
+    def show_help(self, *topic):
+        try:
+            topic = topic[0]
+        except IndexError:
+            self._urwid_ui.main_w.show_help()
+            return
+        if "keys".startswith(topic):
+            self.open_in_pager(
+                    KEY_BINDINGS.help_format(
+                        self.get_terminal_size()[0]
+                        )
+                    )
+        elif "commands".startswith(topic):
+            self.open_in_pager_commands_help()
+        else:
+            self.set_status_line(f":help for {topic!r} not found")
 
     @staticmethod
     def quit():
