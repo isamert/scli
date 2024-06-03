@@ -4286,7 +4286,9 @@ class MainWindow(urwid.WidgetWrap):
         elif key in KEY_BINDINGS['open_prev_chat']:
             self.contacts_w.contacts_list_w.select_next_contact(reverse=True)
         elif key in KEY_BINDINGS['show_key_bindings']:
-            action_request.open_in_pager(KEY_BINDINGS.help_format())
+            action_request.open_in_pager(KEY_BINDINGS.help_format(
+                action_request.get_terminal_size()[0]
+                ))
         elif key in KEY_BINDINGS['show_help']:
             self.show_help()
         elif key in KEY_BINDINGS['show_message_info']:
@@ -4797,6 +4799,9 @@ class Actions:
         contact = self._contacts.get_by_id(contact_id)
         return contact.avatar if contact else None
 
+    def get_terminal_size(self):
+        return self._urwid_ui.loop.screen.get_cols_rows()
+
     def check_cmd_for_current_contact(self, fn):
         return (
                 self._chats_data.current_contact is not None
@@ -5016,17 +5021,31 @@ class KeyBindings:
         self.cmd_sym = self._map['cmd_entry'].a_key
         self.search_sym = self._map['search_input'].a_key
 
-    @property
-    def help_format(self):
+    def help_format(self, term_ncols=None):
         key_col_width = 20
         act_col_width = 25
-        ret = f"{'[KEY]':{key_col_width}} {'[ACTION]':{act_col_width}} [DESCRIPTION]\n"
         key_sorted = sorted(self._map.items(), key=lambda t: [
                     k.lower() for k in t[1].keys
                     ])
-        ret += '\n'.join((
-            f"{','.join(bind.keys):{key_col_width}} {action:{act_col_width}} {bind.descr}" for action, bind in key_sorted
-            ))
+        if term_ncols is None:
+            ret = f"{'[KEY]':{key_col_width}} {'[ACTION]':{act_col_width}} [DESCRIPTION]\n"
+            ret += '\n'.join((
+                f"{', '.join(bind.keys):{key_col_width}} {action:{act_col_width}} {bind.descr}" for action, bind in key_sorted
+                ))
+        else:
+            ret = str(urwid.Columns([
+                (key_col_width, urwid.Text("[KEY]")),
+                (act_col_width, urwid.Text("[ACTION]")),
+                urwid.Text("[DESCRIPTION]"),
+                ]).render((term_ncols, ))) + '\n'
+            ret += '\n'.join((
+                str(urwid.Columns([
+                    (key_col_width, urwid.Text(', '.join(bind.keys))),
+                    (act_col_width, urwid.Text(action)),
+                    urwid.Text(bind.descr),
+                    ]).render((term_ncols, )))
+                for action, bind in key_sorted
+                ))
         return ret
 
 
