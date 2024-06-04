@@ -2295,6 +2295,9 @@ class Color:
 # #############################################################################
 
 
+HORIZ_LINE_DIV_SYM = '—' # em dash
+
+
 def markup_to_text(markup):
     # This is useful when we have only the markup; if we have the urwid.Text instance, can use its `.text` property instead.
     # Not currently used anywhere.
@@ -2767,7 +2770,7 @@ class ContactsListWidget(ListBoxPlus):
         else:
             group_contact_widgets = [ContactWidget(contact) for contact in sorted_contacts[0]]
             indiv_contact_widgets = [ContactWidget(contact) for contact in sorted_contacts[1]]
-            div_w = urwid.Divider('-')
+            div_w = urwid.Divider(HORIZ_LINE_DIV_SYM)
             group_cont_section_title = urwid.Text(('bold', '~~ Groups ~~'), align='center')
             indiv_cont_section_title = urwid.Text(('bold', '~~ Contacts ~~'), align='center')
             widgets = (
@@ -2922,7 +2925,7 @@ class ContactsWindow(urwid.Frame):
         if not cfg.partition_contacts:
             self.header = urwid.Pile([
                 urwid.Text(('bold', 'Contacts'), align='center'),
-                urwid.Divider('-')
+                urwid.Divider(HORIZ_LINE_DIV_SYM)
                 ])
 
     def _start_search(self):
@@ -3717,8 +3720,8 @@ class ChatWindow(urwid.Frame):
         self._title_widget = urwid.Text('', align='center')
         self.input_line_w = InputLine()
         self.chat_view = ChatView()
-        title_w_div = urwid.Pile([self._title_widget, urwid.Divider('-')])
-        input_w_div = urwid.Pile([urwid.Divider('-'), self.input_line_w])
+        title_w_div = urwid.Pile([self._title_widget, urwid.Divider(HORIZ_LINE_DIV_SYM)])
+        input_w_div = urwid.Pile([urwid.Divider(HORIZ_LINE_DIV_SYM), self.input_line_w])
         self._focusable_widgets = {'chat': 'body', 'input': 'footer'}
         super().__init__(self.chat_view, header=title_w_div, footer=input_w_div)
         urwid.connect_signal(self.input_line_w, 'postchange', self.chat_view.on_input_line_change)
