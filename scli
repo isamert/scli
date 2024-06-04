@@ -4418,7 +4418,7 @@ class Commands:
             if re.search(r"missing \d+ required positional argument", str(err)):
                 self._actions.set_status_line(f':{cmd} missing arguments')
                 return None
-            elif re.search(r"takes \d+ positional arguments? but \d+ were given", str(err)):
+            elif re.search(r"takes \d+ positional arguments? but \d+ (was|were) given", str(err)):
                 self._actions.set_status_line(f':{cmd} extra arguments')
                 return None
             else:
