@@ -26,6 +26,7 @@ from contextlib import contextmanager, suppress
 from datetime import datetime, timezone
 
 import urwid
+from urwid.widget.constants import BOX_SYMBOLS, BAR_SYMBOLS
 
 try:
     from urwid_readline import ReadlineEdit
@@ -2339,16 +2340,68 @@ def listbox_set_body(listbox, body_new):
     urwid.connect_signal(listbox.body, "modified", listbox._invalidate)
 
 
+class LineBoxRoundCorners(urwid.LineBox):
+    def __init__(self, *args, **kwargs):
+        super().__init__(
+                *args,
+                **kwargs,
+                tlcorner=BOX_SYMBOLS.LIGHT.TOP_LEFT_ROUNDED,
+                trcorner=BOX_SYMBOLS.LIGHT.TOP_RIGHT_ROUNDED,
+                blcorner=BOX_SYMBOLS.LIGHT.BOTTOM_LEFT_ROUNDED,
+                brcorner=BOX_SYMBOLS.LIGHT.BOTTOM_RIGHT_ROUNDED,
+                )
+
+
+class LineBoxWBottomEl(urwid.LineBox):
+
+    def __init__(self, *args, bottom_el=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._bottom_el = bottom_el
+        if bottom_el is not None:
+            self.add_bottom_element(bottom_el)
+
+    def add_bottom_element(self, el):
+        bl = self._w.contents[-1][0].contents  # Get bottom line widgets (Columns' contents)
+        bl.insert(1, bl[1]) # Duplicate Divider element
+        bl.insert(2, (      # Instert `el` in the middle
+            el,
+            urwid.Columns.options(width_type='pack'),
+            ))
+        if el.selectable():
+            self._w.focus_position = 2  # Focus linebox's bottom line
+            self._w.focus.focus_position = 2 # Focus bottom_el (the middle element)
+
+    def keypress(self, size, key):
+        key = super().keypress(size, key)
+        if (
+            self._bottom_el is not None
+            and
+            self._bottom_el.selectable()
+            and
+            key in KEY_BINDINGS['focus_next_area'] | KEY_BINDINGS['focus_prev_area']
+        ):
+            self._w.focus_position = (
+                    self._w.focus_position - 1
+                    ) or 2      # Cycle between body and footer elements
+            return None
+        return key
+
+
+class LineBoxCombined(LineBoxRoundCorners, LineBoxWBottomEl):
+    pass
+
+
 class LineBoxHighlight(urwid.WidgetWrap):
-    def __init__(self, w, title=''):
+    def __init__(self, w, title='', **kwargs):
         box_w = urwid.AttrMap(
-                    urwid.LineBox(
-                        urwid.AttrMap(w, ''),  # need to set a "default" attribute, to not color all the contents in `w`
-                        title_align='center',
-                        title=title
-                        ),
-                    None,
-                    focus_map='line_focused',
+                LineBoxCombined(
+                    urwid.AttrMap(w, ''),  # need to set a "default" attribute, to not color all the contents in `w`
+                    title_align='center',
+                    title=title,
+                    **kwargs
+                    ),
+                None,
+                focus_map='line_focused',
                 )
         super().__init__(box_w)
 
@@ -3198,10 +3251,11 @@ class MessageReactionsWidget(urwid.WidgetWrap):
         return text_w, text_w
 
     def _col_w_markup(self, emojis_markup):
+        sep = BOX_SYMBOLS.LIGHT.VERTICAL_4_DASH  # '┊'
         return (
-                [*emojis_markup, '┊']
+                [*emojis_markup, sep]
                 if self._align == 'right' else
-                ['┊', *emojis_markup]
+                [sep, *emojis_markup]
                 )
 
     def update(self, emojis_markup):
