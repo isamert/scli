@@ -2514,25 +2514,29 @@ class LazyEvalListWalker(urwid.ListWalker):
 class ViBindingsMixin(urwid.Widget):
 
     _KEY_MAP = {
-            'h':        'left',
-            'j':        'down',
-            'k':        'up',
-            'l':        'right',
-            'g':        'home',
-            'G':        'end',
-            'ctrl p':   'up',
-            'ctrl n':   'down',
+            'h': urwid.CURSOR_LEFT,
+            'j': urwid.CURSOR_DOWN,
+            'k': urwid.CURSOR_UP,
+            'l': urwid.CURSOR_RIGHT,
+            'g': urwid.CURSOR_MAX_LEFT,  # 'home'
+            'G': urwid.CURSOR_MAX_RIGHT, # 'end'
+            'ctrl p':   urwid.CURSOR_UP,
+            'ctrl n':   urwid.CURSOR_DOWN,
+            'ctrl b':   urwid.CURSOR_PAGE_UP,
+            'ctrl f':   urwid.CURSOR_PAGE_DOWN,
             }
 
-    def keypress(self, size, key):
-        key = super().keypress(size, key)  # sibling class's keypress() will be called ("cooperative super")
-        key_equiv = self._KEY_MAP.get(key)
-        if key_equiv:
-            return super().keypress(size, key_equiv)
-        return key
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for key, action in self._KEY_MAP.items():
+            # urwid's CommandMap does not have an `update()` method.
+            self._command_map[key] = action
+
+    def render(self, *arsg, **kwargs):
+        raise NotImplementedError
 
 
-class ListBoxPlus(ViBindingsMixin, urwid.ListBox):
+class ListBoxPlus(urwid.ListBox, ViBindingsMixin):
 
     """ListBox plus a few useful features.
 
@@ -4004,7 +4008,7 @@ class HelpDialog(ListBoxPlus):
         super().__init__(items)
 
 
-class ReactionPicker(ViBindingsMixin, urwid.WidgetWrap):
+class ReactionPicker(urwid.WidgetWrap, ViBindingsMixin):
     signals = ['closed']
 
     _emoji_regex = re.compile(
