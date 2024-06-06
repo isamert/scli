@@ -2418,11 +2418,10 @@ class PopUpBox(urwid.WidgetWrap):
         if buttons:
             def handle_click(_button):
                 self._emit('closed')
-            btn_close = urwid.Padding(urwid.Button('Close', on_press=handle_click), align='center', width=9)
-            self._frame_w = urwid.Frame(widget, footer=btn_close, focus_part='footer')
-            box_w = urwid.LineBox(self._frame_w, title)
+            btn_close = ButtonBox('Close', on_press=handle_click)
+            box_w = LineBoxHighlight(widget, title, bottom_el=btn_close)
         else:
-            box_w = urwid.LineBox(widget)
+            box_w = LineBoxHighlight(widget, title)
 
         if shadow_len:
             ### Shadow effect. (Based on urwid/examples/dialog.py)
@@ -2451,12 +2450,6 @@ class PopUpBox(urwid.WidgetWrap):
         key = super().keypress(size, key)
         if key in KEY_BINDINGS['close_popup']:
             self._emit('closed')
-        elif key in KEY_BINDINGS['focus_next_area'] | KEY_BINDINGS['focus_prev_area']:
-            if self._buttons:
-                if self._frame_w.focus_position == 'footer':
-                    self._frame_w.focus_position = 'body'
-                else:
-                    self._frame_w.focus_position = 'footer'
         else:
             return key
         return None
@@ -2480,6 +2473,41 @@ class FocusableText(urwid.WidgetWrap):
 
     def __getattr__(self, attr):
         return getattr(self._text_w, attr)
+
+
+class ButtonBox(urwid.WidgetWrap):
+
+    signals = ["click"]
+
+    def __init__(self, label, on_press=None, user_data=None, align='center', decoration='[]'):
+        text_w = FocusableText(label, align=align)
+        if decoration == 'box':
+            w = LineBoxRoundCorners(text_w)
+        elif decoration is not None:
+            w = urwid.Columns(
+                [
+                    (len(decoration[0]), urwid.Text(decoration[0])),
+                    ("pack", text_w),
+                    (len(decoration[1]), urwid.Text(decoration[1])),
+                    ],
+                )
+        else:
+            w = text_w
+        super().__init__(w)
+        if on_press:
+            urwid.connect_signal(self, "click", on_press, user_data)
+
+    def keypress(self, size, key):
+        if self._command_map[key] != urwid.ACTIVATE:
+            return key
+        self._emit("click")
+        return None
+
+    def mouse_event(self, _size, event, button, _x, _y, _focus):
+        if button != 1 or not urwid.util.is_mouse_press(event):
+            return False
+        self._emit("click")
+        return True
 
 
 class LazyEvalListWalker(urwid.ListWalker):
@@ -4084,12 +4112,14 @@ class ReactionPicker(urwid.WidgetWrap, ViBindingsMixin):
     def __init__(self, msg):
         self._msg = msg
         grid_items = [
-                urwid.Button(
+                ButtonBox(
                     label=emoji,
                     on_press=self._reaction_picked,
                     user_data=emoji,
+                    decoration=None,
                     ) for emoji in (
                     '💗',
+                    #'❤️', # shows up displaced to the right
                     '👍',
                     '👎',
                     '😂',
@@ -4098,13 +4128,13 @@ class ReactionPicker(urwid.WidgetWrap, ViBindingsMixin):
                     )
                 ]
         custom_emoji_input_w = self.EditEmoji(wrap='clip')
-        self._custom_emoji_text_w = urwid.Text('···', align='right')
+        self._custom_emoji_text_w = urwid.Text('>', align='right')
         grid_items.append(self._custom_emoji_text_w)
         grid_items.append(custom_emoji_input_w)
         grid_w = urwid.GridFlow(
                 grid_items,
-                cell_width=6,
-                h_sep=2,
+                cell_width=4,
+                h_sep=1,
                 v_sep=1,
                 align='center',
                 )
@@ -4127,7 +4157,7 @@ class ReactionPicker(urwid.WidgetWrap, ViBindingsMixin):
             self._emit('closed')
             action_request.send_reaction(self._msg, emoji)
         else:
-            self._custom_emoji_text_w.set_text('❌⚠️👉')
+            self._custom_emoji_text_w.set_text('❌👉')
 
 
 class PopUpPlaceholder(urwid.WidgetPlaceholder):
