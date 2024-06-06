@@ -2410,7 +2410,7 @@ class PopUpBox(urwid.WidgetWrap):
 
     signals = ['closed']
 
-    def __init__(self, widget, title='', buttons=True, shadow_len=2):
+    def __init__(self, widget, title='', buttons=True, shadow_len=0):
         self._buttons = buttons
         with suppress(NameError):
             urwid.connect_signal(widget, 'closed', self._emit, user_args=['closed'])
@@ -2436,12 +2436,15 @@ class PopUpBox(urwid.WidgetWrap):
                     ])
             box_w = urwid.Frame(
                     box_w,
-                    footer = urwid.AttrMap(
-                        urwid.Padding(
-                            urwid.Text(('default', ' '*shadow_len)),
-                            align='left',
+                    footer = urwid.Padding(
+                        urwid.AttrMap(
+                            urwid.Divider(
+                                BAR_SYMBOLS.VERTICAL[4]
+                                ),
+                            "reversed",
                             ),
-                        'reversed')
+                        left=shadow_len
+                        )
                     )
 
         super().__init__(box_w)
@@ -4171,7 +4174,7 @@ class PopUpPlaceholder(urwid.WidgetPlaceholder):
             widget,
             title='',
             buttons=True,
-            shadow_len=2,
+            shadow_len=0,
             remove_callback=None,
             **overlay_params
             ):
