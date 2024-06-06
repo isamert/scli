@@ -81,6 +81,15 @@ def get_nested(dct, *keys, default=None):
     return dct
 
 
+def intersperse(value, container):
+    it = iter(container)
+    with suppress(StopIteration):
+        yield next(it)
+    for item in it:
+        yield value
+        yield item
+
+
 def get_urls(txt):
     return re.findall(r'(https?://[^\s]+)', txt)
 
@@ -4072,25 +4081,46 @@ class MessageInfo(ListBoxPlus):
         return None
 
 
-class HelpDialog(ListBoxPlus):
+class HelpDialog(urwid.WidgetWrap):
     def __init__(self):
-        items = [
-                urwid.Divider(),
-                urwid.Text(
-                    "Please see README for the full list of commands and key bindings.",
+        _close_keys = " or ".join((
+                k.capitalize() for k in KEY_BINDINGS['close_popup'].keys
+                ))
+        items = [urwid.Text(
+                "Use "
+                "↑ and ↓ to navigate, "
+                "Enter to show, "
+                f"{_close_keys} to exit.",
+                align="center")]
+        buttons = [
+                ButtonBox(
+                    label, on_press,
+                    ) for label, on_press in (
+            ("Key bindings",
+                lambda _: action_request.open_in_pager(
+                    KEY_BINDINGS.help_format(
+                        action_request.get_terminal_size()[0]
+                        )
+                    )
+                ),
+            (":Commands",
+                lambda _: action_request.open_in_pager_commands_help()
+                ),
+            ("README",
+                lambda _: action_request.open_file_in_pager(SCLI_README_FILE)
+                ),
+            )]
+        items += (urwid.Padding(
+                    btn,
                     align='center',
-                    ),
+                    width="clip",
+                    ) for btn in buttons)
+        items = list(intersperse(
                 urwid.Divider(),
-                ]
-
-        def open_readme(_button):
-            action_request.open_file(SCLI_README_FILE)
-
-        btn_open_readme = urwid.Button('Open README', on_press=open_readme)
-        pad = urwid.Padding(btn_open_readme, align='center', width=len(btn_open_readme.label)+4)
-        items.append(pad)
-
-        super().__init__(items)
+                items,
+                ))
+        w = ListBoxPlus(items)
+        super().__init__(w)
 
 
 class ReactionPicker(urwid.WidgetWrap, ViBindingsMixin):
@@ -4168,6 +4198,7 @@ class PopUpPlaceholder(urwid.WidgetPlaceholder):
         super().__init__(w)
         self._orig_w = w
             # Urwid's terminology here might be confusing: "WidgetPlaceholder.original_widget" means "currently displayed widget", not the one it is originally initialized with.
+        self._help_w = HelpDialog()
 
     def _show_pop_up(
             self,
@@ -4210,16 +4241,31 @@ class PopUpPlaceholder(urwid.WidgetPlaceholder):
         return self.original_widget is not self._orig_w
 
     def show_help(self):
-        self._show_pop_up(HelpDialog(), title='Help')
+        self._show_pop_up(
+                self._help_w,
+                title='Help',
+                buttons=False,
+                shadow_len=1,
+                width=43,
+                height=11,
+                )
 
     def show_message_info(self, message_widget):
         message_widget.highlight()
         info = MessageInfo(message_widget.msg)
-        fill = urwid.Filler(info, height=('relative', 100), top=1, bottom=1)
+        pad = urwid.Padding(
+                info,
+                align='right',
+                width=('relative', 88),
+                right=4,
+                )
+        fill = urwid.Filler(pad, height=('relative', 100), top=1, bottom=1)
         self._show_pop_up(
                 fill,
                 title='Message info',
+                shadow_len=1,
                 remove_callback=message_widget.unhighlight,
+                height=12,
                 )
 
     def show_reaction_picker(self, frame_top_bottom_method, size, visible):
@@ -4238,7 +4284,7 @@ class PopUpPlaceholder(urwid.WidgetPlaceholder):
                 right=2,
                 valign='bottom',
                 bottom = bottom_offset,
-                width=30,
+                width=20,
                 height=7,
                 )
 
@@ -4999,6 +5045,13 @@ class Actions:
         self.callf(cfg.pager_command, input=contents, env=env_vars)
         self._daemon.main_loop.start()
 
+    def open_file_in_pager(self, path):
+        try:
+            with open(path, encoding="utf-8") as fo:
+                contents = fo.read()
+        except OSError:
+            contents = f"Error: could not open file: {path}"
+        self.open_in_pager(contents)
 
     def open_in_pager_commands_help(self):
         self.open_in_pager(
