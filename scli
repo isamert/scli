@@ -237,20 +237,25 @@ PATH_RE = re.compile(
         """,
     re.VERBOSE,
 )
-def split_path(string):
+
+def partition_escaped(string):
+    """Split `string` in two using ' ' as a separator, and accounting for escaped or quoted space characters.
+
+    Similar to `str.partition(' ')`, except a *two*-tuple is returned (omitting the space separator character itself), and the first item may contain space if it is escaped with a backslash or is inside quotation marks.
+    """
     string = string.strip()
     if not string:
-        return ['', '']
+        return ('', '')
     re_match = PATH_RE.match(string)
     if not re_match:
-        return ['', string]
-    path = re_match.group()
-    if re_match.group(1):  # unquoted path
-        path = path.replace(r'\ ', ' ')
-    else:  # path in quotes
-        path = path.strip('\'"')
-    rest = string[re_match.end() :].strip()
-    return [path, rest] if rest else [path]
+        return (string, '')
+    match_str = re_match.group()
+    if re_match.group(1):  # unquoted match_str
+        match_str = match_str.replace(r'\ ', ' ')
+    else:  # match_str in quotes
+        match_str = match_str.strip('\'"')
+    rest = string[re_match.end() :].lstrip()
+    return (match_str, rest)
 
 
 def get_current_timestamp_ms():
@@ -1047,7 +1052,7 @@ class Daemon(AsyncContext):
             attachments = []
         attachment_paths = [os.path.expanduser(attachment) for attachment in attachments]
         if not all(os.path.exists(attachment_path) for attachment_path in attachment_paths):
-            logger.warning('send_message: Attached file(s) does not exist.')
+            logger.error('send_message: Attached file(s) does not exist.')
             return
 
         timestamp = get_current_timestamp_ms()
@@ -3150,10 +3155,10 @@ class InputLine(BracketedPasteEdit):
         # See also: there is an autocomplete in rr-/urwid_readline
         splitted_txt = txt.split(' ')
         if len(splitted_txt) > 1:
-            path, *messages = split_path(' '.join(splitted_txt[1:]))
+            path, message = partition_escaped(' '.join(splitted_txt[1:]))
 
             # Check we are trying to complete a path
-            if len(messages) > 0 or not is_path(path):
+            if message or not is_path(path):
                 return
 
             fullpath = os.path.expanduser(path)
@@ -4471,7 +4476,7 @@ class Commands:
             (
                 ['attach', 'a'],
                 self._actions.attach,
-                "Send file attachment `:attach FILE [MESSAGE]`",
+                "Send file attachment `:attach FILE [FILE…] [MESSAGE]`",
                 ),
             (
                 ['edit', 'e'],
@@ -4653,7 +4658,7 @@ class Actions:
 
         filename = ''
         if args:
-            filename, *message = split_path(*args)
+            filename, message = partition_escaped(*args)
 
         if is_path(filename):
             msg_file_path = os.path.expanduser(filename)
@@ -4665,7 +4670,7 @@ class Actions:
             message = args
         if message:
             with open(msg_file_path, "w", encoding="utf-8") as msg_file:
-                msg_file.write(*message)
+                msg_file.write(message)
 
         self._daemon.main_loop.stop()
         cmd = " ".join((cfg.editor_command, shlex.quote(msg_file_path)))
@@ -4701,13 +4706,19 @@ class Actions:
         if message != '':
             self.send_message_curr_contact(message)
 
-    def attach(self, args):
-        attachment, *message = split_path(args)
-        attachment = os.path.expanduser(attachment)
-        if not os.path.isfile(attachment):
-            self.set_status_line('File does not exist: ' + attachment)
-            return
-        self.send_message_curr_contact(*message, attachments=[attachment])
+    def attach(self, string):
+        files = []
+        while string:
+            file_path, string_rest = partition_escaped(string)
+            if not is_path(file_path):
+                break
+            file_path = os.path.expanduser(file_path)
+            if not os.path.isfile(file_path):
+                self.set_status_line(f"File does not exist: {file_path}")
+                return
+            files.append(file_path)
+            string = string_rest
+        self.send_message_curr_contact(string, attachments=files)
 
     def attach_clip(self, *message):
         files = self._clip.files()
@@ -4836,7 +4847,7 @@ class Actions:
         :renameContact new name here          -> rename current contact or group
         """
         try:
-            number, new_name = split_path(args)
+            number, new_name = partition_escaped(args)
             if not is_number(number):
                 for contact_id, contact in self._contacts.map.items():
                     if contact.name == number:
