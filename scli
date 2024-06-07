@@ -24,6 +24,7 @@ import textwrap
 from abc import ABC, abstractmethod
 from contextlib import contextmanager, suppress
 from datetime import datetime, timezone
+from pathlib import Path
 
 import urwid
 from urwid.widget.constants import BOX_SYMBOLS, BAR_SYMBOLS
@@ -40,23 +41,23 @@ except ImportError:
 # #############################################################################
 
 
-DATA_FOLDER = os.getenv('XDG_DATA_HOME', os.path.expanduser('~/.local/share'))
-CFG_FOLDER = os.getenv('XDG_CONFIG_HOME', os.path.expanduser('~/.config'))
+DATA_DIR = Path(os.getenv('XDG_DATA_HOME', '~/.local/share')).expanduser()
+CFG_DIR = Path(os.getenv('XDG_CONFIG_HOME', '~/.config')).expanduser()
 
-SIGNALCLI_FOLDER = os.path.join(DATA_FOLDER, 'signal-cli')
-SIGNALCLI_DATA_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'data')
-SIGNALCLI_ATTACHMENT_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'attachments')
-SIGNALCLI_AVATARS_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'avatars')
-SIGNALCLI_STICKERS_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'stickers')
+SIGNALCLI_DIR = DATA_DIR / 'signal-cli'
+SIGNALCLI_DATA_DIR = SIGNALCLI_DIR / 'data'
+SIGNALCLI_ATTACHMENT_DIR = SIGNALCLI_DIR / 'attachments'
+SIGNALCLI_AVATARS_DIR = SIGNALCLI_DIR / 'avatars'
+SIGNALCLI_STICKERS_DIR = SIGNALCLI_DIR / 'stickers'
 
-SCLI_DATA_FOLDER = os.path.join(DATA_FOLDER, 'scli')
-SCLI_ATTACHMENT_FOLDER = os.path.join(SCLI_DATA_FOLDER, 'attachments')
-SCLI_HISTORY_FILE = os.path.join(SCLI_DATA_FOLDER, 'history')
-SCLI_CFG_FILE = os.path.join(CFG_FOLDER, 'sclirc')
-SCLI_LOG_FILE = os.path.join(SCLI_DATA_FOLDER, 'log')
+SCLI_DATA_DIR = DATA_DIR / 'scli'
+SCLI_ATTACHMENT_DIR = SCLI_DATA_DIR / 'attachments'
+SCLI_HISTORY_FILE = SCLI_DATA_DIR / 'history'
+SCLI_CFG_FILE = CFG_DIR / 'sclirc'
+SCLI_LOG_FILE = SCLI_DATA_DIR / 'log'
 
-SCLI_EXEC_FOLDER = os.path.dirname(os.path.realpath(__file__))
-SCLI_README_FILE = os.path.join(SCLI_EXEC_FOLDER, 'README.md')
+SCLI_EXEC_DIR = Path(__file__).resolve().parent
+SCLI_README_FILE = SCLI_EXEC_DIR / 'README.md'
 
 
 # #############################################################################
@@ -124,10 +125,6 @@ def callf(cmd, rmap=None, background=False, **subprocess_kwargs):
     return proc
 
 
-def get_prog_dir():
-    return os.path.dirname(os.path.realpath(__file__))
-
-
 def get_version():
     """Get this program's version.
 
@@ -135,14 +132,13 @@ def get_version():
     Does not output the leading `v` if it's present in git tag's name.
     """
 
-    prog_dir = get_prog_dir()
-    git_dir = os.path.join(prog_dir, '.git')
+    git_dir = SCLI_EXEC_DIR / '.git'
     git_cmd = ['git', '--git-dir', git_dir, 'describe']
     with suppress(FileNotFoundError, subprocess.CalledProcessError):
         proc = subprocess.run(git_cmd, capture_output=True, check=True, text=True)
         return proc.stdout.strip('v\n')
 
-    version_file_path = os.path.join(prog_dir, 'VERSION')
+    version_file_path = SCLI_EXEC_DIR / 'VERSION'
     try:
         with open(version_file_path, encoding='utf-8') as f:
             version_str = f.readline()
@@ -380,7 +376,7 @@ def get_attachment_name(attachment):
         filename = attachment['filename']
         return filename if filename else attachment['contentType']
     else:
-        return os.path.basename(attachment)
+        return Path(attachment).name
 
 
 def get_attachment_path(attachment):
@@ -388,14 +384,14 @@ def get_attachment_path(attachment):
         aid = attachment['id']
     except TypeError:
         return attachment
-    received_attachment = os.path.join(SIGNALCLI_ATTACHMENT_FOLDER, aid)
-    return received_attachment
+    received_attachment = SIGNALCLI_ATTACHMENT_DIR / aid
+    return str(received_attachment)
 
 
 def get_sticker_file_path(sticker):
     dir_name = sticker['packId']
     file_name = str(sticker['stickerId'])
-    return os.path.join(SIGNALCLI_STICKERS_FOLDER, dir_name, file_name)
+    return str(SIGNALCLI_STICKERS_DIR / dir_name / file_name)
 
 
 def b64_to_bytearray(group_id):
@@ -474,8 +470,9 @@ class ClipBase(ABC):
                         content = self._get(mtype)
                         suffix = '.' + mtype.split('/')[1]
                         if cfg.save_history:
-                            clip_file_path = os.path.join(
-                                SCLI_ATTACHMENT_FOLDER,
+                            clip_file_path = (
+                                SCLI_ATTACHMENT_DIR
+                                /
                                 f"clipboard_{datetime.now().strftime('%Y-%m-%d-%H-%M-%S')}{suffix}"
                             )
                             clip_file = open(clip_file_path, 'w+b')
@@ -1044,9 +1041,8 @@ class Daemon(AsyncContext):
 
         if attachments is None:
             attachments = []
-        attachment_paths = [os.path.expanduser(attachment) for attachment in attachments]
-        if not all(os.path.exists(attachment_path) for attachment_path in attachment_paths):
-            logger.error('send_message: Attached file(s) does not exist.')
+        if not all(os.path.exists(attch) for attch in attachments):
+            logger.error('send_message: Attached file(s) does not exist: %s', attachments)
             return
 
         timestamp = get_current_timestamp_ms()
@@ -1074,7 +1070,7 @@ class Daemon(AsyncContext):
 
         self._send_message_dbus_cmd(
                 message,
-                attachment_paths,
+                attachments,
                 contact_id,
                 is_group,
                 callback=after_send_proc_returns,
@@ -1306,7 +1302,7 @@ class SignalData:
 
     @staticmethod
     def parse_accounts_json():
-        accounts_json_path = os.path.join(SIGNALCLI_DATA_FOLDER, "accounts.json")
+        accounts_json_path = SIGNALCLI_DATA_DIR / "accounts.json"
         try:
             with open(accounts_json_path, encoding="utf-8") as f:
                 json_data = json.load(f)
@@ -1316,13 +1312,9 @@ class SignalData:
 
     def _get_account_file_path(self):
         accounts = self.parse_accounts_json()
-        if accounts:
-            for acc in accounts:
-                if acc["number"] == self._username:
-                    return os.path.join(SIGNALCLI_DATA_FOLDER, acc["path"])
-        file_path = os.path.join(SIGNALCLI_DATA_FOLDER, self._username)
-            if os.path.exists(file_path):
-                return file_path
+        for acc in accounts:
+            if acc["number"] == self._username:
+                return SIGNALCLI_DATA_DIR / acc["path"]
         raise FileNotFoundError(self._username + " does not exist!")
 
     def _read_data_file(self):
@@ -1361,11 +1353,8 @@ class Contact:
     def _get_avatar_file_path(self):
         # Might be implemented in the future by signal-cli: https://github.com/AsamK/signal-cli/issues/869
         def get_path(file_prefix, contact_id):
-            path = os.path.join(
-                    SIGNALCLI_AVATARS_FOLDER,
-                    f'{file_prefix}-{contact_id}',
-                    )
-            return path if os.path.exists(path) else None
+            path = SIGNALCLI_AVATARS_DIR / f'{file_prefix}-{contact_id}'
+            return str(path) if path.exists() else None
         if self.is_group:
             return get_path('group', self.id.replace("/", "_"))
         for file_prefix in ('profile', 'contact'):
@@ -4703,12 +4692,15 @@ class Actions:
             file_path, string_rest = partition_escaped(string)
             if not is_path(file_path):
                 break
-            file_path = os.path.expanduser(file_path)
-            if not os.path.isfile(file_path):
+            file_path = Path(file_path).expanduser()
+            if not file_path.is_file():
                 self.set_status_line(f"File does not exist: {file_path}")
                 return
-            files.append(file_path)
+            files.append(str(file_path))
             string = string_rest
+        if not files:
+            self.set_status_line(f"No attachment files provided in {string!r}")
+            return
         self.send_message_curr_contact(string, attachments=files)
 
     def attach_clip(self, *message):
@@ -5982,14 +5974,14 @@ def get_args_with_actions(parser, action_names):
 
 
 def parse_cfg_file(parser, cli_args):
-    cfg_file_path = os.path.expanduser(cli_args.config_file)
+    cfg_file_path = Path(cli_args.config_file).expanduser()
     try:
         with open(cfg_file_path, encoding="utf-8") as cfg_f:
             cfg_f_args_dict = get_cfg_file_args(cfg_f)
     except FileNotFoundError:
         if cli_args.config_file == parser.get_default('config_file'):
             return cli_args
-        sys.exit("ERROR: Config file not found: " + cfg_file_path)
+        sys.exit(f"ERROR: Config file not found: {cfg_file_path}")
 
     true_false_val_args = (
             get_opt_val_flags(parser)
@@ -6087,7 +6079,7 @@ class DeferredEval:
         return self.func(*self.args, **self.kwargs)
 
 
-def parse_log_level_args(args_append_list, sep=':', def_key=os.path.basename(__file__)):
+def parse_log_level_args(args_append_list, sep=':', def_key=Path(__file__).stem):
     """Parse values of `--log-level` arguments.
 
     The values are "LOGGER:LOG_LEV", where LOGGER is one of the loggers registered with the logging module: urwid, asyncio, scli (this module), etc. Example: `--log-level urwid:warning`. Values can also be just LOG_LEV (e.g. `--log-level info`), in which case LOGGER is set to "scli". A special LOGGER name "all" sets levels for all of the registered loggers.
@@ -6147,7 +6139,7 @@ def logging_setup(filename, levels):
     logger.info("python %s", DeferredEval(get_python_version))
 
 
-logger = logging.getLogger(os.path.basename(__file__))
+logger = logging.getLogger(Path(__file__).stem)
 
 
 # #############################################################################
@@ -6237,10 +6229,10 @@ def detect_username():
 
 def main():
     try:
-        os.makedirs(SCLI_ATTACHMENT_FOLDER)
+        os.makedirs(SCLI_ATTACHMENT_DIR)
     except OSError as exc:
-        if not (exc.errno == errno.EEXIST and os.path.isdir(SCLI_DATA_FOLDER)):
-            sys.exit("ERROR: Could not create a directory in " + SCLI_DATA_FOLDER)
+        if not (exc.errno == errno.EEXIST and os.path.isdir(SCLI_DATA_DIR)):
+            sys.exit("ERROR: Could not create a directory in " + SCLI_DATA_DIR)
 
     args, modified_args = parse_args()
     cfg.set(args)
