@@ -6054,17 +6054,16 @@ def parse_args():
         args = parse_cfg_file(parser, args)
     modified_args = {arg: val for arg, val in vars(args).items() if val != parser.get_default(arg)}
 
-    if args.editor_command is None:
-        args.editor_command = get_default_editor()
-    if not args.username:
-        args.username = detect_username()
+    args.editor_command = args.editor_command or get_default_editor()
+    args.pager_command = args.pager_command or get_default_pager()
+    args.username = args.username or detect_username()
     if args.color:
         args.color = Color(args.color)
     if args.save_history:
         args.save_history = os.path.expanduser(args.save_history)
+    args.wrap_at = parse_wrap_at_arg(args.wrap_at)
     args.partition_contacts = args.partition_contacts or args.group_contacts
     del args.__dict__['group_contacts']
-    args.wrap_at = parse_wrap_at_arg(args.wrap_at)
     return args, modified_args
 
 
