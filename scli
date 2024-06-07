@@ -2112,6 +2112,7 @@ class ChatsData:
                         return tuple(o)
                     raise
 
+        Path(self._history).parent.mkdir(parents=True, exist_ok=True)
         with open(self._history, 'w', encoding="utf-8") as history_fileobj:
             json.dump(items, history_fileobj, ensure_ascii=False, cls=JSONSetEncoder, indent=2)
 
@@ -6122,6 +6123,7 @@ def set_daemon_verbose_level(vs):
 
 def logging_setup(filename, levels):
     log_levels = parse_log_level_args(levels)
+    Path(filename).parent.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
             filename=filename,
             level=log_levels.pop("all"),
