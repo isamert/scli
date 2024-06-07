@@ -43,10 +43,6 @@ except ImportError:
 DATA_FOLDER = os.getenv('XDG_DATA_HOME', os.path.expanduser('~/.local/share'))
 CFG_FOLDER = os.getenv('XDG_CONFIG_HOME', os.path.expanduser('~/.config'))
 
-SIGNALCLI_LEGACY_FOLDER = os.path.join(CFG_FOLDER, 'signal')
-SIGNALCLI_LEGACY_DATA_FOLDER = os.path.join(SIGNALCLI_LEGACY_FOLDER, 'data')
-SIGNALCLI_LEGACY_ATTACHMENT_FOLDER = os.path.join(SIGNALCLI_LEGACY_FOLDER, 'attachments')
-
 SIGNALCLI_FOLDER = os.path.join(DATA_FOLDER, 'signal-cli')
 SIGNALCLI_DATA_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'data')
 SIGNALCLI_ATTACHMENT_FOLDER = os.path.join(SIGNALCLI_FOLDER, 'attachments')
@@ -393,8 +389,6 @@ def get_attachment_path(attachment):
     except TypeError:
         return attachment
     received_attachment = os.path.join(SIGNALCLI_ATTACHMENT_FOLDER, aid)
-    if not os.path.exists(received_attachment):
-        received_attachment = os.path.join(SIGNALCLI_LEGACY_ATTACHMENT_FOLDER, aid)
     return received_attachment
 
 
@@ -1326,10 +1320,7 @@ class SignalData:
             for acc in accounts:
                 if acc["number"] == self._username:
                     return os.path.join(SIGNALCLI_DATA_FOLDER, acc["path"])
-        for file_path in (
-                os.path.join(SIGNALCLI_DATA_FOLDER, self._username),
-                os.path.join(SIGNALCLI_LEGACY_DATA_FOLDER, self._username),
-                ):
+        file_path = os.path.join(SIGNALCLI_DATA_FOLDER, self._username)
             if os.path.exists(file_path):
                 return file_path
         raise FileNotFoundError(self._username + " does not exist!")
@@ -6232,24 +6223,16 @@ def link_device(device_name):
 
 
 def detect_username():
-    ulist = [acc["number"] for acc in SignalData.parse_accounts_json()]
+    accounts = [acc["number"] for acc in SignalData.parse_accounts_json()]
 
-    if not ulist:
-        for folder in [SIGNALCLI_DATA_FOLDER, SIGNALCLI_LEGACY_DATA_FOLDER]:
-            with suppress(FileNotFoundError):
-                users = [x for x in os.listdir(folder)
-                        if os.path.isfile(os.path.join(folder, x))
-                        and x.startswith('+')]
-                ulist.extend(users)
-
-    if not ulist:
+    if not accounts:
         sys.exit("ERROR: Could not find any registered accounts. "
                 "Register a new one or link with an existing device (see README).")
-    elif len(ulist) == 1:
-        return ulist[0]
+    elif len(accounts) == 1:
+        return accounts[0]
     else:
         sys.exit("ERROR: Multiple accounts found. Run one of:\n\t"
-                + "\n\t".join((f"scli --username={u}" for u in ulist)))
+                + "\n\t".join((f"scli --username={u}" for u in accounts)))
 
 
 def main():
