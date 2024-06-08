@@ -908,15 +908,20 @@ class Daemon(AsyncContext):
         lines = output.decode().strip()
         if not lines:
             return True
-        if self._msg_processing_paused and any(s in lines for s in (
-            # `_msg_processing_paused` as a proxy for `daemon_started` / `is_dbus_service_running`
+        if self._msg_processing_paused:
+            # Using it as a proxy for "signal-cli dbus service not yet running".
+            if any(s in lines for s in (
                 #"Exported dbus object: /org/asamk/Signal",  # signal-cli v0.9.2 or earlier
                 "DBus daemon running",  # signal-cli v0.12.8 or earlier
                 "Started DBus server",
                 )):
-            self._run_when_dbus_service_started(
-                    self.callbacks['daemon_started']
-                    )
+                self._run_when_dbus_service_started(
+                        self.callbacks['daemon_started']
+                        )
+            elif "in use by another instance" in lines:
+                self.callbacks['daemon_log']('another_instance_running', lines)
+            elif "Config file lock acquired" in lines:
+                self.callbacks['daemon_log']('another_instance_stopped', lines)
         for line in lines.splitlines():
             log_lev = getattr(
                     logging,
@@ -924,7 +929,8 @@ class Daemon(AsyncContext):
                     logging.INFO,
                     )
             self.logger.log(log_lev, line)
-            self.callbacks['daemon_log'](line)
+            if line.startswith("ERROR") and not self.is_dbus_service_running:
+                self.callbacks['daemon_log']('daemon_stopped', line)
         return True
 
     def _envelope_handler(self, envelope):
@@ -5503,18 +5509,20 @@ class Coordinate:
             msg.add_reaction(envelope)
             self._actions.show_new_msg_notifications(msg)
 
-    def _on_daemon_log(self, log_line):
-        if log_line.startswith("ERROR") and not self.daemon.is_dbus_service_running:
+    def _on_daemon_log(self, event, log_line):
+        if event == "daemon_stopped":
             self._actions.set_status_line([
                 "signal-cli daemon has stopped:\n   ",
                 log_line,
                 "\nRestart scli to restart the daemon."
                 ])
-        elif "in use by another instance" in log_line:
+        elif event == "another_instance_running":
             self._actions.set_status_line([
                 "signal-cli: Config file is in use by another instance, waiting…\n",
                 "Stop previously launched signal-cli processes to continue.",
                 ])
+        elif event == "another_instance_stopped":
+            self._actions.set_status_line("Initializing signal-cli daemon... ")
 
     def _on_daemon_started(self):
         logger.info("signal-cli dbus service started")
