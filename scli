@@ -91,7 +91,7 @@ def get_urls(txt):
     return re.findall(r'(https?://[^\s]+)', txt)
 
 
-def callf(cmd, rmap=None, background=False, **subprocess_kwargs):
+def proc_run(cmd, rmap=None, background=False, **subprocess_kwargs):
     if rmap:
         optionals = rmap.pop("_optionals", ())
         for key, val in rmap.items():
@@ -101,26 +101,25 @@ def callf(cmd, rmap=None, background=False, **subprocess_kwargs):
 
     if not subprocess_kwargs.get('shell'):
         cmd = shlex.split(cmd)
-    logger.debug('callf: `%s`', cmd)
+    logger.debug('proc_run: `%s`', cmd)
 
     if background:
         for arg in ('stdin', 'stdout', 'stderr'):
             subprocess_kwargs.setdefault(arg, subprocess.DEVNULL)
-        proc = subprocess.Popen(cmd, **subprocess_kwargs)
-        return proc
+        return subprocess.Popen(cmd, **subprocess_kwargs)
 
     subprocess_kwargs.setdefault('text', True)
     proc = subprocess.run(cmd, **subprocess_kwargs)
 
     if proc.returncode != 0:
         logger.error(
-                'callf: %s: exit code: %d, stderr: %s',
+                'proc_run: %s: exit code: %d, stderr: %s',
                 proc.args,
                 proc.returncode,
                 proc.stderr
                 )
     elif proc.stdout:
-        logger.debug('callf: %s', proc.stdout)
+        logger.debug('proc_run: %s', proc.stdout)
 
     return proc
 
@@ -495,7 +494,7 @@ class ClipBase(ABC):
         cmd = cfg.clipboard_get_command
         if cmd is None:
             return self._clip_files()
-        return callf(cmd, capture_output=True).stdout.splitlines()
+        return proc_run(cmd, capture_output=True).stdout.splitlines()
 
     def _put(self, txt):
         if not txt:
@@ -516,7 +515,7 @@ class ClipBase(ABC):
         cmd = cfg.clipboard_put_command
         if cmd is None:
             return self._put(txt)
-        return callf(cmd, {'%s': txt})
+        return proc_run(cmd, {'%s': txt})
 
 class Xclip(ClipBase):
     _get_types_arg = 'TARGETS'
@@ -828,7 +827,7 @@ class Daemon(AsyncContext):
         stdout_fd = self.main_loop.watch_pipe(self._daemon_stdout_handler)
         stderr_fd = self.main_loop.watch_pipe(self._daemon_stderr_handler)
         try:
-            proc = callf(
+            proc = proc_run(
                     cfg.daemon_command,
                     {'%u': self._username, '_optionals': ['%u']},
                     background=True,
@@ -4599,10 +4598,10 @@ class Actions:
     def set_status_line(self, text, append=False):
         self._urwid_ui.main_w.status_line.set_text(text, append)
 
-    def callf(self, *args, **kwargs):
+    def proc_run(self, *args, **kwargs):
         """Wrapper that logs and swallows the exceptions"""
         try:
-            return callf(*args, **kwargs)
+            return proc_run(*args, **kwargs)
         except (OSError, ValueError) as err:
             logger.exception(err)
             self.set_status_line(
@@ -4623,7 +4622,7 @@ class Actions:
             text = text.replace(r"'", r"'\''")
             rmap[token] = text
         rmap['_optionals'] = ('%s', '%m', '%a')
-        self.callf(cfg.notification_command, rmap, background=True)
+        self.proc_run(cfg.notification_command, rmap, background=True)
         if not cfg.notification_no_bell:
             print('\a', end='')
 
@@ -4655,7 +4654,7 @@ class Actions:
 
         self._daemon.main_loop.stop()
         cmd = " ".join((cfg.editor_command, shlex.quote(msg_file_path)))
-        self.callf(cmd)
+        self.proc_run(cmd)
         self._daemon.main_loop.start()
 
         with suppress(OSError), open(msg_file_path, 'r', encoding="utf-8") as msg_file:
@@ -4676,7 +4675,7 @@ class Actions:
                 logger.exception(err)
                 self.set_status_line(str(err))
         elif path_or_cmd.startswith('!'):
-            proc = self.callf(
+            proc = self.proc_run(
                     path_or_cmd[1:].strip(),
                     capture_output=True,
                     )
@@ -4736,7 +4735,7 @@ class Actions:
             logger.error("File does not exist: %s", path)
             self.set_status_line('File does not exist: ' + path)
             return None
-        return self.callf(cfg.open_command, {'%u': path}, background=True)
+        return self.proc_run(cfg.open_command, {'%u': path}, background=True)
 
     def open_attach(self, envelope):
         attachments = get_envelope_attachments(envelope)
@@ -4761,7 +4760,7 @@ class Actions:
                 return
 
     def open_url(self, url):
-        return self.callf(cfg.open_command, {'%u': url}, background=True)
+        return self.proc_run(cfg.open_command, {'%u': url}, background=True)
 
     def open_urls(self, envelope):
         txt = get_envelope_msg(envelope)
@@ -5024,7 +5023,7 @@ class Actions:
             env_vars = os.environ.copy()
             env_vars["LESS"] += " -+FX"
         self._daemon.main_loop.stop()
-        self.callf(cfg.pager_command, input=contents, env=env_vars)
+        self.proc_run(cfg.pager_command, input=contents, env=env_vars)
         self._daemon.main_loop.start()
 
     def open_file_in_pager(self, path):
