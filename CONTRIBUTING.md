@@ -1,11 +1,11 @@
 # Contributing
 
-Thank you for helping make `scli` better! (And for actually reading the guidelines)
+Thank you for helping make `scli` better! (And for actually reading these guidelines)
 
 ## Issues
 
-- Check logs. When reporting a problem, check if there is a relevant output in the log file (see `--log-file` and `--debug` in `--help`).
-	At a minimum, it will tell you the versions of scli and dependencies used.
+- Check logs. When reporting a problem, check if there is a relevant output in the log file (use the `--log-file` and `--debug` options).
+	At a minimum, it will tell you the versions of scli and its dependencies.
 	⚠ Logs might contain personal information. Make sure to remove anything you don't want published on the internet.
 
 ## Pull Requests

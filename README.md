@@ -3,9 +3,9 @@
 
 ## Features
 
-- vim-like navigation (`j`, `k`, `g`, `G`, etc), command entry with `:`
-- optional emacs-like `readline` bindings for input
-- external `$EDITOR` support
+- Vim-like navigation (`j`, `k`, `g`, `G`, etc), command entry with `:`.
+- Optional emacs-like `readline` bindings for input.
+- External `$EDITOR` support.
 
 ### Limitations
 
@@ -66,7 +66,7 @@ or download a [release](https://github.com/isamert/scli/releases).
 
 - [DBus](https://www.freedesktop.org/wiki/Software/dbus/)
 
-	Pre-installed on most linux distributions and BSDs with desktop environments. On macOS, the `dbus` package is available from homebrew, see signal-cli's [wiki](https://github.com/AsamK/signal-cli/wiki/DBus-service#user-content-dbus-on-macos). See also, wiki's [troubleshooting](https://github.com/AsamK/signal-cli/wiki/DBus-service#user-content-troubleshooting) section.
+	Pre-installed on most linux distributions and BSDs with desktop environments. On macOS, the `dbus` package is available from homebrew, see [signal-cli's wiki](https://github.com/AsamK/signal-cli/wiki/DBus-service#user-content-dbus-on-macos). See also the wiki's [troubleshooting](https://github.com/AsamK/signal-cli/wiki/DBus-service#user-content-troubleshooting) section.
 
 - [Python](https://www.python.org/downloads/) `>=3.7`
 
@@ -105,19 +105,18 @@ and
 signal-cli -u USERNAME daemon
 ```
 
-where `USERNAME` is the phone number you have used (starting with the "+" sign and including your country calling code). Kill the latter process after verifying that it starts successfully and does not throw any errors.
+where `USERNAME` is the phone number you have used (starting with the "+" sign followed by the country calling code). Stop the latter process (`Ctrl+C`) after verifying that it starts successfully and does not throw any errors.
 
-Now you can start
+Now you can run
 
 ```
 scli
 ```
 
-if you have put it on your system's `$PATH`, or specify the full `/path/to/executable/scli`.
+(if you have put it on your system's `$PATH`; alternatively, specify the full `/path/to/executable/scli`).
 
 
 ## Usage
-A simple two-paned interface is provided. Left pane contains the contact list and right pane contains current conversation. You can switch focus between panes with `Tab` (or `Shift + Tab`). Hitting tab for the first time focuses the conversation, hitting it again focuses to input line. So the focus order is `Contacts -> Conversation -> Input`. You can use `Shift + Tab` for cycling backwards.
 
 ### Key bindings
 For the full list of key bindings, press `?` in scli.
@@ -141,7 +140,7 @@ If [`urwid_readline`](https://github.com/rr-/urwid_readline/) module is installe
 
 
 #### Modifying key bindings
-Key bindings can be re-assigned with a `--key-bind` option. For example:
+Key bindings can be re-mapped with a `--key-bind` option. For example:
 
 	scli --key-bind show_message_info:s --key-bind reaction_emoji_picker:e,R,!,'ctrl r'
 
@@ -149,51 +148,54 @@ The syntax is
 
 	--key-bind ACTION:KEY[,KEY[,…]]
 
-where `ACTION` is one of the action names (press `?` in `scli` to show the full list of action names and their default key bindings), and `KEY` is the name of a key or key combo in urwid's syntax (see the table in [Keyboard input](https://urwid.org/manual/userinput.html#keyboard-input) section of urwid manual). Keys for several actions can be re-assigned by passing multiple `--key-bind` arguments to `scli`. Multiple keys can be assigned to a single action by separating `KEY`s with commas. The `?` key in `scli` opens the list of current key mappings.
+where `ACTION` is one of the action names (press `?` in `scli` to show the full list of action names and their default key bindings), and `KEY` is the name of a key or key combo in urwid's syntax (see the table in [Keyboard input](https://urwid.org/manual/userinput.html#keyboard-input) section of urwid manual). Keys for several actions can be re-assigned by passing multiple `--key-bind` arguments to `scli`. Multiple keys can be assigned to a single action by separating `KEY`s with commas.
 
 
 ### Commands
-Commands can be entered by typing `:` followed by one of the commands below.
+Commands are entered by typing `:` followed by a command name and arguments. For example:
 
-- `:edit` or `:e` lets you edit your message in your `$EDITOR`.
-- `:attach FILE_PATH` or `:a FILE_PATH` attaches given file to message.
-- `:attachClip` or `:c` attaches clipboard content to message. This command tries to detect clipboard content. If clipboard contains something with the mime-type `image/png` or `image/jpg`, it simply attaches the image to message. If clipboard contains `text/uri-list` it attaches all the files in that URI list to the message. This command needs `xclip` or `wl-clipboard` installed.
-- `:openUrl` or `:u` opens the last URL in conversation, if there is one.
-- `:openAttach` or `:o` opens the last attachment in conversation, if there is one.
-- `:toggleNotifications` or `:n` toggles desktop notifications.
-- `:toggleContactsSort` or `:s` toggles between sorting contacts alphabetically and by the most recent message.
-- `:toggleAutohide` or `:h` hides the contacts pane when it's not in focus.
-- `:addContact NUMBER [NAME]` adds a new contact to the contact list. Added contacts' names are local (not synced with signal servers).  
-	_Note_: This command works only with accounts _registered_ with signal-cli as primary (not those _linked_ with the phone app).
-- `:renameContact [ID] NEW_NAME` renames contact `ID` to `NEW_NAME`. `ID` can be either contact's phone number or contact's name. If `ID` is skipped, the contact from the currently opened conversation is used. If `ID` is a name that contains spaces, they need to be escaped or the whole name put in quotes. `NEW_NAME` can contain spaces without quotes or escaping. 'Contact' can be a group as well as an individual. Individual contacts' renames are local (not synced with the signal servers).  
-	See _Note_ for `:addContact` command above.
-- `:reload` re-reads the `signal-cli`s data file. (Updates contacts list etc.)
-- `:quit` or `:q` quits the program.
+```
+:attach ~/photo.jpg Here is a picture
+:read /etc/crontab
+```
 
-Examples:
-```
-:attach ~/cute_dog.png check out this cute dog!
-:attachclip here is another picture.
-```
-**Note**: Commands are case insensitive, `:quit` and `:qUiT` do the same thing.
+Some of the available commands are listed below; to see the full list, use `:help commands` in scli.
+
+- `:help [keys|commands]` shows help. Unambiguous abbreviations of its argument is also allowed, e.g. `:help comm`, `:help c`, etc. When no argument provided, the general help window is shown.
+- `:attach FILE_PATH [MESSAGE]` or `:a …` sends `MESSAGE` with `FILE_PATH` as an attachment.
+- `:edit [MESSAGE | FILE_PATH]` or `:e […]` opens in external `$EDITOR` the contents of file `FILE_PATH` or the text `MESSAGE`. If `MESSAGE` and `FILE_PATH` are absent, opens an empty temporary file. See also: `--editor-command` [config option](#configuration).
+- `:read FILE | !COMMAND` sends the contents of `FILE` or the output of `COMMAND`.
+
+Command names are case insensitive, i.e. `:edit` and `:eDiT` do the same thing.
+
+
+#### Modifying contacts
+Modifying contacts from `scli` is possible if the account has been _registered_ with `signal-cli` as a "primary device" (rather than [_linked_](#registering-or-linking-your-device) with the phone app).
+
+- `:addContact NUMBER [NAME]` adds a new contact to the contact list. Added contacts' names are local (not synced with signal servers).
+- `:renameContact [ID] NEW_NAME` renames contact `ID` to `NEW_NAME`. `ID` can be either contact's phone number or contact's or group's name. If `ID` is not given, the contact from the currently opened conversation is used. Individual contacts' renames are local (not synced with the signal servers).
 
 ### Searching
-Filtering messages in a conversation is done by typing `/` followed by the match text. Hitting `enter` (or `l`) on a message shows it in the full conversation. Hitting `Esc` clears the search. Searching through the contacts is done similarly.
+Filtering messages in a conversation is done by typing `/` followed by the search string. Pressing `enter` (or `l`) on a message when the search is on removes the filter (i.e. shows all the messages in a conversation) while keeping the focus on the message. Pressing `Esc` clears the search. Searching through contacts is analogous.
 
 ### Configuration
-Configuration options can be passed to scli as command-line arguments or added to the configuration file in `~/.config/sclirc`. Run `scli --help` to show all available options.
+Configuration options can be passed to `scli` as command-line arguments or added to the configuration file in `~/.config/sclirc`. Run `scli --help` to show all available options.
 
-In the configuration file the empty lines and lines starting with `#` are ignored. Other lines are `key = value` pairs. Optional arguments (flags) like `--debug` can be enabled in config file with any of: `true`, `t`, `yes`, `y` (with any capitalization, case insensitive).
+#### Configuration file
+Empty lines and lines starting with `#` are ignored. Config lines have the format `OPTION = VALUE`, where `OPTION`s are the long forms of command-line arguments, with the leading `--` omitted (e.g. `enable-notifications`). `VALUE`s for the optional arguments (a.k.a. "flags" or "switches") like `--enable-notifications` can be any of: `true`, `t`, `yes`, `y` (case insensitive, i.e. with any capitalization).
 
 #### Example
+
 ```sh
-scli -w 80 --enable-notifications
+scli --enable-notifications -w 80
 ```
-Configuration file equivalent of this command is:
+
+Configuration file equivalent of the above command is:
+
 ```ini
-## Long option forms are used in config file. (w = 80 is not valid.)
-wrap-at = 80
 enable-notifications = true
+wrap-at = 80
+### Short option forms (w = 80) are not valid in config file.
 ```
 
 #### History
@@ -225,7 +227,7 @@ The single quotes in `--color='...'` above are just shell-escaping, and not need
 This is an independent project not audited or endorsed by the [Signal foundation](https://signal.org/). That is also true of [signal-cli](https://github.com/AsamK/signal-cli), which scli uses as a backend.
 
 ### Data storage
-Scli saves its history (when enabled, with `--save-history`) in plain text. Likewise, signal-cli stores its data (received attachments, contacts info, encryption keys) unencrypted. To secure this data at rest, it is recommended to use full-disk encryption or dedicated tools like [fscrypt](https://github.com/google/fscrypt).
+Scli stores its history (if enabled with `--save-history`) in plain text. Likewise, signal-cli stores its data (received attachments, contacts info, encryption keys) unencrypted. To secure this data at rest, it is recommended to use full-disk encryption or dedicated tools like [fscrypt](https://github.com/google/fscrypt).
 
 To protect the data from potentially malicious programs running in user-space, one can run scli and signal-cli under a separate user.
 
