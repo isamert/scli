@@ -657,8 +657,9 @@ class AsyncQueued(AsyncProc):
         except OSError:
             n_curr_fds = 32
         fd_limits = [nprocs*3+n_curr_fds]  # each proc opens 3 FDs
-        for res in (resource.RLIMIT_NOFILE, resource.RLIMIT_OFILE):
-            with suppress(OSError, ValueError):
+        for res_name in ("RLIMIT_NOFILE", "RLIMIT_OFILE"):
+            with suppress(AttributeError, OSError, ValueError):
+                res = getattr(resource, res_name)
                 fd_limits.append(resource.getrlimit(res)[0])
         return (min(fd_limits) - n_curr_fds) // 3
 
